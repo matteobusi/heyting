@@ -104,4 +104,13 @@ Felt ops: {felt.length}, Constraints: {constrain.length}, \
 Calls: {calls.length}, Struct ops: {structOps.length}, \
 Skipped: {skipped.length}"
 
+/-! ## File parsing -/
+
+/-- Parse an LLZK file from disk. Returns the module AST and any warnings. -/
+def parseFile (path : System.FilePath) : IO (Module × List String) := do
+  let input ← IO.FS.readFile path
+  match parse input with
+  | .ok result => return result
+  | .error e => throw (.userError s!"{path}: {e}")
+
 end LLZK
