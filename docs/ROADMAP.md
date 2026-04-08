@@ -31,25 +31,43 @@ extending the language coverage.
 
 **Goal:** Read real LLZK circuit files and produce real R1CS output.
 
-### 2a. LLZK Parser
+### 2a. LLZK Parser ✅
 
-Parse LLZK MLIR textual IR into `StructIR.Module`. This is the bridge
-between the verified core and real-world ZKP circuits.
+Parse LLZK MLIR textual IR into an untyped AST. This is the first stage
+of the bridge between the verified core and real-world ZKP circuits.
+
+**Status:** Complete (Lean 4 native parser, Option A).
+
+| Task | Status | Notes |
+|------|--------|-------|
+| LLZK textual IR tokenizer | Done | `Heyting/Parser/Tokenizer.lean` — handles `%ssa`, `@sym`, `!type`, int literals, keywords, punctuation |
+| Recursive descent parser | Done | `Heyting/Parser/Parser.lean` — modules, structs, functions, felt ops, struct ops, constrain.eq, calls, nondet |
+| Untyped AST definition | Done | `Heyting/Parser/AST.lean` — `LLZK.Module`, `StructDef`, `FuncDef`, `Stmt` (17 variants) |
+| Pretty-printer & stats | Done | `Heyting/Parser/Main.lean` — `ppModule`, `countStmts` |
+| Qualified name support | Done | Handles `@Mod::@func` in function.call |
+| Multi-section files | Done | Splits on `// -----`, parses each section, merges structs |
+| Unsupported op skipping | Done | `constrain.in`, `arith.*`, `array.*`, bitwise ops → skip with warnings |
+
+**Tested on 5 real LLZK files from `llzk-lib/test/Dialect/`:**
+- `emit_pass.llzk` — 5 structs, 20 stmts
+- `nondet_preservation.llzk` — 1 struct, 9 stmts
+- `circomlib.llzk` — 2 structs, 42 stmts (with qualified calls)
+- `felt_arith_pass.llzk` — free functions only (correctly skipped)
+- `structs_pass.llzk` — 25 structs, 81 stmts (with template params skipped)
+
+### 2a′. AST → StructIR Lowering (next)
+
+Lower the untyped `LLZK.Module` AST into typed `StructIR.Module`. This
+requires resolving struct references to `Fin` indices, assigning member
+indices, and verifying `noDupReads`.
 
 | Task | Complexity | Notes |
 |------|------------|-------|
-| LLZK textual IR tokenizer | Medium | MLIR syntax: `%var`, `@name`, types, blocks |
-| Struct/function parser | Medium | Parse `struct.def`, `function.def`, member decls |
-| Constrain body parser | Low | Map `felt.*` → `feltAdd` etc., `constrain.eq` → `constrainEq` |
-| `Module` builder | Medium | Topological sort, `Fin` index assignment, `noDupReads` check |
-| SSA normalization | Low | Ensure each `readMember` is unique (or transform duplicates) |
-
-**Approach options:**
-- **Option A: Lean 4 native parser** — write a parser combinator in Lean. Pro: everything stays in Lean, can potentially verify the parser. Con: more work, MLIR syntax is complex.
-- **Option B: External tool** — Python/Rust tool that parses LLZK and emits a `.lean` file with the `Module` definition. Pro: faster to build, leverage existing MLIR tooling. Con: trusted boundary.
-- **Option C: JSON intermediate** — external tool emits JSON, Lean reads JSON and builds `Module`. Pro: clean separation. Con: two steps.
-
-**Recommendation:** Start with Option B (external Python script) for quick validation, then move to Option A for a verified pipeline if pursuing the paper angle.
+| Struct dependency resolution | Medium | Topological sort, `Fin` index assignment |
+| Member type/index assignment | Medium | Map `@member` names to `Fin numMembers` |
+| SSA → variable mapping | Medium | Map `%name` SSA names to statement-local variables |
+| `noDupReads` validation | Medium | Check each `readMember` is unique per function |
+| Error reporting for unsupported patterns | Low | Templates, arrays, free functions |
 
 ### 2b. R1CS Output
 
@@ -151,9 +169,10 @@ in Lean. This is more tractable.
 
 ## Suggested Order for Next Sessions
 
-1. **Session 11:** Refactor `StructIRToFlatIR.lean` proofs to use `Core/Tactics.lean`
-2. **Session 12:** Build LLZK parser (Option B: Python script → `.lean` module)
-3. **Session 13:** R1CS output (Circom `.r1cs` binary format)
-4. **Session 14:** Test on a real circuit (e.g., Fibonacci, simple hash)
-5. **Session 15:** Array support in StructIR
-6. **Session 16+:** Optimization passes, paper writing
+1. ~~**Session 11:** Refactor `StructIRToFlatIR.lean` proofs to use `Core/Tactics.lean`~~ Done (Session 12)
+2. ~~**Session 12:** Build LLZK parser~~ Done — Lean 4 native parser on `feature/llzk-parser`
+3. **Next:** AST → StructIR lowering (`Heyting/Parser/Lowering.lean`)
+4. **Then:** R1CS output (Circom `.r1cs` binary format)
+5. **Then:** Test full pipeline on a real circuit (e.g., IsZero from circomlib)
+6. **Later:** Array support in StructIR
+7. **Later:** Optimization passes, paper writing
