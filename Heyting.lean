@@ -10,6 +10,7 @@ import Heyting.Core.TrinitaryCC
 import Heyting.Passes.FlatIRToR1CS
 import Heyting.Passes.StructIRToFlatIR
 import Heyting.Passes.Tactics
+import Heyting.Passes.Lowering
 
 import Heyting.Parser.Main
 
