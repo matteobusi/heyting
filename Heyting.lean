@@ -15,3 +15,4 @@ import Heyting.Passes.Lowering
 import Heyting.Parser.Main
 
 import Heyting.Examples.ParserExamples
+import Heyting.Examples.LoweringExamples

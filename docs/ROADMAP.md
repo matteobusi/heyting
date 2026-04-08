@@ -55,19 +55,21 @@ of the bridge between the verified core and real-world ZKP circuits.
 - `felt_arith_pass.llzk` — free functions only (correctly skipped)
 - `structs_pass.llzk` — 25 structs, 81 stmts (with template params skipped)
 
-### 2a′. AST → StructIR Lowering (next)
+### 2a′. AST → StructIR Lowering ✅
 
 Lower the untyped `LLZK.Module` AST into typed `StructIR.Module`. This
 requires resolving struct references to `Fin` indices, assigning member
 indices, and verifying `noDupReads`.
 
+**Status:** Complete (Session 12). Unverified `partial` lowering pass with `Except String` error propagation.
+
 | Task | Complexity | Notes |
 |------|------------|-------|
-| Struct dependency resolution | Medium | Topological sort, `Fin` index assignment |
-| Member type/index assignment | Medium | Map `@member` names to `Fin numMembers` |
-| SSA → variable mapping | Medium | Map `%name` SSA names to statement-local variables |
-| `noDupReads` validation | Medium | Check each `readMember` is unique per function |
-| Error reporting for unsupported patterns | Low | Templates, arrays, free functions |
+| Struct dependency resolution | Medium | Done — Kahn's BFS topological sort, `Fin` index assignment |
+| Member type/index assignment | Medium | Done — `lowerMembers`, `buildMemberIndex` |
+| SSA → variable mapping | Medium | Done — `buildSSAMap` assigns monotonic `Nat` indices |
+| `noDupReads` validation | Medium | Done — decidable `List.Nodup` check at runtime |
+| Error reporting for unsupported patterns | Low | Done — `Except String` propagation |
 
 ### 2b. R1CS Output
 
@@ -171,7 +173,7 @@ in Lean. This is more tractable.
 
 1. ~~**Session 11:** Refactor `StructIRToFlatIR.lean` proofs to use `Core/Tactics.lean`~~ Done (Session 12)
 2. ~~**Session 12:** Build LLZK parser~~ Done — Lean 4 native parser on `feature/llzk-parser`
-3. **Next:** AST → StructIR lowering (`Heyting/Parser/Lowering.lean`)
+3. ~~**Next:** AST → StructIR lowering (`Heyting/Passes/Lowering.lean`)~~ Done (Session 12)
 4. **Then:** R1CS output (Circom `.r1cs` binary format)
 5. **Then:** Test full pipeline on a real circuit (e.g., IsZero from circomlib)
 6. **Later:** Array support in StructIR

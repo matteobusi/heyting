@@ -195,3 +195,38 @@ Chronological summaries of working sessions on Heyting.
 - **Multi-section:** LLZK test files use `// -----` separators; parser splits and merges all sections.
 
 **Current state:** LLZK parser complete and tested on real circuit files. Next step: AST → StructIR lowering.
+
+---
+
+## Session 12 — 2026-04-08
+
+**Goals:** Implement LLZK AST → StructIR lowering pass (Phase 2a′).
+
+**What we did:**
+1. Fixed `Heyting/Parser/Parser.lean`: corrected cursor position in `parseStructNew` shorthand branch. Committed with Wave 1.
+2. Implemented `Heyting/Passes/Lowering.lean` (~538 lines), the unverified lowering pass:
+   - `parseCallTarget`: qualified name parsing (`"Struct::func"` → `("Struct", "func")`)
+   - `collectStructDeps`, `topoSort`: Kahn's BFS topological sort of struct definitions
+   - `buildStructIndex`: name → topo-sort index mapping
+   - `lowerMemberType`, `lowerMembers`, `buildMemberIndex`: member type resolution
+   - `buildSSAMap`: assigns monotonic `Nat` indices to SSA names; `feltInv` reserves 2 slots
+   - `lowerConstrainBody`, `lowerComputeBody`: full statement lowering for both function kinds
+   - `lowerStruct`: single-struct lowering to `StructIR.StructDef`
+   - `lowerStructsRec`, `buildStructsFn`: build the dependent function `(j : Fin n) → StructDef n j F` via structural recursion
+   - `LLZK.lower`: top-level entry point returning `Except String (Σ n, StructIR.Module (n+1) F)`
+3. Added `Heyting/Examples/LoweringExamples.lean` with 3 `#eval` examples:
+   - Simple lowering: `nondet_preservation.llzk` → StructIR summary
+   - Multi-struct: `circomlib.llzk` → struct names + member counts
+   - Full pipeline: `nondet_preservation.llzk` → StructIR → FlatIR → R1CS constraint count
+4. Updated `Heyting.lean` with `import Heyting.Examples.LoweringExamples`.
+5. Updated `docs/ROADMAP.md`: Phase 2a′ marked ✅ complete.
+6. Full `lake build` passes: 0 errors, 0 warnings.
+
+**Design decisions:**
+- **Unverified `partial` functions**: The lowering is intentionally unverified — `partial` is used throughout. `Except String` is used for error propagation instead of `sorry`.
+- **No `native_decide` in Lowering.lean**: `noDupReads` is checked at runtime using decidable `List.Nodup`, not `native_decide` (forbidden by AGENTS.md in non-example files).
+- **`feltInv` lowering**: lowered to two stmts (`feltConst tmp 1` + `feltDiv dest tmp src`) since StructIR has no direct `inv` instruction.
+- **`lowerStructsRec`**: builds the dependent function via structural recursion on `k`, maintaining invariant `∀ j : Fin n, j.val < k → StructDef n j F`. No sorry needed — uses `Fin.ext` + `▸` rewrite.
+- **`noDupReads`**: checked only for the main struct (index n-1). Proof irrelevance handles the `Fin n` proof identity.
+
+**Current state:** Full pipeline LLZK → StructIR → FlatIR → R1CS working end-to-end. Next step: R1CS output (Phase 2b).
