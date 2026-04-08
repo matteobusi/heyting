@@ -164,3 +164,34 @@ Chronological summaries of working sessions on Heyting.
 5. All 0 axioms on new theorems. Full build passes (3112 jobs, 0 errors).
 
 **Current state:** Docs fully up-to-date. Tactics file provides generic proof infrastructure for future passes. Roadmap charts path to practical use.
+
+---
+
+## Session 11 — 2026-04-08
+
+**Goals:** Optimize imports, build LLZK parser (Phase 2a).
+
+**What we did:**
+1. Optimized Mathlib imports across the codebase — replaced `import Mathlib.Tactic` with 3 specific imports in `Passes/Tactics.lean`, removed redundant imports from `FlatIRToR1CS.lean`, `FlatIR.lean`, `R1CS.lean`, `StructIR.lean`. Committed on `main`.
+2. Created `feature/llzk-parser` branch and implemented a full Lean 4 native LLZK parser (Option A from the roadmap):
+   - `Heyting/Parser/AST.lean` — untyped AST: `Module`, `StructDef`, `FuncDef`, `Stmt` (17 variants including `.skipped`), `Ty`, `Pos`
+   - `Heyting/Parser/Tokenizer.lean` — tokenizer for MLIR textual IR: `%ssa`, `@sym`, `!type`, int literals, keywords, punctuation, `#hash` tokens, `"quoted strings"`
+   - `Heyting/Parser/Parser.lean` (~730 lines) — recursive descent parser with `StateT ParseState (Except String)` monad. Handles modules, structs (with template param skipping), functions, felt ops, struct ops, `constrain.eq`, function calls (including qualified names like `@Mod::@func`), `llzk.nondet`, function returns, multi-section files (`// -----` splitting)
+   - `Heyting/Parser/Main.lean` — `parseFile` IO entry point, `ppModule` pretty-printer, `countStmts` summary
+3. Tested on 5 real LLZK files from `llzk-lib/test/Dialect/` — all parse successfully:
+   - `emit_pass.llzk` — 5 structs, 20 stmts, 1 constraint, 4 `constrain.in` skipped
+   - `nondet_preservation.llzk` — 1 struct, 9 stmts, 2 constraints
+   - `circomlib.llzk` — 2 structs, 42 stmts, qualified cross-struct calls
+   - `felt_arith_pass.llzk` — free functions only (correctly produces empty module)
+   - `structs_pass.llzk` — 25 structs, 81 stmts, templates skipped with warnings
+4. Added `Heyting/Examples/ParserExamples.lean` with `#eval` examples for all 5 test files.
+5. Updated `docs/ROADMAP.md` — marked Phase 2a complete, added Phase 2a′ (AST → StructIR lowering).
+6. Full `lake build` passes: 780 jobs, 0 errors, 0 warnings.
+
+**Design decisions:**
+- **Scoped parser:** Only parse constructs representable in StructIR. Unsupported ops (arrays, arith, bitwise, etc.) are skipped with warnings rather than causing errors.
+- **Lean 4 native (Option A):** Chose the native parser over external tooling. Keeps everything in Lean, enables future verification.
+- **Unverified:** Parser functions use `partial`, no proofs. This is intentional — verification of the parser is out of scope for now.
+- **Multi-section:** LLZK test files use `// -----` separators; parser splits and merges all sections.
+
+**Current state:** LLZK parser complete and tested on real circuit files. Next step: AST → StructIR lowering.

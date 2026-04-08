@@ -29,6 +29,28 @@ Together, these give equisatisfiability: the source and compiled programs accept
 
 See [`docs/languages.md`](docs/languages.md) for detailed descriptions of each language, their semantics, and design decisions.
 
+### Parser
+
+The LLZK parser reads real circuit files in MLIR textual IR format and
+produces an untyped AST (`LLZK.Module`).
+
+| Component | File |
+|-----------|------|
+| **AST** | `Heyting/Parser/AST.lean` |
+| **Tokenizer** | `Heyting/Parser/Tokenizer.lean` |
+| **Parser** | `Heyting/Parser/Parser.lean` |
+| **Entry point** | `Heyting/Parser/Main.lean` |
+
+Supported constructs: felt ops (`add`, `sub`, `mul`, `div`, `neg`, `inv`, `const`), struct ops (`new`, `readm`, `writem`), `constrain.eq`, function calls (including qualified names like `@Mod::@func`), `llzk.nondet`, and function returns. Unsupported ops are skipped with warnings.
+
+```lean
+#eval do
+  let (mod, warnings) ← LLZK.parseFile "path/to/circuit.llzk"
+  IO.println (LLZK.ppModule mod)
+```
+
+See `Heyting/Examples/ParserExamples.lean` for usage on 5 real LLZK test files.
+
 ### Passes
 
 | Pass | Status | File |
@@ -38,13 +60,20 @@ See [`docs/languages.md`](docs/languages.md) for detailed descriptions of each l
 
 ### Examples
 
-4 validated examples in `Heyting/Examples/StructIRExamples.lean`:
+4 validated StructIR examples in `Heyting/Examples/StructIRExamples.lean`:
 - Single struct with equality constraints (Component1A)
 - Felt addition (Adder)
 - Felt division with non-zero constraint (Divider)
 - Nested structs with cross-struct calls (Wrapper → Component1A)
 
 Each includes `noDupReads` proofs, positive/negative satisfaction proofs, and full pipeline compilation output.
+
+5 parser examples in `Heyting/Examples/ParserExamples.lean`:
+- Constraint emission (`emit_pass.llzk` — 5 structs)
+- Nondet + constraints (`nondet_preservation.llzk` — 1 struct)
+- Circom circuits (`circomlib.llzk` — 2 structs, qualified calls)
+- Felt arithmetic (`felt_arith_pass.llzk` — free functions, correctly skipped)
+- Struct operations (`structs_pass.llzk` — 25 structs, templates skipped)
 
 ## Building
 
@@ -62,8 +91,9 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed roadmap.
 - [x] StructIR language (structs, functions, nesting with intrinsic well-formedness)
 - [x] StructIR → FlatIR pass (fully verified)
 - [x] Nested struct support (readMember/objEnv tracking)
-- [ ] Proof engineering: custom tactics for pass proofs
-- [ ] LLZK parser (read real circuit files)
+- [x] Proof engineering: custom tactics for pass proofs
+- [x] LLZK parser (read real circuit files)
+- [ ] AST → StructIR lowering
 - [ ] R1CS serialization output
 - [ ] Array support
 - [ ] Optimization passes (with correctness proofs)
