@@ -12,3 +12,5 @@ import Heyting.Passes.StructIRToFlatIR
 import Heyting.Passes.Tactics
 
 import Heyting.Parser.Main
+
+import Heyting.Examples.ParserExamples
