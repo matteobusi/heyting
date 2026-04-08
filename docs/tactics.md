@@ -88,8 +88,9 @@ appears in 10+ theorems in `StructIRToFlatIR.lean`. However, the felt-op
 cases are nearly identical *within* each theorem but differ significantly
 *between* theorems (preservation vs reflection vs reflection_direct), making
 a generic skeleton no simpler than the current code. The real deduplication
-comes from the pass-internal coherence/bound lemmas (`witnessCoherent_update_felt`,
-`varMapBound_update`, etc.).
+comes from the pass-internal helper lemmas (`witnessCoherent_update_felt`,
+`witnessCoherent_update_from_sat`, `varMapBound_update`,
+`preservation_body_peel_binop`, etc.).
 
 ## Adding a new FlatIR instruction
 

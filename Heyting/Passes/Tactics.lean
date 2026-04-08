@@ -1,4 +1,6 @@
-import Mathlib.Tactic
+import Mathlib.Tactic.Ring
+import Mathlib.Tactic.LinearCombination
+import Mathlib.Tactic.FieldSimp
 
 import Heyting.Languages.R1CS
 

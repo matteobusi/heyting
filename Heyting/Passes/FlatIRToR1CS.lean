@@ -1,7 +1,3 @@
-import Mathlib.Tactic.Ring
-import Mathlib.Tactic.LinearCombination
-import Mathlib.Tactic.FieldSimp
-
 import Heyting.Core.Pass
 import Heyting.Languages.FlatIR
 import Heyting.Languages.R1CS

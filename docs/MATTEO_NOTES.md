@@ -6,8 +6,8 @@ We need to adapt the framework and instantiate it to witnesses and zkps, Trinita
 
 The current framework in `Core/Pass.lean` uses `PresReflPass` which bundles:
 - A `Pass` with `compile` and `witnessRel` (the trace relation)
-- `PreservingPass` (forward: source satisfaction implies target satisfaction for a related witness)
-- `ReflectingPass` (backward: target satisfaction implies source satisfaction for a related witness)
+- `PreservingPass` (forward: source satisfaction implies target satisfaction for a related witness — completeness, beyond CC~)
+- `ReflectingPass` (backward: target satisfaction implies source satisfaction for a related witness — this *is* CC~)
 
 Both passes (FlatIR→R1CS and StructIR→FlatIR) are proved as `PresReflPass` instances with meaningful witness relations — not `True`.
 

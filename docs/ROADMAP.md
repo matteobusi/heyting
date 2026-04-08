@@ -11,13 +11,14 @@ extending the language coverage.
 
 **Goal:** Make pass proofs easier to write and maintain.
 
-**Status:** Started in Session 10.
+**Status:** Started in Session 10, major progress in Session 12.
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Custom tactics (`Core/Tactics.lean`) | Done | Generic `witnessCoherent_update_*`, bound helpers, simp sets |
-| Refactor existing proofs to use tactics | Planned | Could reduce `StructIRToFlatIR.lean` by ~30% |
-| Document proof patterns | Done | See `Core/Tactics.lean` docstrings |
+| Custom R1CS tactics (`Passes/Tactics.lean`) | Done | `r1cs_arith`, `r1cs_unfold_sat` |
+| Pass-internal helper lemmas | Done | Generic `witnessCoherent_update_from_sat`, `preservation_body_peel_binop`, multi-pattern binop merging |
+| Refactor existing proofs to use helpers | Done | StructIRToFlatIR reduced from 2010 → 1861 lines; 6 coherence lemmas → 1, 4 binop cases merged |
+| Document proof patterns | Done | See `docs/tactics.md` |
 
 **Impact:** Adding a new felt operation (e.g., `feltPow`) should require only:
 1. The instruction case in 4 functions (compile, buildWitness, buildVarAlloc, eval)

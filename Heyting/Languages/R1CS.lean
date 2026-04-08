@@ -1,4 +1,3 @@
-import Mathlib.Algebra.Field.Basic
 import Heyting.Core.Language
 
 namespace R1CS

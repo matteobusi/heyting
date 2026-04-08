@@ -51,12 +51,12 @@ class PresReflPass (S : Language Vs Fs) (T : Language Vt Ft)
 A `Pass` compiles programs and declares a **witness relation** `witnessRel` connecting source and target witnesses. The relation is per-program (since the variable mapping depends on the program structure).
 
 A `PresReflPass` additionally proves two properties:
-- **Preservation**: if `ws` satisfies the source, there exists a related `wt` satisfying the target (soundness — the compiler doesn't lose constraints)
-- **Reflection**: if `wt` satisfies the target, there exists a related `ws` satisfying the source (completeness — the compiler doesn't add spurious constraints)
+- **Reflection** (= CC~, trace-relating compiler correctness): if `wt` satisfies the target, there exists a related `ws` satisfying the source (soundness — the compiler doesn't lose constraints). This is the core correctness guarantee from Abate et al.
+- **Preservation**: if `ws` satisfies the source, there exists a related `wt` satisfying the target (completeness — the compiler doesn't add spurious constraints). This is an additional guarantee beyond CC~.
 
 Together, these establish **equisatisfiability**: the source and compiled programs accept the same (related) witnesses.
 
-This formulation follows the trace-relating compiler correctness framework of Abate et al. ("Trace-Relating Compiler Correctness and Secure Compilation", ESOP 2020). The `witnessRel` plays the role of the trace relation `~`. Preservation corresponds to TP^τ (forward property preservation) and reflection corresponds to CC~ (trace-relating compiler correctness). The trinitary equivalence (TP^σ ↔ CC~ ↔ TP^τ) is proved in `Heyting/Core/TrinitaryCC.lean`.
+This formulation follows the trace-relating compiler correctness framework of Abate et al. ("Trace-Relating Compiler Correctness and Secure Compilation", ESOP 2020). The `witnessRel` plays the role of the trace relation `~`. Reflection corresponds to CC~ (trace-relating compiler correctness), which is equivalent to both TPσ and TPτ. Preservation is a separate, additional property. The trinitarian equivalence (TPσ ↔ CC~ ↔ TPτ) is proved in `Heyting/Core/TrinitaryCC.lean`.
 
 ---
 
@@ -230,4 +230,4 @@ The proof uses `reflection_direct`, which works directly with `wt` (not through 
 
 Both preservation and reflection are **fully verified** (0 sorry, standard axioms only: `propext`, `Classical.choice`, `Quot.sound`).
 
-Helper lemmas: `buildWitness_next_le`, `buildWitness_preserves_below`, `varMapBound_update`, `witnessCoherent_update_felt`, `buildWitness_compileConstrainBody_next`, `compileConstrainBody_next_le`, `compileConstrainBody_instrVars_bounded`, `acc_zero_of_update`, `buildVarAlloc_next_eq`, `buildVarAlloc_alloc_bound`, `buildWitness_varAlloc_agree`, `buildVarAlloc_preserves_absent`, `buildVarAlloc_acc_irrelevant`, `witnessCoherent_update_from_sat_*` (one per felt op).
+Helper lemmas: `buildWitness_next_le`, `buildWitness_preserves_below`, `varMapBound_update`, `witnessCoherent_update_felt`, `witnessCoherent_update_from_sat` (generic, covers all felt ops), `preservation_body_peel_binop` (shared head-case for binop preservation), `buildWitness_compileConstrainBody_next`, `compileConstrainBody_next_le`, `compileConstrainBody_instrVars_bounded`, `acc_zero_of_update`, `buildVarAlloc_next_eq`, `buildVarAlloc_alloc_bound`, `buildWitness_varAlloc_agree`, `buildVarAlloc_preserves_absent`, `buildVarAlloc_acc_irrelevant`.

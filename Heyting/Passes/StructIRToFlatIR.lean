@@ -6,8 +6,9 @@ import Heyting.Languages.FlatIR
 # StructIR → FlatIR Pass
 
 Flattens a hierarchical StructIR module into a flat list of FlatIR instructions.
-Proved correct as a `PresReflPass` (preservation + reflection = trace-relating
-compiler correctness CC~).
+Proved correct as a `PresReflPass`: reflection gives CC~ (trace-relating
+compiler correctness, Abate et al. ESOP 2020), and preservation additionally
+guarantees completeness (no spurious constraints added).
 
 ## Compilation strategy
 

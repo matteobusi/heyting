@@ -14,10 +14,10 @@ The compiler is structured around two core abstractions:
 
 - **Language**: a typeclass pairing a program syntax with a satisfaction relation over witnesses (`w |= p`)
 - **PresReflPass**: a compiler pass equipped with a witness relation and two proofs:
-  - *Preservation*: if a witness satisfies the source, there exists a related witness satisfying the target
-  - *Reflection*: if a witness satisfies the target, there exists a related witness satisfying the source
+  - *Reflection* (= CC~): if a witness satisfies the target, there exists a related witness satisfying the source — the compiler doesn't lose constraints (soundness)
+  - *Preservation*: if a witness satisfies the source, there exists a related witness satisfying the target — the compiler doesn't add spurious constraints (completeness)
 
-Together, these give equisatisfiability: the source and compiled programs accept the same (related) witnesses. This formulation follows the trace-relating compiler correctness framework of Abate et al. (ESOP 2020).
+Together, these give equisatisfiability: the source and compiled programs accept the same (related) witnesses. Reflection alone is CC~ (trace-relating compiler correctness) from Abate et al. (ESOP 2020); preservation is an additional guarantee beyond CC~.
 
 ### Languages
 
