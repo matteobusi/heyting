@@ -304,9 +304,12 @@ def parseStructNew (pos : Pos) (dest : SSAName) : Parser Stmt := do
   if tok == .langle then
     advance  -- consume '<'
     let name ← expectSymName
-    -- Skip any remaining angle bracket content
+    -- Consume the closing '>' (and nested angle content if present)
     let s ← get
-    set (skipAngleAux s 1)
+    if s.peekTok == .rangle then
+      set s.advance
+    else
+      set (skipAngleAux s 1)
     return .structNew pos dest name
   else
     let ty ← parseType
