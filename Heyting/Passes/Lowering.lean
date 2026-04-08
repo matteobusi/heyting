@@ -403,4 +403,136 @@ def lowerComputeBody {F : Type} [IntCast F] (n i : Nat) (hi : i < n)
     | .skipped _ _       => pure ()  -- skip silently
   return (result, returnVar)
 
+/-! ## Single-struct lowering -/
+
+/-- Lower a single LLZK struct to a StructIR StructDef at index `⟨i, hi⟩`
+    in a module of `n` structs. -/
+def lowerStruct {F : Type} [Field F] [IntCast F] (n i : Nat) (hi : i < n)
+    (structIndex : HashMap String Nat)
+    (sd : LLZK.StructDef) :
+    Except String (StructIR.StructDef n ⟨i, hi⟩ F) := do
+  -- 1. Lower members
+  let members ← lowerMembers n structIndex sd.members
+  let memberIndex := buildMemberIndex sd.members
+  -- 2. Find @constrain and @compute functions
+  let constrainFunc := sd.funcs.find? (fun f => f.name == "constrain")
+  let computeFunc   := sd.funcs.find? (fun f => f.name == "compute")
+  -- 3. Lower constrain body
+  let constrainBody : List (StructIR.ConstrainStmt n ⟨i, hi⟩ F members.length) ←
+    match constrainFunc with
+    | none => pure []
+    | some f =>
+      let ssaMap := buildSSAMap f.params f.body
+      lowerConstrainBody n i hi structIndex memberIndex ssaMap members.length f.body
+  let constrainNumParams : Nat :=
+    match constrainFunc with
+    | none => 1
+    | some f => f.params.length
+  -- 4. Lower compute body
+  let computeBodyRet : List (StructIR.ComputeStmt n ⟨i, hi⟩ F members.length) × Nat ←
+    match computeFunc with
+    | none => pure ([], 0)
+    | some f =>
+      let ssaMap := buildSSAMap f.params f.body
+      lowerComputeBody n i hi structIndex memberIndex ssaMap members.length f.body
+  let computeBody := computeBodyRet.1
+  let computeReturnVar := computeBodyRet.2
+  let computeNumParams : Nat :=
+    match computeFunc with
+    | none => 1
+    | some f => f.params.length
+  -- 5. Assemble StructDef
+  return {
+    name := sd.name
+    members := members
+    compute := {
+      numParams := computeNumParams
+      body := computeBody
+      returnVar := computeReturnVar
+    }
+    constrain := {
+      numParams := constrainNumParams
+      body := constrainBody
+    }
+  }
+
+/-! ## Dependent struct function builder -/
+
+/-- Recursively lower structs `[0..k)`, building a partial lookup function
+    `∀ (j : Fin n), j.val < k → StructDef n j F`.
+    The inductive step adds struct at index `k-1`. -/
+private def lowerStructsRec {F : Type} [Field F] [IntCast F]
+    (n : Nat) (sorted : List LLZK.StructDef) (structIndex : HashMap String Nat)
+    (k : Nat) (hk : k ≤ n) :
+    Except String (∀ (j : Fin n), j.val < k → StructIR.StructDef n j F) := do
+  match k with
+  | 0 => return fun _ h => absurd h (Nat.not_lt_zero _)
+  | k' + 1 =>
+    let prev ← lowerStructsRec n sorted structIndex k' (Nat.le_of_succ_le hk)
+    let hk' : k' < n := hk
+    match sorted[k']? with
+    | none => throw s!"internal: sorted[{k'}] missing (sorted.length={sorted.length})"
+    | some sd =>
+      let sdef ← lowerStruct n k' hk' structIndex sd
+      return fun j hj =>
+        if hjk' : j.val < k' then
+          prev j hjk'
+        else
+          have hjeq : j.val = k' := by omega
+          have hjfin : j = ⟨k', hk'⟩ := Fin.ext hjeq
+          hjfin ▸ sdef
+
+/-- Build the full dependent function `(j : Fin n) → StructDef n j F`
+    by lowering all `n` structs from `sorted`. -/
+private def buildStructsFn {F : Type} [Field F] [IntCast F]
+    (n : Nat) (sorted : List LLZK.StructDef) (structIndex : HashMap String Nat) :
+    Except String ((j : Fin n) → StructIR.StructDef n j F) := do
+  let f ← lowerStructsRec n sorted structIndex n le_rfl
+  return fun j => f j j.isLt
+
+/-! ## Top-level lowering entry point -/
+
+/-- Top-level lowering: LLZK.Module → StructIR.Module.
+
+    Returns `Σ n, StructIR.Module (n+1) F` since the number of structs
+    is determined at runtime from the input module.
+
+    Steps:
+    1. Topological sort (leaves first, root = main last)
+    2. Lower each struct to `StructIR.StructDef`
+    3. Assemble `StructIR.Module` with `noDupReads` check via `decide` -/
+def LLZK.lower {F : Type} [Field F] [DecidableEq F] [IntCast F]
+    (m : LLZK.Module) : Except String (Σ n, StructIR.Module (n + 1) F) := do
+  if m.structs.isEmpty then
+    throw "empty module: nothing to lower"
+  -- 1. Topological sort
+  let sorted ← LLZK.Lowering.topoSort m.structs
+  -- Guard: topoSort preserves non-emptiness; capture as a Prop
+  if h : sorted.length = 0 then
+    throw "internal: topoSort returned empty list for non-empty module"
+  else
+  let n := sorted.length
+  have hn : 0 < n := Nat.pos_of_ne_zero h
+  -- 2. Build struct index (name → topo-sort position)
+  let structIndex := LLZK.Lowering.buildStructIndex sorted
+  -- 3. Lower all structs into the dependent function
+  let structsFn ← LLZK.Lowering.buildStructsFn n sorted structIndex
+  -- 4. Check noDupReads at the top-level (main = last struct, index n-1)
+  let mainIdx : Fin n := ⟨n - 1, Nat.sub_one_lt_of_le hn le_rfl⟩
+  let initObjEnv : StructIR.ObjEnv := StructIR.ObjEnv.update (fun _ => []) 0 []
+  let positions :=
+    StructIR.readPositions structsFn mainIdx initObjEnv (structsFn mainIdx).constrain.body
+  if hnodup : positions.Nodup then
+    -- 5. Assemble the Module
+    let module : StructIR.Module n F := {
+      structs := structsFn
+      -- proof irrelevance: both hn and hn' prove 0 < n, so mainIdx is the same Fin value
+      noDupReads := fun _ => hnodup
+    }
+    -- Package as Σ m, Module (m+1) F where m = n-1
+    have hn1 : n - 1 + 1 = n := Nat.succ_pred_eq_of_pos hn
+    return ⟨n - 1, hn1 ▸ module⟩
+  else
+    throw "duplicate reads in constrain body — struct members must be read at most once"
+
 end LLZK.Lowering
