@@ -17,5 +17,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: true
       - uses: leanprover/lean-action@v1
       - uses: leanprover-community/docgen-action@v1
