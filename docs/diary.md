@@ -230,3 +230,34 @@ Chronological summaries of working sessions on Heyting.
 - **`noDupReads`**: checked only for the main struct (index n-1). Proof irrelevance handles the `Fin n` proof identity.
 
 **Current state:** Full pipeline LLZK → StructIR → FlatIR → R1CS working end-to-end. Next step: R1CS output (Phase 2b).
+
+---
+
+## Session 7 — 2026-04-10
+
+**Goals:** Phase 2b.1 — JSON output backend + CLI entry point.
+
+**What we did:**
+1. Created `Heyting/Backends/R1CSJSON.lean` — JSON serialization for R1CS systems:
+   - `varIdToJson`, `varIdToString`, `fieldRepr`, `fieldToJson`
+   - `linCombToJson`, `linCombToHuman`, `constraintToJson`, `constraintToHuman`
+   - `countVars`, `countAuxVars`, `SystemSummary`, `summarize`, `summaryToJson`, `systemToJson`
+   - `ppConstraint`, `ppSystem`, `saveR1CSJson`
+2. Created `Heyting/CLI.lean` — CLI entry point with `json` subcommand:
+   - `Command` inductive (`.json`, `.help`), `parseArgs`, `runCommand`, `main`
+   - `compileToJson`: full pipeline `parseFile → lower → StructIRToFlatIR → FlatIRToR1CS → saveR1CSJson`
+   - Uses `ZMod 1993` as the default field (via `Fact (Nat.Prime 1993)` + `native_decide`)
+3. Created `Heyting/Examples/OutputExamples.lean` — two `#eval` examples:
+   - Example 1: `emit_pass.llzk` → 4 constraints, 3 variables, writes `emit_pass.json`
+   - Example 2: `circom_isZero.llzk` → 10 constraints, 10 variables, writes `circom_isZero.json`
+4. Created `Heyting/Test/R1CSJSONTest.lean` — unit tests via `#eval`:
+   - Tests `summarize` stat counts and `systemToJson` JSON field values against a hand-crafted `ZMod 1993` R1CS system
+5. Updated `Heyting.lean` with imports for all new modules.
+6. Full `lake build` passes: 0 errors, 0 Lean linter warnings.
+
+**Design decisions:**
+- `SystemSummary F` defined without typeclass constraints in the structure header (constraints added at call sites) to avoid typeclass inference issues.
+- `set_option linter.style.nativeDecide false` in `CLI.lean` and `R1CSJSONTest.lean` to allow `native_decide` for the `Nat.Prime 1993` instance.
+- `circom_isZero.llzk` chosen as the second example (over `structs_pass.llzk` which fails with cyclic deps and `circomlib.llzk` which fails with undefined SSA variables).
+
+**Current state:** Phase 2b.1 complete. `lake build` clean. Next: Phase 2b.2 (binary R1CS output / Groth16 interface) or Phase 3 (parser for full LLZK surface syntax).

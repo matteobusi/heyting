@@ -14,5 +14,11 @@ import Heyting.Passes.Lowering
 
 import Heyting.Parser.Main
 
+import Heyting.Backends.R1CSJSON
+import Heyting.CLI
+
 import Heyting.Examples.ParserExamples
 import Heyting.Examples.LoweringExamples
+import Heyting.Examples.OutputExamples
+
+import Heyting.Test.R1CSJSONTest

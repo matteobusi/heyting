@@ -22,3 +22,7 @@ rev = "v4.28.0"
 
 [[lean_lib]]
 name = "Heyting"
+
+[[lean_exe]]
+name = "heytingc"
+root = "Main"

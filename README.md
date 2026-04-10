@@ -80,8 +80,71 @@ Each includes `noDupReads` proofs, positive/negative satisfaction proofs, and fu
 Requires [elan](https://github.com/leanprover/elan) (Lean version manager).
 
 ```bash
-lake build
+lake build          # build the library
+lake build heytingc # build the compiler binary
 ```
+
+> **macOS 15 (darwin 24.x) note:** `lake cache get` may fail with `Invalid platform: Unexpected characters in platform`. This is a known Lake 5.0.0 / Reservoir API incompatibility — the first `lake build` will compile from source (~30 min). See [`docs/WARNING.md`](docs/WARNING.md) §6 for details and the `heytingc` linker workaround if needed.
+
+## Usage
+
+Build the compiler binary:
+
+```bash
+lake build heytingc
+```
+
+Run it with `lake exe` (no need to reference the binary path directly):
+
+```bash
+lake exe heytingc help
+lake exe heytingc json <input.llzk> <output.json>
+```
+
+Or invoke the binary directly at `.lake/build/bin/heytingc`.
+
+### Example
+
+```bash
+mkdir -p out
+lake exe heytingc json llzk-lib/test/Dialect/Constrain/emit_pass.llzk out/emit_pass.json
+# Wrote R1CS JSON to out/emit_pass.json
+#   Constraints: 4
+#   Variables: 3
+```
+
+The output JSON has this structure:
+
+```json
+{
+  "numConstraints": 4,
+  "numVars": 3,
+  "numAuxVars": 0,
+  "constraints": [
+    { "A": [...], "B": [...], "C": [...] },
+    ...
+  ]
+}
+```
+
+Each constraint is an R1CS triple `A * B = C` over linear combinations of field elements.
+Variables are tagged `varOne` (the constant 1), `var n` (input/output), or `aux n` (auxiliary).
+
+> **Note:** The field is currently hardcoded to `ZMod 1993` (the prime field **F₁₉₉₃**).
+
+### Compatibility with circom's JSON format
+
+The output is **not compatible** with circom's `--json` format. Circom uses a different schema:
+
+| | Heyting | circom |
+|---|---|---|
+| Top-level shape | `{numConstraints, numVars, numAuxVars, constraints: [...]}` | `{constraints: [...]}` |
+| Constraint shape | `{"A": lc, "B": lc, "C": lc}` | `[lc_A, lc_B, lc_C]` (3-element array) |
+| Linear combination | `[{var: {tag, index}, coeff: "repr"}, ...]` | `{"signal_index": "decimal_coeff_string", ...}` |
+| Constant 1 | `{tag: "varOne"}` | signal index `"0"` |
+| Coefficients | `repr` of field element (e.g. `"1"`) | decimal string of the full field element integer |
+
+Bridging to snarkjs or other circom tooling would require a post-processing step to convert to circom's schema. This is a planned future output format.
 
 ## Roadmap
 
@@ -93,15 +156,11 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed roadmap.
 - [x] Nested struct support (readMember/objEnv tracking)
 - [x] Proof engineering: custom tactics for pass proofs
 - [x] LLZK parser (read real circuit files)
-- [ ] AST → StructIR lowering
-- [ ] R1CS serialization output
+- [x] AST → StructIR lowering
+- [x] R1CS serialization output (`heytingc json`)
 - [ ] Array support
 - [ ] Optimization passes (with correctness proofs)
 
 ## License
 
 MIT
-
----
-
-Built with the help of [Claude Code](https://claude.ai/code) by Anthropic.

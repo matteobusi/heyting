@@ -95,3 +95,50 @@ The `Module` structure carries a `noDupReads` field requiring that `readPosition
 **Scope:** This is a reasonable assumption for well-formed LLZK programs (struct members are typically read once into a local). If a program reads the same member twice, it can be trivially transformed to read once and reuse the local variable.
 
 **Impact:** Programs that violate NoDuplicateReads cannot be represented as a `Module` — they fail at construction time (the `noDupReads` proof obligation is unsatisfiable).
+
+---
+
+## 6. `lake cache get` fails on macOS 15 (darwin24.6.0) — Active
+
+**Date:** 2026-04-10
+**Status:** Active — upstream Lake/Reservoir bug
+**Affects:** Fresh checkouts; `lake build heytingc` on machines without pre-built oleans
+
+**Symptom:**
+```
+error: failed to GET URL, error 400; received:
+{"error":{"status":400,"message":"Invalid platform: Unexpected characters in platform"}}
+```
+
+**Cause:** Lake 5.0.0 sends the full `uname -r`-based platform string (`arm64-apple-darwin24.6.0`) verbatim to the Reservoir API. The dots in the minor version (`24.6.0`) are rejected by Reservoir's input validation. This is a Lake bug — fixed in later Lake releases but not in v4.28.0's bundled Lake.
+
+**Impact:** `lake cache get` silently falls back to building from source. The first full `lake build` (library only, no executable) takes ~30 minutes on a modern Mac. Subsequent incremental builds are fast.
+
+**Workaround:** None needed for the library. For `lake build heytingc` (the executable), native compilation of all transitively imported Mathlib modules is required. Because the cache doesn't deliver `.c.o` files even when it works (it delivers oleans only), the linker may fail with `undefined symbol: initialize_mathlib_Mathlib_Tactic_*`. See the fix below.
+
+**Linker fix for `undefined symbol: initialize_mathlib_Mathlib_Tactic_HigherOrder` (and similar):**
+
+If `lake build heytingc` fails with an `ld64.lld: error: undefined symbol: initialize_mathlib_Mathlib_Tactic_*` error, the cause is a cache stub `.c.o.export` file with no symbols. Compile a minimal stub and overwrite it:
+
+```bash
+# Find the missing module's .c.o.export path, e.g. for HigherOrder:
+EXPORT=.lake/packages/mathlib/.lake/build/ir/Mathlib/Tactic/HigherOrder.c.o.export
+MODULE=initialize_mathlib_Mathlib_Tactic_HigherOrder
+
+cat > /tmp/stub.c << EOF
+#include <stdint.h>
+typedef struct lean_object lean_object;
+lean_object* ${MODULE}(uint8_t builtin) {
+  extern lean_object* lean_io_result_mk_ok(lean_object*);
+  extern lean_object* lean_box(size_t);
+  return lean_io_result_mk_ok(lean_box(0));
+}
+EOF
+
+xcrun clang -target arm64-apple-macos12 -o "$EXPORT" -c /tmp/stub.c \
+  -I "$(lean --print-prefix)/include"
+
+lake build heytingc
+```
+
+Replace `HigherOrder` and `initialize_mathlib_Mathlib_Tactic_HigherOrder` with whatever module name appears in the linker error. Repeat for each missing symbol.
