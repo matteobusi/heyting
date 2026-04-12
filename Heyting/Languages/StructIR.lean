@@ -154,8 +154,7 @@ of the dependency DAG.
 
 **WARNING — NoDuplicateReads**: The `noDupReads` field requires that each
 `(path, member)` pair is read at most once across the entire constrain
-evaluation tree. This holds for SSA-form programs (e.g., LLZK output) but
-is not checked dynamically. Programs violating this condition cannot be
+evaluation tree. Programs violating this condition cannot be
 represented as a `Module`.
 -/
 

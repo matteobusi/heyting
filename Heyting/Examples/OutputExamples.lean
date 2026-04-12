@@ -12,7 +12,7 @@ It serves as a visual check that the serialization produces the expected output.
 namespace OutputExamples
 
 /- We execute the CLI's compileToJson function directly.
-   In practice, this would be run via the `heytingc json` command line. -/
+    In practice, this would be run via the `hey compile` command line. -/
 
 #eval do
   IO.println "=== Example 1: JSON Output for emit_pass.llzk ==="
