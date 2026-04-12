@@ -81,33 +81,33 @@ Requires [elan](https://github.com/leanprover/elan) (Lean version manager).
 
 ```bash
 lake build          # build the library
-lake build heytingc # build the compiler binary
+lake build hey       # build the compiler binary
 ```
 
-> **macOS 15 (darwin 24.x) note:** `lake cache get` may fail with `Invalid platform: Unexpected characters in platform`. This is a known Lake 5.0.0 / Reservoir API incompatibility — the first `lake build` will compile from source (~30 min). See [`docs/WARNING.md`](docs/WARNING.md) §6 for details and the `heytingc` linker workaround if needed.
+> **macOS 15 (darwin 24.x) note:** `lake cache get` may fail with `Invalid platform: Unexpected characters in platform`. This is a known Lake 5.0.0 / Reservoir API incompatibility — the first `lake build` will compile from source (~30 min). See [`docs/WARNING.md`](docs/WARNING.md) §6 for details and the `hey` linker workaround if needed.
 
 ## Usage
 
 Build the compiler binary:
 
 ```bash
-lake build heytingc
+lake build hey
 ```
 
 Run it with `lake exe` (no need to reference the binary path directly):
 
 ```bash
-lake exe heytingc help
-lake exe heytingc json <input.llzk> <output.json>
+lake exe hey help
+lake exe hey compile <input.llzk> <output.json>
 ```
 
-Or invoke the binary directly at `.lake/build/bin/heytingc`.
+Or invoke the binary directly at `.lake/build/bin/hey`.
 
 ### Example
 
 ```bash
 mkdir -p out
-lake exe heytingc json llzk-lib/test/Dialect/Constrain/emit_pass.llzk out/emit_pass.json
+lake exe hey compile llzk-lib/test/Dialect/Constrain/emit_pass.llzk out/emit_pass.json
 # Wrote R1CS JSON to out/emit_pass.json
 #   Constraints: 4
 #   Variables: 3
@@ -157,7 +157,7 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed roadmap.
 - [x] Proof engineering: custom tactics for pass proofs
 - [x] LLZK parser (read real circuit files)
 - [x] AST → StructIR lowering
-- [x] R1CS serialization output (`heytingc json`)
+- [x] R1CS serialization output (`hey compile`)
 - [ ] Array support
 - [ ] Optimization passes (with correctness proofs)
 
