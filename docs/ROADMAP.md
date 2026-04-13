@@ -71,16 +71,19 @@ indices, and verifying `noDupReads`.
 | `noDupReads` validation | Medium | Done — decidable `List.Nodup` check at runtime |
 | Error reporting for unsupported patterns | Low | Done — `Except String` propagation |
 
-### 2b. R1CS Output
+### 2b. R1CS Output ✅
 
 Serialize `R1CS.System` to a standard format.
 
-| Task | Complexity | Notes |
-|------|------------|-------|
-| R1CS binary format (Circom-compatible) | Low | Standard `.r1cs` format: header + constraints |
-| JSON output | Low | For debugging/inspection |
-| Witness format | Low | Map `R1CS.VarId` → integer indices |
-| Variable naming | Low | Carry names through for debugging |
+| Task | Complexity | Status | Notes |
+|------|------------|--------|-------|
+| JSON output | Low | Done | `Heyting/Backends/R1CSJSON.lean` — `systemToJson`, `saveR1CSJson` |
+| CLI entry point (`hey compile`) | Low | Done | `Heyting/CLI.lean` — full pipeline `parseFile → lower → compile → saveR1CSJson` |
+| Multi-field support (`--prime-field`) | Low | Done | 6 prime fields matching `llzk-lib/lib/Util/Field.cpp`: bn254 (default), bn128, babybear, goldilocks, mersenne31, koalabear |
+| Unit tests | Low | Done | `Heyting/Test/R1CSJSONTest.lean` |
+| R1CS binary format (Circom-compatible) | Low | Planned | Standard `.r1cs` format: header + constraints |
+| Witness format | Low | Planned | Map `R1CS.VarId` → integer indices |
+| Variable naming | Low | Planned | Carry names through for debugging |
 
 **Standard format:** The [Circom `.r1cs` binary format](https://github.com/iden3/r1csfile) is widely supported (SnarkJS, Rapidsnark, etc.). Alternatively, the JSON format from SnarkJS.
 
@@ -115,57 +118,15 @@ be unrolled. Not needed for initial circuits.
 
 ## Phase 4: Optimization Passes
 
-**Goal:** Verified optimization passes that reduce constraint count without
-changing semantics.
-
-| Optimization | Impact | Complexity | Notes |
-|-------------|--------|------------|-------|
-| Dead constraint elimination | Medium | Low | Remove unconstrained variables |
-| Constant folding | Medium | Low | Evaluate constant expressions at compile time |
-| Common subexpression elimination | High | Medium | Reuse computed values |
-| Linear combination merging | High | Medium | Merge compatible R1CS constraints |
-
-Each optimization would be a separate `PresReflPass` with its own
-preservation and reflection proofs.
-
----
+Verified optimization passes (dead constraint elimination, constant folding, CSE, linear combination merging). Each would be a separate `PresReflPass`. Not started.
 
 ## Phase 5: Verified Backend
 
-**Goal:** Generate verified provers and verifiers from R1CS.
-
-This is the "close the loop" phase — not just a verified compiler, but a
-verified toolchain.
-
-| Task | Complexity | Notes |
-|------|------------|-------|
-| Groth16 prover formalization | Very High | Requires elliptic curve arithmetic in Lean |
-| Verification equation proof | Very High | `e(A, B) = e(α, β) · e(vk, γ) · e(C, δ)` |
-| Trusted setup formalization | High | CRS generation |
-| Alternative: Plonk/STARK backend | Very High | Different arithmetization |
-
-**Alternative approach:** Rather than formalizing the full prover, generate
-an executable prover in a lower-level language (Rust/C) and verify the
-*specification* (relation between R1CS satisfaction and proof validity)
-in Lean. This is more tractable.
-
----
+Formalize a prover (Groth16 or Plonk) or verify a generated prover's specification in Lean. Very high complexity; not started.
 
 ## Phase 6: Paper / Publication
 
-**Goal:** Publish the results.
-
-| Venue | Focus | Timeline |
-|-------|-------|----------|
-| Workshop paper (FMBC, etc.) | Framework + verified pipeline | After Phase 2 |
-| Conference paper (CAV, ESOP, S&P) | Full toolchain + case studies | After Phase 4 |
-
-**Key contributions to highlight:**
-1. First formally verified ZKP compiler (StructIR → R1CS)
-2. Trace-relating correctness framework adapted to ZKP witnesses
-3. Intrinsic well-formedness via dependent types (no fuel, no well-formedness predicates)
-4. Meaningful witness relation (not trivial `True`)
-5. Custom proof tactics for pass automation
+Workshop paper (FMBC) after Phase 2 complete; conference paper (CAV/ESOP/S&P) after Phase 4.
 
 ---
 
@@ -174,7 +135,8 @@ in Lean. This is more tractable.
 1. ~~**Session 11:** Refactor `StructIRToFlatIR.lean` proofs to use `Core/Tactics.lean`~~ Done (Session 12)
 2. ~~**Session 12:** Build LLZK parser~~ Done — Lean 4 native parser on `feature/llzk-parser`
 3. ~~**Next:** AST → StructIR lowering (`Heyting/Passes/Lowering.lean`)~~ Done (Session 12)
-4. **Then:** R1CS output (Circom `.r1cs` binary format)
-5. **Then:** Test full pipeline on a real circuit (e.g., IsZero from circomlib)
-6. **Later:** Array support in StructIR
-7. **Later:** Optimization passes, paper writing
+4. ~~**Then:** R1CS JSON output (`hey compile`)~~ Done (Session 13 — `R1CSJSON.lean`, `CLI.lean`)
+5. ~~**Then:** Multi-field support (`--prime-field`)~~ Done (Session 14 — 6 fields matching llzk-lib)
+6. **Then:** R1CS binary output (Circom `.r1cs` format) or test full pipeline on a real circuit
+7. **Later:** Array support in StructIR
+8. **Later:** Optimization passes, paper writing

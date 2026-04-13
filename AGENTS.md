@@ -1,175 +1,152 @@
 # Heyting — Agent Guide
 
-This file is for AI agents (Claude Code, Copilot, Cursor, etc.) working
-on this codebase. Read it before making changes.
+AI agent reference for this codebase. Read before making changes.
 
 ## What this project is
 
-Heyting is a **formally verified ZKP compiler** in Lean 4 + Mathlib. It
-compiles constraint languages (a core fragment of LLZK) down to R1CS
-arithmetizations, and proves that compilation is correct — no constraints
-are added or lost.
+Heyting is a **formally verified ZKP compiler** in Lean 4 + Mathlib. It compiles a core
+fragment of LLZK down to R1CS and proves correctness — no constraints added or lost.
 
-Every theorem has **0 sorries** and **standard axioms only** (`propext`,
-`Classical.choice`, `Quot.sound`). Maintaining this invariant is
-non-negotiable.
+Every theorem: **0 sorries**, **standard axioms only** (`propext`, `Classical.choice`,
+`Quot.sound`). Non-negotiable.
 
 ## Build
 
 ```bash
-lake build          # build everything
+lake build        # library
+lake build hey    # compiler binary
 ```
 
-Requires [elan](https://github.com/leanprover/elan). Lean 4.28.0,
-Mathlib v4.28.0.
+Requires [elan](https://github.com/leanprover/elan). Lean 4.28.0, Mathlib v4.28.0.
 
 ## Repository layout
 
 ```
 Heyting/
   Core/
-    Language.lean        -- Language typeclass (Program + satisfies)
-    Pass.lean            -- Pass, PreservingPass, ReflectingPass, PresReflPass
-    TrinitaryCC.lean     -- TPσ ↔ CC~ ↔ TPτ (Abate et al.)
+    Language.lean          -- Language typeclass
+    Pass.lean              -- Pass, PreservingPass, ReflectingPass, PresReflPass
+    TrinitaryCC.lean       -- TPσ ↔ CC~ ↔ TPτ (Abate et al.)
   Languages/
-    StructIR.lean        -- Hierarchical IR (structs, calls, felt ops)
-    FlatIR.lean          -- Flat instruction list (7 instruction types)
-    R1CS.lean            -- Rank-1 Constraint Systems
+    StructIR.lean          -- Hierarchical IR (structs, calls, felt ops)
+    FlatIR.lean            -- Flat instruction list (7 types)
+    R1CS.lean              -- Rank-1 Constraint Systems
   Passes/
-    StructIRToFlatIR.lean  -- StructIR → FlatIR (largest file, ~1860 lines)
+    StructIRToFlatIR.lean  -- StructIR → FlatIR (~1860 lines)
     FlatIRToR1CS.lean      -- FlatIR → R1CS (~220 lines)
+    Lowering.lean          -- LLZK AST → StructIR (unverified, partial)
     Tactics.lean           -- r1cs_arith, r1cs_unfold_sat macros
+  Parser/
+    AST.lean               -- Untyped LLZK AST
+    Tokenizer.lean         -- MLIR textual IR tokenizer
+    Parser.lean            -- Recursive descent parser
+    Main.lean              -- parseFile, ppModule
+  Backends/
+    R1CSJSON.lean          -- R1CS → JSON serialization
   Examples/
-    StructIRExamples.lean  -- 4 validated examples with satisfaction proofs
+    StructIRExamples.lean  -- 4 validated examples
+    LoweringExamples.lean  -- LLZK → StructIR → R1CS pipeline
+    OutputExamples.lean    -- JSON output via CLI
+    ParserExamples.lean    -- Parser on 5 real LLZK files
+  Test/
+    R1CSJSONTest.lean      -- Unit tests for R1CS JSON
+  CLI.lean                 -- hey compile; prime field dispatch
+  CLIArgs.lean             -- CLI argument parser
 docs/
-  GUARANTEES.md    -- Formal guarantees per pass (read this first)
+  GUARANTEES.md    -- Formal guarantees per pass (read first)
   WARNING.md       -- Assumptions, limitations, resolved issues
   languages.md     -- Language design and semantics
   ROADMAP.md       -- Development roadmap
   tactics.md       -- Tactic documentation
+  cli.md           -- CLI usage and --prime-field documentation
   llzk-dialects.md -- LLZK MLIR dialect reference
   diary.md         -- Chronological session diary
-  MATTEO_NOTES.md  -- Author's design notes on compiler correctness
+  MATTEO_NOTES.md  -- Author's design notes
 ```
 
 ## Correctness framework
 
-All passes implement `PresReflPass S T` which bundles:
+All passes implement `PresReflPass S T`:
+- **`compile`**: source → target program
+- **`witnessRel`**: relates source/target witnesses (per-program)
+- **Reflection (= CC~)**: target sat → source sat (soundness)
+- **Preservation**: source sat → target sat (completeness)
 
-- **`compile`**: source program → target program
-- **`witnessRel`**: relates source and target witnesses (per-program)
-- **Reflection (= CC~)**: target satisfiable → source satisfiable
-  (soundness; this is trace-relating compiler correctness from Abate et al.)
-- **Preservation**: source satisfiable → target satisfiable
-  (completeness; additional guarantee beyond CC~)
+Together: equisatisfiability. All theorems are **generic over `F : Type [Field F]`**.
+See `docs/GUARANTEES.md` for formal statements.
 
-**CC~ is reflection alone, not preservation + reflection.** Preservation
-is a separate property. Together they give equisatisfiability.
+## CLI prime fields
 
-See `docs/GUARANTEES.md` for the full formal statements.
+`Heyting/CLI.lean` supports 6 fields matching `llzk-lib/lib/Util/Field.cpp`:
 
-## Key invariants — do not break these
+| Flag | Prime | Used by |
+|------|-------|---------|
+| `bn254` *(default)* / `bn128` | 2188…8583 (254-bit) | circom |
+| `babybear` | 2013265921 (15·2²⁷+1) | zirgen |
+| `goldilocks` | 18446744069414584321 (2⁶⁴−2³²+1) | plonky2 |
+| `mersenne31` | 2147483647 (2³¹−1) | Plonky3 |
+| `koalabear` | 2130706433 (2³¹−2²⁴+1) | Plonky3 |
 
-1. **Zero sorries.** Every theorem must be fully proved. Never introduce
-   `sorry` in committed code. Use `sorry` only as a temporary placeholder
-   during development, and replace it before finishing.
+Primality for bn254/bn128 and goldilocks uses `private axiom` in `CLI.lean` (too large
+for `native_decide`/`norm_num`). Axioms are CLI-only — never in any proof file.
 
-2. **Standard axioms only.** No `axiom` declarations, no `native_decide`,
-   no `Decidable.decide` on undecidable props. Verify with
-   `lean_verify <file> <theorem_name>` — should show only `propext`,
-   `Classical.choice`, `Quot.sound`.
+```bash
+lake exe hey compile --prime-field babybear circuit.llzk out/system.json
+```
 
-3. **`lake build` must pass.** Zero errors, zero warnings (linter
-   warnings from Mathlib's `weak.linter` are configured in `lakefile.toml`).
+## Key invariants — do not break
 
-4. **Intrinsic well-formedness.** StructIR uses dependent types to make
-   ill-formed programs unrepresentable (`Fin i` for call targets,
-   `Fin numMembers` for member access, `noDupReads` on modules). Do not
-   add runtime well-formedness checks or fuel-based recursion.
+1. **Zero sorries.** No `sorry` in committed code.
+2. **Standard axioms only.** No `axiom` in proof files. CLI `private axiom` is OK.
+   Verify: `lean_verify <file> <theorem>` → `propext`, `Classical.choice`, `Quot.sound`.
+3. **`lake build` must pass.** 0 errors, 0 warnings.
+4. **Intrinsic well-formedness.** StructIR uses dependent types (`Fin i`, `Fin numMembers`,
+   `noDupReads`). No runtime checks or fuel-based recursion.
 
-## Working with the Lean files
+## Working with Lean files
 
-### Imports
+**Field parameterization:** Pass functions take `(F : Type) [Field F]` explicitly.
+Examples/tests use `F := ZMod 1993`. Do not hardcode a prime in proof files.
+`DecidableEq F`, `IntCast F` needed for lowering; `Repr F` for JSON.
 
-Minimize imports. Do not import `Mathlib` wholesale — import specific
-modules (e.g., `Mathlib.Tactic.Ring`, `Mathlib.Tactic.LinearCombination`).
-After changing imports, run `lake build` to rebuild.
+**Imports:** Minimize — import specific Mathlib modules, not `import Mathlib`.
 
-### Proof patterns in StructIRToFlatIR
-
-The pass proofs use well-founded recursion on `(i, stmts.length)` with
-9-way case splits. Key invariants maintained inductively:
-
-- **`WitnessCoherent acc varMap env`**: `∀ v, acc (varMap v) = env v`
-- **`VarMapBound varMap next`**: `∀ v, varMap v < next`
-- **`0 < next`** and **`acc 0 = 0`**
-
-When adding a new StructIR statement type, you need cases in:
-`compileConstrainBody`, `buildWitness`, `buildVarAlloc`,
-`evalConstrainBody`, `readPositions`, plus all proof theorems
-(`preservation_body`, `reflection_direct`, `reflection_body`,
-`compileConstrainBody_instrVars_bounded`, `buildWitness_preserves_below`,
-`buildWitness_next_le`, `buildWitness_compileConstrainBody_next`,
-`buildVarAlloc_next_eq`, `buildVarAlloc_alloc_bound`,
-`buildWitness_varAlloc_agree`, `buildVarAlloc_preserves_absent`,
+**New StructIR statement type** — add cases in:
+`compileConstrainBody`, `buildWitness`, `buildVarAlloc`, `evalConstrainBody`,
+`readPositions`, and all proof theorems (`preservation_body`, `reflection_direct`,
+`reflection_body`, `compileConstrainBody_instrVars_bounded`, `buildWitness_preserves_below`,
+`buildWitness_next_le`, `buildWitness_compileConstrainBody_next`, `buildVarAlloc_next_eq`,
+`buildVarAlloc_alloc_bound`, `buildWitness_varAlloc_agree`, `buildVarAlloc_preserves_absent`,
 `buildVarAlloc_acc_irrelevant`).
 
-### Proof patterns in FlatIRToR1CS
+**New FlatIR instruction** — add to `compileInstr` (1–2 constraints), then preservation +
+reflection cases via `r1cs_arith`; fall back to `linear_combination`/`field_simp`.
+See `docs/tactics.md`.
 
-When adding a new FlatIR instruction:
+**Macro hygiene:** Tactics in `Tactics.lean` cannot reference names from other files.
+`StructIRToFlatIR.lean` keeps its own `VarMap` alias to avoid collisions. Pass-specific
+unfolding at the call site, not in a tactic.
 
-1. Add the case to `compileInstr` (1 or 2 R1CS constraints).
-2. Add preservation case: unfold + `r1cs_arith`.
-3. Add reflection case: unfold + `r1cs_arith`.
-4. If `r1cs_arith` fails, close manually with `linear_combination`,
-   `ring`, or `field_simp`.
-
-See `docs/tactics.md` for detailed patterns.
-
-### Lean 4 macro hygiene
-
-Lean 4 macro hygiene renames cross-namespace identifiers (e.g.,
-`compileInstr` becomes `compileInstr✝`). This means:
-
-- Tactics in `Tactics.lean` cannot reference names from other files.
-- Importing `Tactics.lean` into `StructIRToFlatIR.lean` creates `VarMap`
-  name collisions. The pass keeps its own `VarMap` type alias.
-- Pass-specific unfolding must happen at the call site, not in a tactic.
-
-### Helper lemma extraction
-
-Helper lemmas **cannot** factor out proof code that involves a recursive
-call to the theorem being proved. The felt-op cases in `reflection_direct`
-and `reflection_body` look identical but each makes a recursive call —
-they cannot be extracted into a shared helper.
-
-Non-recursive proof obligations (like the head-case in
-`preservation_body`) can be factored out (see
-`preservation_body_peel_binop`).
+**Helper lemma extraction:** Cannot factor out proof code involving a recursive call to
+the theorem being proved (felt-op cases in `reflection_direct`/`reflection_body`).
+Non-recursive obligations can be factored (e.g. `preservation_body_peel_binop`).
 
 ## Verification checklist
 
-After any change to `.lean` files:
-
-1. Check diagnostics: `lean_diagnostic_messages <file>` → 0 errors
-2. Full build: `lake build` → 0 errors
-3. Axiom check: `lean_verify <file> <theorem>` → standard axioms only
-4. No `sorry` in committed code: `grep -r "sorry" Heyting/` → empty
+1. `lean_diagnostic_messages <file>` → 0 errors
+2. `lake build` → 0 errors
+3. `lean_verify <file> <theorem>` → standard axioms only
+4. No `sorry`: `grep -r "sorry" Heyting/` → empty
 
 ## Documentation
 
-- `docs/GUARANTEES.md` — formal guarantees (theorem statements + proof intuition)
-- `docs/languages.md` — language definitions, semantics, pass descriptions
-- `docs/tactics.md` — custom tactic documentation
-- `docs/ROADMAP.md` — development roadmap
-- `docs/WARNING.md` — warnings, assumptions, and known limitations (resolved and active); check here before making design decisions that touch `assignDiv`, `noDupReads`, or `objEnv`
-- `docs/llzk-dialects.md` — LLZK MLIR dialect reference (tier 1–3 dialects, op signatures); consult when adding new StructIR statement types or planning parser work
-- `docs/diary.md` — chronological session diary; read for context on past decisions and what has already been tried
-- `README.md` — project overview
-
-Update relevant docs when making changes:
-- `GUARANTEES.md` / `languages.md` — when changing pass behavior, adding languages, or modifying the correctness framework
-- `WARNING.md` — when introducing new assumptions, discovering limitations, or resolving existing ones
-- `llzk-dialects.md` — when adding support for new LLZK dialects or ops
-- `diary.md` — append a session summary at the end of each working session
-- `ROADMAP.md` — when completing roadmap items or adjusting priorities
+| File | When to update |
+|------|----------------|
+| `docs/GUARANTEES.md` / `docs/languages.md` | Pass behavior, new languages, correctness framework |
+| `docs/WARNING.md` | New assumptions, limitations, resolutions; check before touching `assignDiv`, `noDupReads`, `objEnv` |
+| `docs/cli.md` | CLI flags, supported fields |
+| `docs/llzk-dialects.md` | New LLZK dialects/ops, parser work |
+| `docs/diary.md` | Append session summary each session |
+| `docs/ROADMAP.md` | Completing or reprioritizing roadmap items |
+| `docs/tactics.md` | New tactics or proof patterns |
+| `README.md` | User-facing changes |

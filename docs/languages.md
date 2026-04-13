@@ -15,6 +15,11 @@ StructIR  --->  FlatIR  --->  R1CS
 
 ## Core Abstractions
 
+All languages and passes are **generic over the field `F : Type [Field F]`**. Examples and
+tests instantiate `F := ZMod 1993` (a small prime, fast `native_decide`). The CLI selects
+a concrete field at the boundary via `--prime-field`; no proof-bearing code is
+parameterized on a specific prime.
+
 ### Language (`Heyting/Core/Language.lean`)
 
 ```lean
@@ -92,25 +97,7 @@ R1CS is the standard arithmetization target for ZKP backends (Groth16, Plonk, et
 
 FlatIR corresponds to LLZK's field-native operations (`felt.add`, `felt.sub`, `felt.mul`, `felt.div`, `felt.neg`, `felt.const`, `constrain.eq`). It is the result of flattening StructIR's hierarchical structure into a linear sequence.
 
-### FlatIR to R1CS pass (`Heyting/Passes/FlatIRToR1CS.lean`)
-
-This pass is **fully verified** — preservation and reflection are proven for all 7 instruction types with no `sorry` and only standard axioms (`propext`, `Classical.choice`, `Quot.sound`).
-
-**Witness relation**: `∀ v, wt (.var v) = ws v` — each FlatIR variable maps directly to the corresponding R1CS program variable.
-
-Each FlatIR instruction compiles to one or more R1CS constraints:
-
-| Instruction | R1CS encoding |
-|-------------|---------------|
-| `assignAdd` | `1 * (src1 + src2) = dest` |
-| `assignSub` | `1 * (src1 - src2) = dest` |
-| `assignMul` | `src1 * src2 = dest` |
-| `assignDiv` | `src2 * dest = src1` **and** `src2 * aux = 1` (forces `src2 != 0`) |
-| `assignNeg` | `1 * (-src) = dest` |
-| `assignConst` | `1 * c = dest` |
-| `assertEq` | `1 * src1 = src2` |
-
-Division uses a two-constraint encoding: the auxiliary constraint `src2 * aux = 1` ensures `src2` is invertible (and hence non-zero), making the reflection proof unconditional.
+See `docs/GUARANTEES.md` §Pass 2 for the full compilation table, witness relation, and proof strategy.
 
 ---
 
@@ -181,53 +168,4 @@ See `Heyting/Examples/StructIRExamples.lean` for 4 validated examples:
 
 Each example includes `noDupReads` proofs, positive/negative satisfaction proofs, and compilation output (`#eval` for both StructIR→FlatIR and FlatIR→R1CS).
 
-### StructIR to FlatIR pass (`Heyting/Passes/StructIRToFlatIR.lean`)
-
-This pass flattens hierarchical StructIR modules into linear FlatIR instruction sequences by inlining all cross-struct `@constrain` calls.
-
-**Compilation strategy:**
-
-The pass walks the main struct's `@constrain` body, recursively inlining callee bodies for `call` statements. Each felt operation emits the corresponding FlatIR instruction, `constrainEq` emits `assertEq`, and `readMember` emits no instruction (the witness handles value injection). The compiler additionally emits zero-initialization constraints (`assignConst v 0` for all `v < initNext`) at the start of the compiled program — these constrain parameter positions to zero, which is required for reflection.
-
-**Variable mapping (counter-based allocation):**
-
-Each assignment (felt op, readMember) gets a fresh FlatIR variable ID from a monotonically increasing counter (`next`). A mapping `VarMap : LocalVar → FlatIR.VarId` tracks the current FlatIR variable for each StructIR local. This scheme is correct even for non-SSA programs where locals are reassigned.
-
-| StructIR statement | FlatIR output | Allocation |
-|--------------------|---------------|------------|
-| `feltAdd dest src1 src2` | `assignAdd next (varMap src1) (varMap src2)` | `varMap[dest] := next`, `next += 1` |
-| `feltSub`, `feltMul`, `feltDiv`, `feltNeg`, `feltConst` | Corresponding `assign*` | Same pattern |
-| `readMember dest self member` | *(none)* | `varMap[dest] := next`, `next += 1` |
-| `constrainEq src1 src2` | `assertEq (varMap src1) (varMap src2)` | No allocation |
-| `call target args` | Inline callee body (recursive) | Callee uses same counter |
-
-**Witness relation:**
-
-The witness relation connects source and target witnesses through the **variable allocation map** (`buildVarAlloc`):
-
-```
-witnessRel p ws wt := ∀ vid, varAlloc vid ≠ 0 → ws vid = wt (varAlloc vid)
-```
-
-`buildVarAlloc` mirrors the structure of `compileConstrainBody` but instead of emitting instructions, it records which FlatIR variable ID each StructIR `(path, member)` read is allocated to. The relation says: for every StructIR variable that was read during compilation (i.e., whose allocation is non-zero), the source and target witnesses agree at that position.
-
-**Preservation:**
-
-`buildWitness` mirrors `compileConstrainBody` exactly in allocation, but records the computed value at each fresh variable. Preservation constructs `wt = compileWitness(ws)` and proves it satisfies the compiled FlatIR program. The zero-initialization prefix is satisfied because `buildWitness` starts from `acc = fun _ => 0`. The witness relation holds via `buildWitness_varAlloc_agree`: the constructed witness agrees with the source witness at all allocated positions.
-
-**Reflection (backward simulation via `reflection_direct`):**
-
-Reflection proves that if a FlatIR witness `wt` satisfies the compiled program and is related to some source witness `ws` via `witnessRel`, then `ws` satisfies the original StructIR program.
-
-The proof uses `reflection_direct`, which works directly with `wt` (not through `buildWitness`). It maintains `WitnessCoherent wt varMap env` — that `wt(varMap v) = env v` — inductively through each statement:
-
-- **Felt ops**: extract the satisfaction equation from `hsat`, derive the new local env value, update coherence
-- **readMember**: no instruction emitted, but coherence needs `wt(next) = w(path, member)`. This follows from `witnessRel` + `NoDuplicateReads`: `buildVarAlloc` assigns `next` to `(path, member)`, and NoDuplicateReads ensures this is the final assignment (via `buildVarAlloc_preserves_absent`)
-- **constrainEq**: derive equality from coherence + satisfaction
-- **call**: build callee coherence from args mapping, recurse. `wt 0 = 0` (from zero-init constraints) handles unmapped callee params
-
-**Proof status:**
-
-Both preservation and reflection are **fully verified** (0 sorry, standard axioms only: `propext`, `Classical.choice`, `Quot.sound`).
-
-Helper lemmas: `buildWitness_next_le`, `buildWitness_preserves_below`, `varMapBound_update`, `witnessCoherent_update_felt`, `witnessCoherent_update_from_sat` (generic, covers all felt ops), `preservation_body_peel_binop` (shared head-case for binop preservation), `buildWitness_compileConstrainBody_next`, `compileConstrainBody_next_le`, `compileConstrainBody_instrVars_bounded`, `acc_zero_of_update`, `buildVarAlloc_next_eq`, `buildVarAlloc_alloc_bound`, `buildWitness_varAlloc_agree`, `buildVarAlloc_preserves_absent`, `buildVarAlloc_acc_irrelevant`.
+See `docs/GUARANTEES.md` §Pass 1 for the full compilation strategy, witness relation, and proof details.

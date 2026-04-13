@@ -98,19 +98,39 @@ Run it with `lake exe` (no need to reference the binary path directly):
 
 ```bash
 lake exe hey help
-lake exe hey compile <input.llzk> <output.json>
+lake exe hey compile [--prime-field <field>] <input.llzk> <output.json>
 ```
 
 Or invoke the binary directly at `.lake/build/bin/hey`.
+
+### Supported prime fields
+
+The `--prime-field` flag selects the field. The default is `bn254`.
+
+| Flag | Prime | Used by |
+|------|-------|---------|
+| `bn254` *(default)* | 21888242871839275222246405745257275088696311157297823662689037894645226208583 | circom |
+| `bn128` | same as bn254 (alias) | circom |
+| `babybear` | 2013265921 (15 · 2²⁷ + 1) | zirgen |
+| `goldilocks` | 18446744069414584321 (2⁶⁴ − 2³² + 1) | plonky2 |
+| `mersenne31` | 2147483647 (2³¹ − 1) | Plonky3 |
+| `koalabear` | 2130706433 (2³¹ − 2²⁴ + 1) | Plonky3 |
+
+These match the 6 fields in `llzk-lib/lib/Util/Field.cpp`.
 
 ### Example
 
 ```bash
 mkdir -p out
+
+# Default field (bn254)
 lake exe hey compile llzk-lib/test/Dialect/Constrain/emit_pass.llzk out/emit_pass.json
-# Wrote R1CS JSON to out/emit_pass.json
+# Wrote R1CS JSON to out/emit_pass.json (field: bn254)
 #   Constraints: 4
 #   Variables: 3
+
+# Explicit field selection
+lake exe hey compile --prime-field babybear circuit.llzk out/system.json
 ```
 
 The output JSON has this structure:
@@ -130,7 +150,8 @@ The output JSON has this structure:
 Each constraint is an R1CS triple `A * B = C` over linear combinations of field elements.
 Variables are tagged `varOne` (the constant 1), `var n` (input/output), or `aux n` (auxiliary).
 
-> **Note:** The field is currently hardcoded to `ZMod 1993` (the prime field **F₁₉₉₃**).
+All compiler passes and verified theorems are **generic over the field** `F : Type [Field F]`
+— the correctness proofs hold for any field. The field is selected at the CLI boundary only.
 
 ### Compatibility with circom's JSON format
 
@@ -158,6 +179,7 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed roadmap.
 - [x] LLZK parser (read real circuit files)
 - [x] AST → StructIR lowering
 - [x] R1CS serialization output (`hey compile`)
+- [x] Multi-field support (`--prime-field`: bn254, bn128, babybear, goldilocks, mersenne31, koalabear)
 - [ ] Array support
 - [ ] Optimization passes (with correctness proofs)
 

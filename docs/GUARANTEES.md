@@ -26,6 +26,15 @@ Together, reflection and preservation give **equisatisfiability**: the
 compiled program is satisfiable if and only if the source program is,
 and witnesses on each side are connected through `witnessRel`.
 
+### Field genericity
+
+All pass instances are **generic over `F : Type [Field F]`** — the
+theorems hold for any field, not just a specific prime. The `F` type
+parameter is threaded through `Language`, `Pass`, `compileProgram`, and
+all proof terms. Examples and tests instantiate `F := ZMod 1993` (small
+prime, fast `native_decide`); the CLI selects a field at the boundary
+only. No `axiom` appears in any pass proof file.
+
 ---
 
 ## Pass 1: StructIR → FlatIR
