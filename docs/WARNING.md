@@ -4,81 +4,16 @@ Tracking design decisions that involve trade-offs, assumptions, or incomplete gu
 
 ---
 
-## 1. `assignDiv` reflection — RESOLVED
+## Resolved Issues (archived)
 
-**Date:** 2026-04-03
-**Resolved:** 2026-04-03
-**Affects:** `Heyting/Passes/FlatIRToR1CS.lean`
+The following issues were identified and fully resolved. Kept here for historical context.
 
-**Original issue:** The initial R1CS encoding of `assignDiv dest src1 src2` used a single constraint `src2 * dest = src1`. This correctly encodes `dest = src1 / src2` **only when `src2 ≠ 0`**, making reflection conditional.
-
-**Resolution:** `compileInstr` now returns `List (Constraint F)` and emits two constraints for division:
-1. `src2 * dest = src1` — encodes the division
-2. `src2 * aux(src2) = 1` — forces `src2` to be invertible (hence non-zero)
-
-An `aux : Nat → VarId` constructor was added to `R1CS.VarId`, and `compileWitness` maps `aux v` to `(w v)^-1`. Both preservation and reflection now hold unconditionally. Verified with `lean_verify`: no sorry, no custom axioms.
-
----
-
-## 2. StructIR semantics uses fuel-bounded recursion — RESOLVED
-
-**Date:** 2026-04-03
-**Resolved:** 2026-04-03
-**Affects:** `Heyting/Languages/StructIR.lean`
-
-**Original issue:** Cross-struct `@constrain` calls were evaluated with a `fuel : Nat` parameter. When fuel ran out, constraints were vacuously `True`, making the semantics unsound for deeply nested programs.
-
-**Resolution:** Replaced fuel-based recursion with **intrinsic well-formedness** via dependent types:
-- Structs are indexed `0..n-1` in topological (dependency) order
-- `call` targets are typed `Fin i` (callee index must be < current struct index)
-- Members are indexed by `Fin numMembers`
-- `evalConstrainBody` terminates by structural recursion on `(i, stmts.length)`
-
-Cyclic calls, missing struct references, and missing member references are now **unrepresentable** by construction. No fuel, no silent failures, no well-formedness predicates needed.
-
----
-
-## 3. StructIR → FlatIR pass: `witnessRel = True` — RESOLVED
-
-**Date:** 2026-04-03
-**Resolved:** 2026-04-07
-**Affects:** `Heyting/Passes/StructIRToFlatIR.lean`
-
-**Original issue:** The initial `CorrectPass` framework used a trivial witness relation (`witnessRel = True`). While provable, reflection was vacuous — any satisfiable target program could yield an unrelated source witness.
-
-**Resolution:** Introduced a meaningful witness relation via `buildVarAlloc`:
-
-```
-witnessRel p ws wt := ∀ vid, varAlloc vid ≠ 0 → ws vid = wt (varAlloc vid)
-```
-
-This ties source and target witnesses together at all read positions through the variable allocation map. Required three supporting changes:
-
-1. **`readPositions` + `noDupReads`** — the `Module` now carries a well-formedness field asserting that all `(path, member)` reads are unique (SSA-like condition).
-2. **Zero-initialization constraints** — `compileProgram` emits `assignConst v 0` for `v < initNext` at the start of the compiled program.
-3. **`reflection_direct`** — a backward simulation theorem working directly with `wt`.
-
-Verified: 0 sorry, standard axioms only.
-
----
-
-## 4. readMember/objEnv bug — RESOLVED
-
-**Date:** 2026-04-07
-**Resolved:** 2026-04-07
-**Affects:** `Heyting/Languages/StructIR.lean`, `Heyting/Passes/StructIRToFlatIR.lean`
-
-**Original issue:** `readMember dest self member` read `w(objEnv self, member.val)` into `env[dest]` but did NOT update `objEnv[dest]`. When `dest` was later passed to a `call`, the callee received `objEnv dest = []` (default) instead of the correct nested path. This broke nested struct semantics.
-
-**Resolution:** All 4 functions that handle `readMember` now update `objEnv`:
-- `evalConstrainBody`: `objEnv.update dest (path ++ [member.val])`
-- `readPositions`: restructured from `let` bindings to direct case-split for clean `unfold`/`simp` interaction
-- `buildWitness`: same update
-- `buildVarAlloc`: same update
-
-Additionally, `readPositions` was restructured from `let (stmtReads, objEnv') := match ...` to a direct case-split, because Lean's `unfold`/`simp` interaction with `let` bindings in recursive functions is unreliable for proof reduction.
-
-Verified: nested struct example works correctly. 0 errors, 0 sorries.
+| # | Issue | File | Resolution |
+|---|-------|------|------------|
+| 1 | `assignDiv` reflection — single constraint was conditional on `src2 ≠ 0` | `FlatIRToR1CS.lean` | Two-constraint encoding: `src2 * dest = src1` + `src2 * aux(src2) = 1`. `aux` added to `R1CS.VarId`; `compileWitness` maps `aux v` to `(w v)⁻¹`. Proof now unconditional. |
+| 2 | Fuel-bounded recursion in `evalConstrainBody` — fuel=0 was vacuously `True` | `StructIR.lean` | Replaced with intrinsic well-formedness: structs indexed topologically, `call` targets typed `Fin i`, members typed `Fin numMembers`. Termination by structural recursion on `(i, stmts.length)`. |
+| 3 | `witnessRel = True` — reflection was vacuous | `StructIRToFlatIR.lean` | Meaningful relation `∀ vid, varAlloc vid ≠ 0 → ws vid = wt (varAlloc vid)` via `buildVarAlloc`. Added `readPositions`/`noDupReads`. Zero-init prefix for reflection. |
+| 4 | `readMember` didn't update `objEnv[dest]` — nested struct calls used wrong path | `StructIR.lean`, `StructIRToFlatIR.lean` | All 4 functions (`evalConstrainBody`, `readPositions`, `buildWitness`, `buildVarAlloc`) now do `objEnv.update dest (path ++ [member.val])`. `readPositions` restructured from `let` bindings to direct case-split for reliable `simp` reduction. |
 
 ---
 
@@ -115,6 +50,46 @@ error: failed to GET URL, error 400; received:
 **Impact:** `lake cache get` silently falls back to building from source. The first full `lake build` (library only, no executable) takes ~30 minutes on a modern Mac. Subsequent incremental builds are fast.
 
 **Workaround:** None needed for the library. For `lake build hey` (the executable), native compilation of all transitively imported Mathlib modules is required. Because the cache doesn't deliver `.c.o` files even when it works (it delivers oleans only), the linker may fail with `undefined symbol: initialize_mathlib_Mathlib_Tactic_*`. See the fix below.
+
+---
+
+## 7. `private axiom` for large CLI prime fields — Active
+
+**Date:** 2026-04-13
+**Status:** Active — intentional design decision
+**Affects:** `Heyting/CLI.lean` only
+
+The CLI supports 6 prime fields matching `llzk-lib/lib/Util/Field.cpp`. The primality facts
+for `bn254`/`bn128` (254-bit prime) and `goldilocks` (Pseudo-Mersenne, but not the specific
+form `norm_num` handles) cannot be verified at elaboration time by `native_decide` or
+`norm_num`. Rather than blocking the CLI, their primality is declared via `private axiom`:
+
+```lean
+private axiom BN254_prime : Fact (Nat.Prime BN254_p)
+private axiom GOLDILOCKS_prime : Fact (Nat.Prime GOLDILOCKS_p)
+-- etc.
+```
+
+**Axiom isolation:** All 6 prime axioms are declared with `private` in `CLI.lean` and are
+never imported into any `PresReflPass` proof file. Running `lean_verify` on any pass theorem
+shows only the three standard axioms (`propext`, `Classical.choice`, `Quot.sound`).
+
+**Fields whose primality is axiomatic:**
+- `bn254` / `bn128`: same 254-bit prime — too large for `native_decide` in reasonable time
+- `goldilocks`: 2⁶⁴ − 2³² + 1 — not recognized by `norm_num`'s Mersenne prime extension
+
+**Fields whose primality is decidable:**
+- `babybear`: 2013265921 — could use `native_decide` or `norm_num`
+- `mersenne31`: 2147483647 — recognized as 2³¹ − 1 Mersenne prime
+- `koalabear`: 2130706433 — could use `native_decide` or `norm_num`
+
+For uniformity, all 6 fields use `private axiom` in the CLI. This keeps the code uniform
+and avoids a two-tier treatment that would require separate proofs for the smaller fields.
+
+**Impact on verified theorems:** None. The pass correctness theorems are generic over
+`F : Type [Field F]` and do not depend on any specific prime.
+
+---
 
 **Linker fix for `undefined symbol: initialize_mathlib_Mathlib_Tactic_HigherOrder` (and similar):**
 

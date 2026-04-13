@@ -20,6 +20,7 @@ structure Options where
   json : Bool := false
   auto : Bool := false
   witness? : Option String := none
+  prime? : Option String := none
   deriving Repr
 
 /- Parse a single option that expects a value. Returns (value, rest).
@@ -61,6 +62,10 @@ partial def parse (rawArgs : List String) : Except String Options :=
           match parseOptionWithValue rest with
           | .error e => .error s!"{tok}: {e}"
           | .ok (v, rest') => go { acc with witness? := some v } positional rest'
+        | "--prime-field" =>
+          match parseOptionWithValue rest with
+          | .error e => .error s!"{tok}: {e}"
+          | .ok (v, rest') => go { acc with prime? := some v } positional rest'
         | "--input" | "--in" =>
           match parseOptionWithValue rest with
           | .error e => .error s!"{tok}: {e}"
