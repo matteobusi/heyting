@@ -112,11 +112,11 @@ Examples/tests use `F := ZMod 1993`. Do not hardcode a prime in proof files.
 **Imports:** Minimize — import specific Mathlib modules, not `import Mathlib`.
 
 **New StructIR statement type** — add cases in:
-`compileConstrainBody`, `buildWitness`, `buildVarAlloc`, `evalConstrainBody`,
+`compileConstrainBody`, `compileWitness`, `buildVarAlloc`, `evalConstrainBody`,
 `readPositions`, and all proof theorems (`preservation_body`, `reflection_direct`,
-`reflection_body`, `compileConstrainBody_instrVars_bounded`, `buildWitness_preserves_below`,
-`buildWitness_next_le`, `buildWitness_compileConstrainBody_next`, `buildVarAlloc_next_eq`,
-`buildVarAlloc_alloc_bound`, `buildWitness_varAlloc_agree`, `buildVarAlloc_preserves_absent`,
+`reflection_body`, `compileConstrainBody_instrVars_bounded`, `compileWitness_preserves_below`,
+`compileWitness_next_le`, `compileWitness_compileConstrainBody_next`, `buildVarAlloc_next_eq`,
+`buildVarAlloc_alloc_bound`, `compileWitness_varAlloc_agree`, `buildVarAlloc_preserves_absent`,
 `buildVarAlloc_acc_irrelevant`).
 
 **New FlatIR instruction** — add to `compileInstr` (1–2 constraints), then preservation +

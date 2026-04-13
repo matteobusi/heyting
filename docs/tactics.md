@@ -72,7 +72,7 @@ r1cs_unfold_sat
 
 We considered macros for:
 - Splitting constraint membership (`compileInstr` unfolding + `subst`)
-- Unfolding the `compileConstrainBody`/`buildWitness`/`evalConstrainBody` triple
+- Unfolding the `compileConstrainBody`/`compileWitness`/`evalConstrainBody` triple
 
 Both were rejected because Lean 4 macro hygiene renames identifiers defined
 in other namespaces. A macro in `Tactics.lean` referencing `compileInstr`

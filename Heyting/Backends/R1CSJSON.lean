@@ -77,23 +77,26 @@ def countAuxVars (constraints : List (R1CS.Constraint F)) : Nat :=
   constraints.foldl (fun acc c => goC c acc) 0
 
 structure SystemSummary (F : Type) where
-  numConstraints : Nat
-  numVars : Nat
-  numAuxVars : Nat
-  constraints : List (R1CS.Constraint F)
+  numConstraints  : Nat
+  numVars         : Nat
+  numAuxVars      : Nat
+  numPublicInputs : Nat
+  constraints     : List (R1CS.Constraint F)
 
 def summarize [Repr F] (sys : R1CS.System F) : SystemSummary F :=
-  { numConstraints := sys.constraints.length
-    numVars := countVars sys.constraints
-    numAuxVars := countAuxVars sys.constraints
-    constraints := sys.constraints }
+  { numConstraints  := sys.constraints.length
+    numVars         := countVars sys.constraints
+    numAuxVars      := countAuxVars sys.constraints
+    numPublicInputs := sys.numPublicInputs
+    constraints     := sys.constraints }
 
 def summaryToJson [Repr F] (s : SystemSummary F) : Json :=
   Json.mkObj [
-    ("numConstraints", s.numConstraints),
-    ("numVars", s.numVars),
-    ("numAuxVars", s.numAuxVars),
-    ("constraints", Json.arr <| s.constraints.toArray.map constraintToJson)
+    ("numConstraints",  s.numConstraints),
+    ("numVars",         s.numVars),
+    ("numAuxVars",      s.numAuxVars),
+    ("numPublicInputs", s.numPublicInputs),
+    ("constraints",     Json.arr <| s.constraints.toArray.map constraintToJson)
   ]
 
 def systemToJson [Repr F] (sys : R1CS.System F) : Json :=
@@ -105,7 +108,8 @@ def ppConstraint (c : R1CS.Constraint F) : String :=
 def ppSystem [Repr F] (sys : R1CS.System F) : String :=
   let s := summarize sys
   let header := s!"R1CS System: {s.numConstraints} constraints, " ++
-                s!"{s.numVars} variables ({s.numAuxVars} aux)"
+                s!"{s.numVars} variables ({s.numAuxVars} aux), " ++
+                s!"{s.numPublicInputs} public inputs"
   let body : List String := s.constraints.toArray.mapIdx (fun i c =>
     s!"  [{i}] {ppConstraint c}") |>.toList
   String.intercalate "\n" (header :: body)

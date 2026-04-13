@@ -16,7 +16,8 @@ def dummySys : R1CS.System F :=
   { constraints := [
       { A := [(.var 1, 1)], B := [(.var 2, 1)], C := [(.var 3, 1)] },
       { A := [(.var 2, 1)], B := [(.varOne, 1)], C := [(.var 4, 1)] }
-    ] }
+    ]
+    numPublicInputs := 0 }
 
 -- Basic checks using #eval and native_decide (or just run at compile time)
 

@@ -133,7 +133,7 @@ def lowerMembers (n : Nat) (structIndex : HashMap String Nat)
     (decls : List LLZK.MemberDecl) : Except String (List (StructIR.MemberDecl n)) :=
   decls.mapM fun m => do
     let ty ← lowerMemberType n structIndex m.ty
-    return { name := m.name, type := ty }
+    return { name := m.name, type := ty, isPublic := m.isPublic }
 
 /-- Build member name → index map. -/
 def buildMemberIndex (members : List LLZK.MemberDecl) : HashMap String Nat :=

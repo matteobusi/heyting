@@ -103,11 +103,12 @@ structure FuncDef where
   pos        : Pos
   deriving Repr
 
-/-- Member declaration: `struct.member @name : !type`. -/
+/-- Member declaration: `struct.member @name : !type {llzk.pub}?`. -/
 structure MemberDecl where
-  name : SymName
-  ty   : Ty
-  pos  : Pos
+  name     : SymName
+  ty       : Ty
+  isPublic : Bool     -- true iff `{llzk.pub}` attribute was present
+  pos      : Pos
   deriving Repr
 
 /-- Struct definition. -/

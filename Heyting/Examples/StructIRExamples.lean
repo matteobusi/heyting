@@ -57,8 +57,8 @@ def component1A :
     StructDef 1 ⟨0, Nat.zero_lt_one⟩ F where
   name := "Component1A"
   members := [
-    { name := "f1", type := .felt },
-    { name := "f2", type := .felt }
+    { name := "f1", type := .felt, isPublic := false },
+    { name := "f2", type := .felt, isPublic := false }
   ]
   compute := {
     numParams := 1
@@ -167,9 +167,9 @@ struct.def @Adder {
 def adder : StructDef 1 ⟨0, Nat.zero_lt_one⟩ F where
   name := "Adder"
   members := [
-    { name := "a", type := .felt },
-    { name := "b", type := .felt },
-    { name := "c", type := .felt }
+    { name := "a", type := .felt, isPublic := false },
+    { name := "b", type := .felt, isPublic := false },
+    { name := "c", type := .felt, isPublic := false }
   ]
   compute := { numParams := 0, body := [], returnVar := 0 }
   constrain := {
@@ -260,9 +260,9 @@ struct.def @Divider {
 def divider : StructDef 1 ⟨0, Nat.zero_lt_one⟩ F where
   name := "Divider"
   members := [
-    { name := "a", type := .felt },
-    { name := "b", type := .felt },
-    { name := "c", type := .felt }
+    { name := "a", type := .felt, isPublic := false },
+    { name := "b", type := .felt, isPublic := false },
+    { name := "c", type := .felt, isPublic := false }
   ]
   compute := { numParams := 0, body := [], returnVar := 0 }
   constrain := {
@@ -354,8 +354,8 @@ def component1A_nested :
     StructDef 2 ⟨0, by omega⟩ F where
   name := "Component1A"
   members := [
-    { name := "f1", type := .felt },
-    { name := "f2", type := .felt }
+    { name := "f1", type := .felt, isPublic := false },
+    { name := "f2", type := .felt, isPublic := false }
   ]
   compute := { numParams := 0, body := [], returnVar := 0 }
   constrain := {
@@ -373,7 +373,7 @@ def component1A_nested :
 def wrapper : StructDef 2 ⟨1, by omega⟩ F where
   name := "Wrapper"
   members := [
-    { name := "inner", type := .substruct ⟨0, by omega⟩ }
+    { name := "inner", type := .substruct ⟨0, by omega⟩, isPublic := false }
   ]
   compute := { numParams := 0, body := [], returnVar := 0 }
   constrain := {
