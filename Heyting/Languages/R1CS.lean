@@ -17,7 +17,8 @@ namespace R1CS
     deriving Repr
 
   structure System (F : Type) where
-    constraints : List (Constraint F)
+    constraints     : List (Constraint F)
+    numPublicInputs : Nat               -- number of public wires (signals 1..numPublicInputs)
     deriving Repr
 
   abbrev Witness (F : Type) := VarId → F

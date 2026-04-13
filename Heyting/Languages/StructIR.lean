@@ -1,4 +1,5 @@
 import Heyting.Core.Language
+import Heyting.Core.ComputingLanguage
 
 /-!
 # StructIR — Structured Intermediate Representation
@@ -32,8 +33,9 @@ inductive MemberType (n : Nat) where
 
 -- A struct member declaration
 structure MemberDecl (n : Nat) where
-  name : String
-  type : MemberType n
+  name     : String
+  type     : MemberType n
+  isPublic : Bool     -- true iff `{llzk.pub}` was present on this member
   deriving Repr
 
 -- Statements in @constrain (constraint-generating function)
@@ -255,5 +257,142 @@ instance Language (n : Nat) (F : Type) [Field F] :
     Language VarId F where
   Program := Module (n + 1) F
   satisfies := fun w m => satisfies w m
+
+/-!
+## Compute Interpreter
+
+`evalComputeBody` interprets a `ComputeFunc` body to produce a witness.
+It mirrors the structure of `evalConstrainBody` and uses the same
+termination measure `(i, stmts.length)`.
+
+### Interpreter state
+
+- `env`      — values of local variables (updated by felt ops and calls)
+- `objEnv`   — instance paths for local variables (updated by `readMember`, `newStruct`, `call`)
+- `acc`      — witness accumulator: maps `VarId` to field values (updated by `writeMember`)
+- `nextPath` — monotonic counter for allocating fresh `InstancePath`s via `newStruct`
+
+### Error handling
+
+`feltDiv` returns `none` if the divisor is zero. All other errors
+propagate via `Option.bind` (`do`-notation). The top-level
+`computeWitness` returns `none` iff any division by zero occurred.
+-/
+
+/-- Interpreter state for `evalComputeBody`. -/
+structure ComputeState (F : Type) where
+  /-- Local variable values. -/
+  env      : LocalEnv F
+  /-- Instance paths bound to local variables. -/
+  objEnv   : ObjEnv
+  /-- Witness accumulator: `(path, memberIdx) → F`. -/
+  acc      : Witness F
+  /-- Counter for allocating fresh instance paths via `newStruct`. -/
+  nextPath : Nat
+
+variable {F : Type} [Field F] [DecidableEq F] {n : Nat}
+
+/-- Evaluate a `@compute` body for struct `i`, threading `ComputeState`.
+    Returns `none` if division by zero occurs. -/
+def evalComputeBody (m : Module n F)
+    (i : Fin n) (state : ComputeState F)
+    (stmts : List (ComputeStmt n i F (m.structs i).members.length)) :
+    Option (ComputeState F) :=
+  match stmts with
+  | [] => some state
+  | stmt :: rest =>
+    let step : Option (ComputeState F) :=
+      match stmt with
+      | .feltAdd dest src1 src2 =>
+        some { state with env := state.env.update dest (state.env src1 + state.env src2) }
+      | .feltSub dest src1 src2 =>
+        some { state with env := state.env.update dest (state.env src1 - state.env src2) }
+      | .feltMul dest src1 src2 =>
+        some { state with env := state.env.update dest (state.env src1 * state.env src2) }
+      | .feltDiv dest src1 src2 =>
+        if state.env src2 == 0 then none
+        else some { state with env := state.env.update dest (state.env src1 * (state.env src2)⁻¹) }
+      | .feltNeg dest src =>
+        some { state with env := state.env.update dest (-(state.env src)) }
+      | .feltConst dest c =>
+        some { state with env := state.env.update dest c }
+      | .readMember dest self member =>
+        -- Read a member value from the witness accumulator.
+        -- The member's path is (objEnv[self] ++ [member.val]).
+        let selfPath := state.objEnv self
+        let memberPath := selfPath ++ [member.val]
+        let val := state.acc (selfPath, member.val)
+        some { state with
+          env    := state.env.update dest val,
+          objEnv := state.objEnv.update dest memberPath }
+      | .writeMember self member src =>
+        -- Write a local variable's value into the witness accumulator.
+        let path := state.objEnv self
+        let vid  := (path, member.val)
+        let val  := state.env src
+        some { state with acc := fun v => if v == vid then val else state.acc v }
+      | .newStruct dest =>
+        -- Allocate a fresh instance path [nextPath] for the new struct.
+        some { state with
+          objEnv   := state.objEnv.update dest [state.nextPath],
+          nextPath := state.nextPath + 1 }
+      | .call dest target args =>
+        -- Evaluate the callee's compute body with a fresh local env built from args.
+        let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
+        let sd := m.structs j
+        let calleeEnv : LocalEnv F := fun param =>
+          match args[param]? with
+          | some arg => state.env arg
+          | none => 0
+        let calleeObjEnv : ObjEnv := fun param =>
+          match args[param]? with
+          | some arg => state.objEnv arg
+          | none => []
+        let calleeState : ComputeState F :=
+          { env := calleeEnv, objEnv := calleeObjEnv,
+            acc := state.acc, nextPath := state.nextPath }
+        match evalComputeBody m j calleeState sd.compute.body with
+        | none => none
+        | some s' =>
+          -- The callee's return value goes into dest; witness and nextPath are merged back.
+          some { state with
+            env      := state.env.update dest (s'.env sd.compute.returnVar),
+            acc      := s'.acc,
+            nextPath := s'.nextPath }
+    match step with
+    | none => none
+    | some state' => evalComputeBody m i state' rest
+termination_by (i, stmts.length)
+
+/-- Build the initial `ComputeState` from a list of public inputs.
+    Inputs are placed into local variables `0 .. inputs.length - 1`.
+    All other locals default to `0`. The witness accumulator starts at `0`. -/
+def initComputeState (inputs : List F) : ComputeState F :=
+  let env : LocalEnv F := fun k =>
+    match inputs[k]? with
+    | some v => v
+    | none   => 0
+  { env      := env,
+    objEnv   := ObjEnv.update (fun _ => []) 0 [],
+    acc      := fun _ => 0,
+    nextPath := 1 }  -- 0 is reserved for the root instance (self at path [])
+
+/-- Attempt to compute a satisfying witness for the main struct from public inputs.
+    Returns `none` if any `feltDiv` encounters a zero divisor. -/
+def computeWitness (m : Module (n + 1) F) (inputs : List F) : Option (Witness F) :=
+  let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
+  let state₀ := initComputeState inputs
+  match evalComputeBody m mainIdx state₀ m.main.compute.body with
+  | none    => none
+  | some s' => some s'.acc
+
+/-- `ComputingLanguage` instance for StructIR.
+    Public inputs are given as `List F` (positional arguments to `@compute`). -/
+instance ComputingLang (n : Nat) (F : Type) [Field F] [DecidableEq F] :
+    ComputingLanguage VarId F where
+  Program         := Module (n + 1) F
+  satisfies       := fun w m => satisfies w m
+  Input           := List F
+  computeWitness  := fun m inputs => computeWitness m inputs
 
 end StructIR

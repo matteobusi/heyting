@@ -21,7 +21,7 @@ We use a **counter-based allocation**: each assignment gets a fresh FlatIR
 variable ID from a monotonically increasing counter. This ensures correctness
 even when StructIR locals are reassigned (non-SSA programs).
 
-The `buildWitness` function mirrors this allocation and maps each FlatIR
+The `compileWitness` function mirrors this allocation and maps each FlatIR
 variable to the value computed by the corresponding StructIR operation.
 
 ### What gets compiled
@@ -36,13 +36,13 @@ variable to the value computed by the corresponding StructIR operation.
 ## Correctness proof architecture
 
 **Preservation** (`preservation_body`): Given a StructIR witness `ws` satisfying
-the source, construct a FlatIR witness `wt = buildWitness(ws)` satisfying the
+the source, construct a FlatIR witness `wt = compileWitness(ws)` satisfying the
 compiled program. Uses `WitnessCoherent wt varMap env` as the main invariant.
 
 **Reflection** (`reflection_direct`): Given a FlatIR witness `wt` satisfying
 the compiled program, show that the source `evalConstrainBody` holds when
 instantiated with `w = extractWitness(wt)`. Uses `wt` directly (not through
-`buildWitness`) and maintains `WitnessCoherent wt varMap env` inductively.
+`compileWitness`) and maintains `WitnessCoherent wt varMap env` inductively.
 The zero-initialization prefix forces `wt v = 0` for param positions, which
 is needed to establish initial coherence for reflection.
 -/
@@ -55,7 +55,7 @@ variable {F : Type} [Field F] {n : Nat}
 
 /-! ## Compilation state
 
-Both `compileConstrainBody` and `buildWitness` thread a counter (`next`)
+Both `compileConstrainBody` and `compileWitness` thread a counter (`next`)
 for allocating fresh FlatIR variable IDs. To keep them in sync, both
 use the same allocation logic.
 
@@ -158,12 +158,12 @@ def compileProgram (m : StructIR.Module (n + 1) F) : FlatIR.Program F :=
 
 /-! ## Witness construction
 
-`buildWitness` mirrors `compileConstrainBody` exactly in allocation, but
+`compileWitness` mirrors `compileConstrainBody` exactly in allocation, but
 records the computed values at each fresh variable. Used in the correctness
 proofs to construct the FlatIR witness from a StructIR witness.
 -/
 
-def buildWitness (m : StructIR.Module n F) (w : StructIR.Witness F)
+def compileWitness (m : StructIR.Module n F) (w : StructIR.Witness F)
     (i : Fin n) (varMap : VarMap) (next : Nat)
     (env : LocalEnv F) (objEnv : ObjEnv)
     (stmts : List (ConstrainStmt n i F (m.structs i).members.length))
@@ -218,10 +218,10 @@ def buildWitness (m : StructIR.Module n F) (w : StructIR.Witness F)
           match args[param]? with
           | some arg => varMap arg
           | none => 0
-        let (acc', next') := buildWitness m w j calleeVarMap next
+        let (acc', next') := compileWitness m w j calleeVarMap next
           calleeEnv calleeObjEnv sd.constrain.body acc
         (env, objEnv, varMap, next', acc')
-    buildWitness m w i varMap' next' env' objEnv' rest acc'
+    compileWitness m w i varMap' next' env' objEnv' rest acc'
 termination_by (i, stmts.length)
 
 /-! ## Backward witness extraction
@@ -232,7 +232,7 @@ to each (path, member) pair, then reading the FlatIR witness at that position.
 -/
 
 -- Track which FlatIR variable holds each (path, member) value.
--- Mirrors `compileConstrainBody` / `buildWitness` allocation, but records
+-- Mirrors `compileConstrainBody` / `compileWitness` allocation, but records
 -- the mapping from (path, memberIdx) → FlatIR.VarId.
 def buildVarAlloc (m : StructIR.Module n F)
     (i : Fin n) (varMap : VarMap) (next : Nat)
@@ -326,56 +326,56 @@ def WitnessCoherent (acc : FlatIR.VarId → F) (varMap : VarMap)
 def VarMapBound (varMap : VarMap) (next : Nat) : Prop :=
   ∀ v : LocalVar, varMap v < next
 
-/-! ### Auxiliary lemmas for buildWitness -/
+/-! ### Auxiliary lemmas for compileWitness -/
 
--- The variable counter only increases through buildWitness
-theorem buildWitness_next_le (m : StructIR.Module n F)
+-- The variable counter only increases through compileWitness
+theorem compileWitness_next_le (m : StructIR.Module n F)
     (w : StructIR.Witness F) (i : Fin n) (varMap : VarMap)
     (next : Nat) (env : LocalEnv F) (objEnv : ObjEnv)
     (stmts : List (ConstrainStmt n i F (m.structs i).members.length))
     (acc : FlatIR.VarId → F) :
-    next ≤ (buildWitness m w i varMap next env objEnv stmts acc).2 := by
+    next ≤ (compileWitness m w i varMap next env objEnv stmts acc).2 := by
   match stmts with
-  | [] => simp [buildWitness]
+  | [] => simp [compileWitness]
   | stmt :: rest =>
-    unfold buildWitness
+    unfold compileWitness
     match stmt with
     | .feltAdd .. | .feltSub .. | .feltMul .. | .feltDiv ..
     | .feltNeg .. | .feltConst .. | .readMember .. =>
       simp only
       exact Nat.le_trans (Nat.le_succ _)
-        (buildWitness_next_le m w i _ _ _ _ rest _)
+        (compileWitness_next_le m w i _ _ _ _ rest _)
     | .constrainEq .. =>
-      simp only; exact buildWitness_next_le m w i _ _ _ _ rest _
+      simp only; exact compileWitness_next_le m w i _ _ _ _ rest _
     | .call target args =>
       simp only
       let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
       exact Nat.le_trans
-        (buildWitness_next_le m w j _ _ _ _ _ _)
-        (buildWitness_next_le m w i _ _ _ _ rest _)
+        (compileWitness_next_le m w j _ _ _ _ _ _)
+        (compileWitness_next_le m w i _ _ _ _ rest _)
 termination_by (i, stmts.length)
 
--- buildWitness only writes to variables >= next; values below are preserved
-theorem buildWitness_preserves_below (m : StructIR.Module n F)
+-- compileWitness only writes to variables >= next; values below are preserved
+theorem compileWitness_preserves_below (m : StructIR.Module n F)
     (w : StructIR.Witness F) (i : Fin n) (varMap : VarMap)
     (next : Nat) (env : LocalEnv F) (objEnv : ObjEnv)
     (stmts : List (ConstrainStmt n i F (m.structs i).members.length))
     (acc : FlatIR.VarId → F) (v : FlatIR.VarId) (hv : v < next) :
-    (buildWitness m w i varMap next env objEnv stmts acc).1 v =
+    (compileWitness m w i varMap next env objEnv stmts acc).1 v =
       acc v := by
   match stmts with
-  | [] => unfold buildWitness; rfl
+  | [] => unfold compileWitness; rfl
   | stmt :: rest =>
-    unfold buildWitness
+    unfold compileWitness
     match stmt with
     | .feltAdd .. | .feltSub .. | .feltMul .. | .feltDiv ..
     | .feltNeg .. | .feltConst .. | .readMember .. =>
       simp only
       have hv' : v < next + 1 := Nat.lt_of_lt_of_le hv (Nat.le_succ _)
-      rw [buildWitness_preserves_below m w i _ _ _ _ rest _ v hv']
+      rw [compileWitness_preserves_below m w i _ _ _ _ rest _ v hv']
       simp [Nat.ne_of_lt hv]
     | .constrainEq .. =>
-      simp only; exact buildWitness_preserves_below m w i _ _ _ _ rest _ v hv
+      simp only; exact compileWitness_preserves_below m w i _ _ _ _ rest _ v hv
     | .call target args =>
       simp only
       let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
@@ -386,13 +386,13 @@ theorem buildWitness_preserves_below (m : StructIR.Module n F)
         match args[param]? with | some arg => objEnv arg | none => []
       let calleeVarMap : VarMap := fun param =>
         match args[param]? with | some arg => varMap arg | none => 0
-      have h_callee_next : next ≤ (buildWitness m w j calleeVarMap next
+      have h_callee_next : next ≤ (compileWitness m w j calleeVarMap next
           calleeEnv calleeObjEnv sd.constrain.body acc).2 :=
-        buildWitness_next_le m w j calleeVarMap next
+        compileWitness_next_le m w j calleeVarMap next
           calleeEnv calleeObjEnv sd.constrain.body acc
-      rw [buildWitness_preserves_below m w i varMap _ env objEnv rest _ v
+      rw [compileWitness_preserves_below m w i varMap _ env objEnv rest _ v
         (Nat.lt_of_lt_of_le hv h_callee_next)]
-      exact buildWitness_preserves_below m w j calleeVarMap next
+      exact compileWitness_preserves_below m w j calleeVarMap next
         calleeEnv calleeObjEnv sd.constrain.body acc v hv
 termination_by (i, stmts.length)
 
@@ -433,23 +433,23 @@ private theorem witnessCoherent_update_felt (acc : FlatIR.VarId → F)
 
 /-! ### Counter synchronization -/
 
--- buildWitness and compileConstrainBody produce the same counter
-theorem buildWitness_compileConstrainBody_next (m : StructIR.Module n F)
+-- compileWitness and compileConstrainBody produce the same counter
+theorem compileWitness_compileConstrainBody_next (m : StructIR.Module n F)
     (w : StructIR.Witness F) (i : Fin n) (varMap : VarMap) (next : Nat)
     (env : LocalEnv F) (objEnv : ObjEnv)
     (stmts : List (ConstrainStmt n i F (m.structs i).members.length))
     (acc : FlatIR.VarId → F) :
-    (buildWitness m w i varMap next env objEnv stmts acc).2 =
+    (compileWitness m w i varMap next env objEnv stmts acc).2 =
     (compileConstrainBody m i varMap next stmts).2 := by
   match stmts with
-  | [] => simp [buildWitness, compileConstrainBody]
+  | [] => simp [compileWitness, compileConstrainBody]
   | stmt :: rest =>
-    unfold buildWitness compileConstrainBody
+    unfold compileWitness compileConstrainBody
     match stmt with
     | .feltAdd .. | .feltSub .. | .feltMul .. | .feltDiv ..
     | .feltNeg .. | .feltConst .. | .readMember .. | .constrainEq .. =>
       simp only
-      exact buildWitness_compileConstrainBody_next m w i _ _ _ _ rest _
+      exact compileWitness_compileConstrainBody_next m w i _ _ _ _ rest _
     | .call target args =>
       simp only
       let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
@@ -460,10 +460,10 @@ theorem buildWitness_compileConstrainBody_next (m : StructIR.Module n F)
         match args[param]? with | some arg => objEnv arg | none => []
       let calleeVarMap : VarMap := fun param =>
         match args[param]? with | some arg => varMap arg | none => 0
-      have h_callee := buildWitness_compileConstrainBody_next m w j
+      have h_callee := compileWitness_compileConstrainBody_next m w j
         calleeVarMap next calleeEnv calleeObjEnv sd.constrain.body acc
       rw [h_callee]
-      exact buildWitness_compileConstrainBody_next m w i _ _ _ _ rest _
+      exact compileWitness_compileConstrainBody_next m w i _ _ _ _ rest _
 termination_by (i, stmts.length)
 
 /-! ### Instruction variable bounds -/
@@ -623,9 +623,9 @@ theorem compileConstrainBody_instrVars_bounded (m : StructIR.Module n F)
           rest hbound' instr h vid hvid
 termination_by (i, stmts.length)
 
-/-! ### buildWitness and buildVarAlloc agreement -/
+/-! ### compileWitness and buildVarAlloc agreement -/
 
--- buildVarAlloc counter stays in sync with compileConstrainBody/buildWitness.
+-- buildVarAlloc counter stays in sync with compileConstrainBody/compileWitness.
 -- (Same recursion structure: felt ops +1, readMember +1, constrainEq +0, call recurses.)
 omit [Field F] in
 theorem buildVarAlloc_next_eq (m : StructIR.Module n F)
@@ -846,7 +846,7 @@ private theorem witnessCoherent_update_from_sat
   case isFalse => exact hcoh v
 
 -- Main reflection theorem: directly uses wt (the FlatIR witness) to prove
--- StructIR evaluation, without going through buildWitness.
+-- StructIR evaluation, without going through compileWitness.
 theorem reflection_direct (m : StructIR.Module n F) (w : StructIR.Witness F)
     (wt : FlatIR.VarId → F)
     (i : Fin n) (varMap : VarMap) (next : Nat)
@@ -1141,11 +1141,11 @@ theorem reflection_direct (m : StructIR.Module n F) (w : StructIR.Witness F)
           env objEnv rest
           hcoh hbound_rest hpoz_rest hwt_zero hnodup_rest hw_rest hsat_rest'
 
--- buildWitness agrees with the source witness at positions tracked by buildVarAlloc.
--- Key property: for each readMember, buildWitness records w(path, member) at position
--- `next`, and buildVarAlloc records (path, member) → next. Since buildWitness preserves
--- values below `next`, the final buildWitness result at varAlloc(vid) equals w(vid).
-theorem buildWitness_varAlloc_agree (m : StructIR.Module n F)
+-- compileWitness agrees with the source witness at positions tracked by buildVarAlloc.
+-- Key property: for each readMember, compileWitness records w(path, member) at position
+-- `next`, and buildVarAlloc records (path, member) → next. Since compileWitness preserves
+-- values below `next`, the final compileWitness result at varAlloc(vid) equals w(vid).
+theorem compileWitness_varAlloc_agree (m : StructIR.Module n F)
     (w : StructIR.Witness F)
     (i : Fin n) (varMap : VarMap) (next : Nat)
     (env : LocalEnv F) (objEnv : ObjEnv)
@@ -1154,24 +1154,24 @@ theorem buildWitness_varAlloc_agree (m : StructIR.Module n F)
     (allocAcc : StructIR.VarId → FlatIR.VarId)
     (hpoz : 0 < next)
     (halloc_bound : ∀ vid, allocAcc vid ≠ 0 → allocAcc vid < next)
-    -- Previous allocations are consistent: buildWitness result agrees with w at allocAcc positions
+    -- Previous allocations are consistent: compileWitness result agrees with w at allocAcc positions
     (hprev : ∀ vid, allocAcc vid ≠ 0 → allocAcc vid < next →
       acc (allocAcc vid) = w vid) :
-    let bw := (buildWitness m w i varMap next env objEnv stmts acc).1
+    let bw := (compileWitness m w i varMap next env objEnv stmts acc).1
     let va := (buildVarAlloc m i varMap next objEnv stmts allocAcc).1
     ∀ vid, va vid ≠ 0 → bw (va vid) = w vid := by
   match stmts with
   | [] =>
-    unfold buildWitness buildVarAlloc
+    unfold compileWitness buildVarAlloc
     intro _ _ vid hne
     exact hprev vid hne (halloc_bound vid hne)
   | stmt :: rest =>
-    unfold buildWitness buildVarAlloc
+    unfold compileWitness buildVarAlloc
     match stmt with
     | .feltAdd .. | .feltSub .. | .feltMul .. | .feltDiv ..
     | .feltNeg .. | .feltConst .. =>
       simp only
-      apply buildWitness_varAlloc_agree m w i _ _ _ _ rest _ _
+      apply compileWitness_varAlloc_agree m w i _ _ _ _ rest _ _
         (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
       · intro vid hne
         exact Nat.lt_of_lt_of_le (halloc_bound vid hne) (Nat.le_succ _)
@@ -1182,7 +1182,7 @@ theorem buildWitness_varAlloc_agree (m : StructIR.Module n F)
         exact hprev vid hne (halloc_bound vid hne)
     | .readMember dest self member =>
       simp only
-      apply buildWitness_varAlloc_agree m w i _ _ _ _ rest _ _
+      apply compileWitness_varAlloc_agree m w i _ _ _ _ rest _ _
         (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
       · -- halloc_bound for readMember: allocAcc' vid ≠ 0 → allocAcc' vid < next + 1
         intro vid hne
@@ -1208,7 +1208,7 @@ theorem buildWitness_varAlloc_agree (m : StructIR.Module n F)
           exact hprev vid hne (halloc_bound vid hne)
     | .constrainEq src1 src2 =>
       simp only
-      exact buildWitness_varAlloc_agree m w i _ _ _ _ rest _ _
+      exact compileWitness_varAlloc_agree m w i _ _ _ _ rest _ _
         hpoz halloc_bound hprev
     | .call target args =>
       simp only
@@ -1220,43 +1220,43 @@ theorem buildWitness_varAlloc_agree (m : StructIR.Module n F)
         match args[param]? with | some arg => objEnv arg | none => []
       let calleeVarMap : VarMap := fun param =>
         match args[param]? with | some arg => varMap arg | none => 0
-      -- Sync buildVarAlloc and buildWitness counters for callee
+      -- Sync buildVarAlloc and compileWitness counters for callee
       have h_callee_sync := buildVarAlloc_next_eq m j calleeVarMap next
         calleeObjEnv sd.constrain.body allocAcc
-      have h_callee_sync_bw := buildWitness_compileConstrainBody_next m w j
+      have h_callee_sync_bw := compileWitness_compileConstrainBody_next m w j
         calleeVarMap next calleeEnv calleeObjEnv sd.constrain.body acc
-      -- Rewrite buildVarAlloc counter to buildWitness counter in goal
+      -- Rewrite buildVarAlloc counter to compileWitness counter in goal
       have h_va_eq_bw : (buildVarAlloc m j calleeVarMap next
           calleeObjEnv sd.constrain.body allocAcc).2 =
-          (buildWitness m w j calleeVarMap next
+          (compileWitness m w j calleeVarMap next
           calleeEnv calleeObjEnv sd.constrain.body acc).2 := by
         rw [h_callee_sync, h_callee_sync_bw]
       rw [h_va_eq_bw]
       -- Apply IH to callee
-      have h_callee_agree := buildWitness_varAlloc_agree m w j
+      have h_callee_agree := compileWitness_varAlloc_agree m w j
         calleeVarMap next calleeEnv calleeObjEnv sd.constrain.body
         acc allocAcc hpoz halloc_bound hprev
       -- Get callee bound
       have h_callee_bound := buildVarAlloc_alloc_bound m j calleeVarMap next
         calleeObjEnv sd.constrain.body allocAcc halloc_bound
       -- Get callee next >= next
-      have h_callee_next_le : next ≤ (buildWitness m w j calleeVarMap next
+      have h_callee_next_le : next ≤ (compileWitness m w j calleeVarMap next
           calleeEnv calleeObjEnv sd.constrain.body acc).2 :=
-        buildWitness_next_le m w j calleeVarMap next calleeEnv calleeObjEnv
+        compileWitness_next_le m w j calleeVarMap next calleeEnv calleeObjEnv
           sd.constrain.body acc
-      -- callee alloc bound in terms of buildWitness counter
+      -- callee alloc bound in terms of compileWitness counter
       have h_callee_bound' : ∀ vid,
           (buildVarAlloc m j calleeVarMap next
             calleeObjEnv sd.constrain.body allocAcc).1 vid ≠ 0 →
           (buildVarAlloc m j calleeVarMap next
             calleeObjEnv sd.constrain.body allocAcc).1 vid <
-          (buildWitness m w j calleeVarMap next
+          (compileWitness m w j calleeVarMap next
             calleeEnv calleeObjEnv sd.constrain.body acc).2 := by
         intro vid hne
         rw [h_callee_sync_bw, ← h_callee_sync]
         exact h_callee_bound vid hne
       -- Apply IH to rest
-      apply buildWitness_varAlloc_agree m w i varMap _ env objEnv rest _ _
+      apply compileWitness_varAlloc_agree m w i varMap _ env objEnv rest _ _
         (Nat.lt_of_lt_of_le hpoz h_callee_next_le)
         h_callee_bound'
       -- hprev for rest: callee results agree
@@ -1266,18 +1266,18 @@ theorem buildWitness_varAlloc_agree (m : StructIR.Module n F)
 
 /-! ### Core preservation lemma -/
 
--- Helper: acc 0 = 0 is preserved by buildWitness (0 < next ensures slot 0 is never overwritten)
-private theorem buildWitness_preserves_zero (m : StructIR.Module n F)
+-- Helper: acc 0 = 0 is preserved by compileWitness (0 < next ensures slot 0 is never overwritten)
+private theorem compileWitness_preserves_zero (m : StructIR.Module n F)
     (w : StructIR.Witness F) (i : Fin n) (varMap : VarMap) (next : Nat)
     (env : LocalEnv F) (objEnv : ObjEnv)
     (stmts : List (ConstrainStmt n i F (m.structs i).members.length))
     (acc : FlatIR.VarId → F) (hpoz : 0 < next) (hacc_zero : acc 0 = 0) :
-    (buildWitness m w i varMap next env objEnv stmts acc).1 0 = 0 := by
-  rw [buildWitness_preserves_below m w i varMap next env objEnv stmts acc 0 hpoz]
+    (compileWitness m w i varMap next env objEnv stmts acc).1 0 = 0 := by
+  rw [compileWitness_preserves_below m w i varMap next env objEnv stmts acc 0 hpoz]
   exact hacc_zero
 
--- Helper: WitnessCoherent is preserved through buildWitness when varMap values are below next
-private theorem witnessCoherent_after_buildWitness (m : StructIR.Module n F)
+-- Helper: WitnessCoherent is preserved through compileWitness when varMap values are below next
+private theorem witnessCoherent_after_compileWitness (m : StructIR.Module n F)
     (w : StructIR.Witness F) (j : Fin n) (calleeVarMap : VarMap) (next : Nat)
     (calleeEnv : LocalEnv F) (calleeObjEnv : ObjEnv)
     (calleeStmts : List (ConstrainStmt n j F (m.structs j).members.length))
@@ -1285,15 +1285,15 @@ private theorem witnessCoherent_after_buildWitness (m : StructIR.Module n F)
     (hcoh : WitnessCoherent acc varMap env)
     (hbound : VarMapBound varMap next) :
     WitnessCoherent
-      (buildWitness m w j calleeVarMap next calleeEnv calleeObjEnv calleeStmts acc).1
+      (compileWitness m w j calleeVarMap next calleeEnv calleeObjEnv calleeStmts acc).1
       varMap env := by
   intro v
-  rw [buildWitness_preserves_below m w j calleeVarMap next calleeEnv calleeObjEnv
+  rw [compileWitness_preserves_below m w j calleeVarMap next calleeEnv calleeObjEnv
     calleeStmts acc (varMap v) (hbound v)]
   exact hcoh v
 
 -- Helper: for a binop head instruction in preservation_body, after peeling back
--- buildWitness to the accumulator, the result at `next` is `val`, and at
+-- compileWitness to the accumulator, the result at `next` is `val`, and at
 -- `varMap src1/src2` is `env src1/src2` via coherence.
 private theorem preservation_body_peel_binop (m : StructIR.Module n F)
     (w : StructIR.Witness F) (i : Fin n) (varMap : VarMap) (next : Nat)
@@ -1302,23 +1302,23 @@ private theorem preservation_body_peel_binop (m : StructIR.Module n F)
     (acc : FlatIR.VarId → F) (dest src1 src2 : LocalVar) (val : F)
     (hcoh : WitnessCoherent acc varMap env)
     (hbound : VarMapBound varMap next) :
-    let flatW := (buildWitness m w i (varMap.update dest next) (next + 1)
+    let flatW := (compileWitness m w i (varMap.update dest next) (next + 1)
       (env.update dest val) objEnv rest
       (fun v => if (v == next) = true then val else acc v)).1
     flatW next = val ∧ flatW (varMap src1) = env src1 ∧ flatW (varMap src2) = env src2 := by
   constructor
-  · rw [buildWitness_preserves_below m w i (varMap.update dest next) (next + 1)
+  · rw [compileWitness_preserves_below m w i (varMap.update dest next) (next + 1)
       (env.update dest val) objEnv rest
       (fun v => if (v == next) = true then val else acc v) next
       (Nat.lt_succ_iff.mpr le_rfl)]
     simp
   constructor
-  · rw [buildWitness_preserves_below m w i (varMap.update dest next) (next + 1)
+  · rw [compileWitness_preserves_below m w i (varMap.update dest next) (next + 1)
       (env.update dest val) objEnv rest
       (fun v => if (v == next) = true then val else acc v) (varMap src1)
       (Nat.lt_of_lt_of_le (hbound src1) (Nat.le_succ _))]
     simp [Nat.ne_of_lt (hbound src1), hcoh src1]
-  · rw [buildWitness_preserves_below m w i (varMap.update dest next) (next + 1)
+  · rw [compileWitness_preserves_below m w i (varMap.update dest next) (next + 1)
       (env.update dest val) objEnv rest
       (fun v => if (v == next) = true then val else acc v) (varMap src2)
       (Nat.lt_of_lt_of_le (hbound src2) (Nat.le_succ _))]
@@ -1334,15 +1334,15 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
     (hbound : VarMapBound varMap next)
     (hpoz : 0 < next) (hacc_zero : acc 0 = 0)
     (heval : evalConstrainBody m w i env objEnv stmts) :
-    let flatW := (buildWitness m w i varMap next env objEnv stmts acc).1
+    let flatW := (compileWitness m w i varMap next env objEnv stmts acc).1
     let instrs := (compileConstrainBody m i varMap next stmts).1
     ∀ instr ∈ instrs, FlatIR.satisfiesInstr flatW instr := by
   match stmts with
-  | [] => unfold compileConstrainBody buildWitness; simp
+  | [] => unfold compileConstrainBody compileWitness; simp
   | stmt :: rest =>
     match stmt with
     | .feltAdd dest src1 src2 =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨_, hrest⟩ := heval
       intro instr hmem
       rw [List.mem_append] at hmem
@@ -1360,7 +1360,7 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
           (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
           (by simp [show 0 ≠ next from Nat.ne_of_lt hpoz, hacc_zero]) hrest instr hmem
     | .feltSub dest src1 src2 =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨_, hrest⟩ := heval
       intro instr hmem
       rw [List.mem_append] at hmem
@@ -1378,7 +1378,7 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
           (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
           (by simp [show 0 ≠ next from Nat.ne_of_lt hpoz, hacc_zero]) hrest instr hmem
     | .feltMul dest src1 src2 =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨_, hrest⟩ := heval
       intro instr hmem
       rw [List.mem_append] at hmem
@@ -1396,7 +1396,7 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
           (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
           (by simp [show 0 ≠ next from Nat.ne_of_lt hpoz, hacc_zero]) hrest instr hmem
     | .feltDiv dest src1 src2 =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨hne, hrest⟩ := heval
       intro instr hmem
       rw [List.mem_append] at hmem
@@ -1414,18 +1414,18 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
           (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
           (by simp [show 0 ≠ next from Nat.ne_of_lt hpoz, hacc_zero]) hrest instr hmem
     | .feltNeg dest src =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨_, hrest⟩ := heval
       intro instr hmem
       rw [List.mem_append] at hmem
       rcases hmem with hmem | hmem
       · simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem; subst hmem
         simp only [satisfiesInstr]
-        rw [buildWitness_preserves_below m w i (varMap.update dest next) (next + 1)
+        rw [compileWitness_preserves_below m w i (varMap.update dest next) (next + 1)
           (env.update dest (-(env src))) objEnv rest
           (fun v => if (v == next) = true then -(env src) else acc v) next
           (Nat.lt_succ_iff.mpr le_rfl)]
-        rw [buildWitness_preserves_below m w i (varMap.update dest next) (next + 1)
+        rw [compileWitness_preserves_below m w i (varMap.update dest next) (next + 1)
           (env.update dest (-(env src))) objEnv rest
           (fun v => if (v == next) = true then -(env src) else acc v) (varMap src)
           (by exact Nat.lt_of_lt_of_le (hbound src) (Nat.le_succ _))]
@@ -1438,14 +1438,14 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
           (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
           (by simp [show 0 ≠ next from Nat.ne_of_lt hpoz, hacc_zero]) hrest instr hmem
     | .feltConst dest c =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨_, hrest⟩ := heval
       intro instr hmem
       rw [List.mem_append] at hmem
       rcases hmem with hmem | hmem
       · simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem; subst hmem
         simp only [satisfiesInstr]
-        rw [buildWitness_preserves_below m w i (varMap.update dest next) (next + 1)
+        rw [compileWitness_preserves_below m w i (varMap.update dest next) (next + 1)
           (env.update dest c) objEnv rest
           (fun v => if (v == next) = true then c else acc v) next
           (Nat.lt_succ_iff.mpr le_rfl)]
@@ -1458,7 +1458,7 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
           (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
           (by simp [show 0 ≠ next from Nat.ne_of_lt hpoz, hacc_zero]) hrest instr hmem
     | .readMember dest self member =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨_, hrest⟩ := heval
       intro instr hmem
       rw [List.nil_append] at hmem
@@ -1471,22 +1471,22 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
         (Nat.lt_of_lt_of_le hpoz (Nat.le_succ _))
         (by simp [show 0 ≠ next from Nat.ne_of_lt hpoz, hacc_zero]) hrest instr hmem
     | .constrainEq src1 src2 =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨heq, hrest⟩ := heval
       intro instr hmem
       rw [List.mem_append] at hmem
       rcases hmem with hmem | hmem
       · simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem; subst hmem
         simp only [satisfiesInstr]
-        rw [buildWitness_preserves_below m w i varMap next env objEnv rest acc (varMap src1)
+        rw [compileWitness_preserves_below m w i varMap next env objEnv rest acc (varMap src1)
           (hbound src1)]
-        rw [buildWitness_preserves_below m w i varMap next env objEnv rest acc (varMap src2)
+        rw [compileWitness_preserves_below m w i varMap next env objEnv rest acc (varMap src2)
           (hbound src2)]
         rw [hcoh src1, hcoh src2, heq]
       · exact preservation_body m w i varMap next env objEnv rest acc
           hcoh hbound hpoz hacc_zero hrest instr hmem
     | .call target args =>
-      simp only [compileConstrainBody, buildWitness, evalConstrainBody] at *
+      simp only [compileConstrainBody, compileWitness, evalConstrainBody] at *
       obtain ⟨hcall, hrest⟩ := heval
       intro instr hmem
       let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
@@ -1507,14 +1507,14 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
         match h_eq : args[v]? with
         | some arg => exact hbound arg
         | none => exact hpoz
-      have h_sync := buildWitness_compileConstrainBody_next m w j
+      have h_sync := compileWitness_compileConstrainBody_next m w j
         calleeVarMap next calleeEnv calleeObjEnv sd.constrain.body acc
-      let calleeNext := (buildWitness m w j calleeVarMap next calleeEnv calleeObjEnv
+      let calleeNext := (compileWitness m w j calleeVarMap next calleeEnv calleeObjEnv
         sd.constrain.body acc).2
-      let calleeAcc := (buildWitness m w j calleeVarMap next calleeEnv calleeObjEnv
+      let calleeAcc := (compileWitness m w j calleeVarMap next calleeEnv calleeObjEnv
         sd.constrain.body acc).1
       have hle_callee : next ≤ calleeNext :=
-        buildWitness_next_le m w j calleeVarMap next calleeEnv calleeObjEnv
+        compileWitness_next_le m w j calleeVarMap next calleeEnv calleeObjEnv
           sd.constrain.body acc
       rw [List.mem_append] at hmem
       rcases hmem with hmem | hmem
@@ -1526,28 +1526,28 @@ theorem preservation_body (m : StructIR.Module n F) (w : StructIR.Witness F)
         have h_vars_bounded := compileConstrainBody_instrVars_bounded m j
           calleeVarMap next sd.constrain.body hbound_callee instr hmem
         have h_congr : ∀ v ∈ instrVars instr,
-            (buildWitness m w i varMap calleeNext env objEnv rest calleeAcc).1 v =
+            (compileWitness m w i varMap calleeNext env objEnv rest calleeAcc).1 v =
             calleeAcc v := fun v hv =>
-          buildWitness_preserves_below m w i varMap calleeNext env objEnv
+          compileWitness_preserves_below m w i varMap calleeNext env objEnv
             rest calleeAcc v (by
-              change v < (buildWitness m w j calleeVarMap next calleeEnv calleeObjEnv
+              change v < (compileWitness m w j calleeVarMap next calleeEnv calleeObjEnv
                 sd.constrain.body acc).2
               rw [h_sync]; exact h_vars_bounded v hv)
         exact (satisfiesInstr_congr h_congr).mpr h_sat_callee
       · -- Rest instructions: IH for rest (same i, shorter list)
         have hcoh_rest : WitnessCoherent calleeAcc varMap env :=
-          witnessCoherent_after_buildWitness m w j calleeVarMap next
+          witnessCoherent_after_compileWitness m w j calleeVarMap next
             calleeEnv calleeObjEnv sd.constrain.body acc varMap env hcoh hbound
         have hbound_rest : VarMapBound varMap calleeNext :=
           fun v => Nat.lt_of_lt_of_le (hbound v) hle_callee
         have hpoz_rest : 0 < calleeNext :=
           Nat.lt_of_lt_of_le hpoz hle_callee
         have hacc_zero_rest : calleeAcc 0 = 0 :=
-          buildWitness_preserves_zero m w j calleeVarMap next
+          compileWitness_preserves_zero m w j calleeVarMap next
             calleeEnv calleeObjEnv sd.constrain.body acc hpoz hacc_zero
         have hmem' : instr ∈ (compileConstrainBody m i varMap calleeNext rest).1 := by
           change instr ∈ (compileConstrainBody m i varMap
-            (buildWitness m w j calleeVarMap next calleeEnv calleeObjEnv
+            (compileWitness m w j calleeVarMap next calleeEnv calleeObjEnv
               sd.constrain.body acc).2 rest).1
           rw [h_sync]; exact hmem
         exact preservation_body m w i varMap calleeNext env objEnv rest calleeAcc
@@ -1566,12 +1566,12 @@ theorem reflection_body (m : StructIR.Module n F) (w : StructIR.Witness F)
     (hpoz : 0 < next) (hacc_zero : acc 0 = 0)
     (hsat : ∀ instr ∈ (compileConstrainBody m i varMap next stmts).1,
       FlatIR.satisfiesInstr
-        (buildWitness m w i varMap next env objEnv stmts acc).1 instr) :
+        (compileWitness m w i varMap next env objEnv stmts acc).1 instr) :
     evalConstrainBody m w i env objEnv stmts := by
   match stmts with
   | [] => simp [evalConstrainBody]
   | stmt :: rest =>
-    unfold evalConstrainBody compileConstrainBody buildWitness at *
+    unfold evalConstrainBody compileConstrainBody compileWitness at *
     match stmt with
     | .feltAdd dest src1 src2 =>
       simp only at hsat ⊢
@@ -1615,10 +1615,10 @@ theorem reflection_body (m : StructIR.Module n F) (w : StructIR.Witness F)
         (by exact List.mem_cons_self)
       simp only [FlatIR.satisfiesInstr] at h_div
       obtain ⟨h_ne_zero, _⟩ := h_div
-      -- Transfer h_ne_zero from buildWitness witness to env
+      -- Transfer h_ne_zero from compileWitness witness to env
       have hv2 : varMap src2 < next + 1 :=
         Nat.lt_of_lt_of_le (hbound src2) (Nat.le_succ _)
-      rw [buildWitness_preserves_below m w i (varMap.update dest next) (next + 1)
+      rw [compileWitness_preserves_below m w i (varMap.update dest next) (next + 1)
         (env.update dest (env src1 * (env src2)⁻¹)) objEnv rest _ (varMap src2) hv2] at h_ne_zero
       have h_ne_var : varMap src2 ≠ next := Nat.ne_of_lt (hbound src2)
       simp only [ne_eq, beq_iff_eq, h_ne_var, if_false] at h_ne_zero
@@ -1673,9 +1673,9 @@ theorem reflection_body (m : StructIR.Module n F) (w : StructIR.Witness F)
         have h := hsat_head (Instr.assertEq (varMap src1) (varMap src2))
           (by exact List.mem_cons_self)
         simp only [FlatIR.satisfiesInstr] at h
-        rw [buildWitness_preserves_below m w i varMap next env objEnv rest acc
+        rw [compileWitness_preserves_below m w i varMap next env objEnv rest acc
           (varMap src1) (hbound src1)] at h
-        rw [buildWitness_preserves_below m w i varMap next env objEnv rest acc
+        rw [compileWitness_preserves_below m w i varMap next env objEnv rest acc
           (varMap src2) (hbound src2)] at h
         rw [hcoh src1, hcoh src2] at h
         exact h
@@ -1691,9 +1691,9 @@ theorem reflection_body (m : StructIR.Module n F) (w : StructIR.Witness F)
         match args[param]? with | some arg => objEnv arg | none => []
       let calleeVarMap : VarMap := fun param =>
         match args[param]? with | some arg => varMap arg | none => 0
-      let calleeAcc := (buildWitness m w j calleeVarMap next
+      let calleeAcc := (compileWitness m w j calleeVarMap next
         calleeEnv calleeObjEnv sd.constrain.body acc).1
-      let calleeNext := (buildWitness m w j calleeVarMap next
+      let calleeNext := (compileWitness m w j calleeVarMap next
         calleeEnv calleeObjEnv sd.constrain.body acc).2
       rw [List.forall_mem_append] at hsat
       obtain ⟨hsat_callee, hsat_rest⟩ := hsat
@@ -1708,9 +1708,9 @@ theorem reflection_body (m : StructIR.Module n F) (w : StructIR.Witness F)
         | some arg => exact hbound arg
         | none => exact hpoz
       have hle_callee : next ≤ calleeNext :=
-        buildWitness_next_le m w j calleeVarMap next calleeEnv calleeObjEnv
+        compileWitness_next_le m w j calleeVarMap next calleeEnv calleeObjEnv
           sd.constrain.body acc
-      have h_sync := buildWitness_compileConstrainBody_next m w j
+      have h_sync := compileWitness_compileConstrainBody_next m w j
         calleeVarMap next calleeEnv calleeObjEnv sd.constrain.body acc
       -- Transfer hsat_callee from rest-witness to callee-witness
       have hsat_callee' : ∀ instr ∈ (compileConstrainBody m j calleeVarMap next
@@ -1721,9 +1721,9 @@ theorem reflection_body (m : StructIR.Module n F) (w : StructIR.Witness F)
         have h_vars := compileConstrainBody_instrVars_bounded m j calleeVarMap next
           sd.constrain.body hbound_callee instr hmem
         exact (FlatIR.satisfiesInstr_congr (fun v hv => by
-          exact buildWitness_preserves_below m w i varMap calleeNext env objEnv
+          exact compileWitness_preserves_below m w i varMap calleeNext env objEnv
             rest calleeAcc v (by
-              change v < (buildWitness m w j calleeVarMap next calleeEnv calleeObjEnv
+              change v < (compileWitness m w j calleeVarMap next calleeEnv calleeObjEnv
                 sd.constrain.body acc).2
               rw [h_sync]; exact h_vars v hv))).mp h_orig
       constructor
@@ -1732,14 +1732,14 @@ theorem reflection_body (m : StructIR.Module n F) (w : StructIR.Witness F)
           sd.constrain.body acc hcoh_callee hbound_callee hpoz hacc_zero hsat_callee'
       · -- Rest satisfaction: use IH for rest (same i, shorter list)
         have hcoh_rest : WitnessCoherent calleeAcc varMap env :=
-          witnessCoherent_after_buildWitness m w j calleeVarMap next
+          witnessCoherent_after_compileWitness m w j calleeVarMap next
             calleeEnv calleeObjEnv sd.constrain.body acc varMap env hcoh hbound
         have hbound_rest : VarMapBound varMap calleeNext :=
           fun v => Nat.lt_of_lt_of_le (hbound v) hle_callee
         have hpoz_rest : 0 < calleeNext :=
           Nat.lt_of_lt_of_le hpoz hle_callee
         have hacc_zero_rest : calleeAcc 0 = 0 :=
-          buildWitness_preserves_zero m w j calleeVarMap next
+          compileWitness_preserves_zero m w j calleeVarMap next
             calleeEnv calleeObjEnv sd.constrain.body acc hpoz hacc_zero
         rw [h_sync.symm] at hsat_rest
         exact reflection_body m w i varMap calleeNext env objEnv rest calleeAcc
@@ -1773,14 +1773,14 @@ instance CorrectPass (n : Nat) (F : Type) [Field F] :
     let initEnv : LocalEnv F := fun _ => 0
     let initObjEnv : ObjEnv := ObjEnv.update (fun _ => []) 0 []
     let initAcc : FlatIR.VarId → F := fun _ => 0
-    let wt := (buildWitness p ws mainIdx initVarMap initNext
+    let wt := (compileWitness p ws mainIdx initVarMap initNext
       initEnv initObjEnv mainDef.constrain.body initAcc).1
     have hpoz : 0 < initNext := Nat.lt_of_lt_of_le (Nat.zero_lt_one) (le_max_right _ _)
     refine ⟨wt, ?witnessRel, ?sat⟩
     case witnessRel =>
       -- Peel through the let-bindings in the witnessRel definition
       intro _ _ _ _ _ _ v hv
-      exact (buildWitness_varAlloc_agree p ws mainIdx initVarMap initNext
+      exact (compileWitness_varAlloc_agree p ws mainIdx initVarMap initNext
         initEnv initObjEnv mainDef.constrain.body initAcc (fun _ => 0)
         hpoz (fun _ h => absurd rfl h) (fun _ h => absurd rfl h)
         v hv).symm
@@ -1801,7 +1801,7 @@ instance CorrectPass (n : Nat) (F : Type) [Field F] :
       simp only [List.mem_map, List.mem_range] at hmem_zero
       obtain ⟨v, hv, rfl⟩ := hmem_zero
       simp only [FlatIR.satisfiesInstr]
-      exact buildWitness_preserves_below p ws mainIdx initVarMap initNext
+      exact compileWitness_preserves_below p ws mainIdx initVarMap initNext
         initEnv initObjEnv mainDef.constrain.body initAcc v hv
     · -- Body constraints: use preservation_body
       exact preservation_body p ws mainIdx initVarMap initNext

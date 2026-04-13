@@ -22,3 +22,4 @@ import Heyting.Examples.LoweringExamples
 import Heyting.Examples.OutputExamples
 
 import Heyting.Test.R1CSJSONTest
+import Heyting.Test.InputJSONTest

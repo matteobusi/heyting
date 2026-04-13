@@ -21,9 +21,9 @@ extending the language coverage.
 | Document proof patterns | Done | See `docs/tactics.md` |
 
 **Impact:** Adding a new felt operation (e.g., `feltPow`) should require only:
-1. The instruction case in 4 functions (compile, buildWitness, buildVarAlloc, eval)
+1. The instruction case in 4 functions (compile, compileWitness, buildVarAlloc, eval)
 2. One `satisfiesInstr` proof (in the FlatIR→R1CS pass)
-3. The `buildWitness_preserves_below` + coherence plumbing is now generic
+3. The `compileWitness_preserves_below` + coherence plumbing is now generic
 
 ---
 

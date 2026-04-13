@@ -32,14 +32,18 @@ hey help
 
   These match the 6 fields in `llzk-lib/lib/Util/Field.cpp`. If `--prime-field` is omitted, `bn254` is used.
 
-- `--witness <path>`
-  Use a user-supplied witness JSON file to populate StructIR witness values. (Not implemented yet — passing this option will raise an informative error.)
+- `--input <path>`
+  JSON file of public circuit inputs (field elements) to pass to the circuit's `@compute`
+  bodies. Not yet implemented — passing this option raises an informative error. The planned
+  format is a JSON array of field element values (as decimal strings), one per positional
+  parameter of the top-level `@compute` function.
 
 - `--auto`
-  Automatically run compute bodies to produce a witness from the program's `compute` functions. (Not implemented yet — this is planned and passing the flag will raise an informative error.)
+  Automatically run compute bodies to produce a witness, using empty public inputs.
+  Writes `<output>.witness.json` alongside the R1CS file.
 
-- `--input <path>` / `--output <path>`
-  Alternative ways to specify input file and output path (useful when paths contain spaces or when scripting).
+- `--output <path>`
+  Alternative way to specify the output path (useful when paths contain spaces or when scripting).
 
 ## Examples
 
@@ -66,15 +70,12 @@ in any `PresReflPass` proof. See `docs/WARNING.md` §7 for the full axiom policy
 
 ## Notes on features not yet implemented
 
-- Witness generation from compute bodies (`--auto`) is a staged feature. The project will
-  implement a pure Lean interpreter for StructIR compute bodies first (so proofs can be
-  added later), followed by an optional native codegen path for performance. Until then,
-  `--auto` raises an explanatory error.
+- `--input <path>` will load public circuit inputs from a JSON array of decimal field element
+  strings and pass them to `StructIR.computeWitness`. Until then, `--auto` runs with an empty
+  input list (works for circuits with no public parameters).
 
-- User-supplied witness loading (`--witness`) will accept a JSON array of entries in the
-  form `{ "path": [ints], "member": int, "value": "repr" }`. The `value` field uses the
-  same stringified field representation as the R1CS JSON output. Until implemented, the
-  CLI raises an explanatory error when `--witness` is used.
+- User-supplied witness loading (i.e. providing a pre-computed witness directly, bypassing
+  `@compute` bodies) is not currently exposed via any flag.
 
 ## Where to find the CLI code
 

@@ -107,21 +107,21 @@ preservation :
 ```
 
 **Guarantee:** If a StructIR witness `ws` satisfies the module, there
-exists a FlatIR witness `wt` — specifically `wt = buildWitness(ws)` —
+exists a FlatIR witness `wt` — specifically `wt = compileWitness(ws)` —
 that both (a) agrees with `ws` at all read positions and (b) satisfies
 every compiled FlatIR instruction. This ensures the compiler does not
 add spurious constraints that reject valid witnesses.
 
 **Proof strategy:** The target witness `wt` is *constructed* by
-`buildWitness`, which mirrors the compiler's traversal and evaluates
+`compileWitness`, which mirrors the compiler's traversal and evaluates
 each StructIR operation to set the corresponding FlatIR variable.
 The proof maintains a `WitnessCoherent wt varMap env` invariant:
 `∀ v, wt (varMap v) = env v`, linking FlatIR variable values to the
 StructIR local environment at each step. Each felt op updates both
 `varMap` and `env` consistently, and the invariant is preserved through
 calls and readMember operations. The zero-init prefix is satisfied
-because `buildWitness` preserves values below the counter
-(`buildWitness_preserves_below`).
+because `compileWitness` preserves values below the counter
+(`compileWitness_preserves_below`).
 
 ### Reflection (= CC~, soundness)
 
@@ -143,7 +143,7 @@ in StructIR.
 reads FlatIR variable values back through the `buildVarAlloc` map
 (`ws vid = wt (varAlloc vid)`). The witness relation holds
 *definitionally* by this construction. Source satisfaction is proved by
-`reflection_direct`, which uses `wt` directly (not `buildWitness`) and
+`reflection_direct`, which uses `wt` directly (not `compileWitness`) and
 maintains `WitnessCoherent wt varMap env` inductively. Initial coherence
 comes from the zero-init prefix: `wt v = 0` for all parameter positions,
 matching the initial environment `env = fun _ => 0`. Each felt op
@@ -274,3 +274,80 @@ module is satisfiable, the R1CS system is satisfiable.
 Together: the R1CS system is satisfiable **if and only if** the original
 StructIR module is satisfiable, with witnesses related through the
 composition of `witnessRel` relations.
+
+---
+
+## Witness generation: `computeWitness`
+
+**Source:** `Heyting/Languages/StructIR.lean`
+
+`computeWitness` is a definitional interpreter for the `@compute` bodies
+stored in every `StructDef`. It is *not* a compiler pass — it is a
+functional entry point that produces a StructIR witness from public inputs,
+which then flows into the existing `PresReflPass` chain.
+
+### `ComputingLanguage` typeclass
+
+Defined in `Heyting/Core/ComputingLanguage.lean`. Extends `Language` with:
+
+```lean
+class ComputingLanguage (V F) extends Language V F where
+  Input           : Type
+  computeWitness  : Program → Input → Option (Witness V F)
+```
+
+StructIR instantiates this with `Input := List F` (positional public inputs
+to the main struct's `@compute` function). `ZMod`-based fields require
+`[DecidableEq F]` for the `feltDiv` zero check.
+
+### Interpreter (`evalComputeBody`)
+
+Executes a `ComputeStmt` list, threading a `ComputeState`:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `env` | `LocalVar → F` | Local variable values |
+| `objEnv` | `LocalVar → InstancePath` | Instance paths for struct references |
+| `acc` | `VarId → F` | Witness accumulator (updated by `writeMember`) |
+| `nextPath` | `Nat` | Counter for fresh `InstancePath`s via `newStruct` |
+
+Statement semantics:
+
+| Statement | Action |
+|---|---|
+| Felt ops (add/sub/mul/neg/const) | Update `env` |
+| `feltDiv dest s1 s2` | Return `none` if `env[s2] = 0`; else `env[dest] := env[s1] / env[s2]` |
+| `readMember dest self m` | `env[dest] := acc[(objEnv[self], m.val)]` |
+| `writeMember self m src` | `acc[(objEnv[self], m.val)] := env[src]` |
+| `newStruct dest` | `objEnv[dest] := [nextPath]`, increment `nextPath` |
+| `call dest target args` | Recurse into callee compute body; `env[dest] := callee.env[returnVar]`; merge `acc` and `nextPath` from callee |
+
+Termination: lexicographic `(i, stmts.length)`, matching `evalConstrainBody`.
+
+### Correctness obligation (`computeWitnessCorrect`)
+
+```lean
+theorem computeWitnessCorrect (m : Module (n + 1) F) (inputs : List F)
+    (w : Witness F) (h : computeWitness m inputs = some w) :
+    satisfies w m
+```
+
+**Status: sorry (open obligation).** This is the key theorem to prove.
+Once proved, it composes with the existing preservation chain to give:
+
+```
+computeWitness m inputs = some w
+  → (computeWitnessCorrect) satisfies w m
+  → (StructIRToFlatIR.preservation) ∃ wt, FlatIR.satisfies wt (flatProg)
+  → (FlatIRToR1CS.preservation)     ∃ wr, R1CS.satisfies wr (r1csSystem)
+```
+
+No new pass proofs are required — the witness generator is an entry point,
+not a pass.
+
+### CLI
+
+`hey compile --auto <input.llzk> <output>` invokes `computeWitness` with
+empty inputs (`[]`) and writes a witness JSON to `<output>.witness.json`.
+Full witness serialization (threading `compileWitness` and `compileWitness`
+to produce the R1CS-level witness vector) is pending.

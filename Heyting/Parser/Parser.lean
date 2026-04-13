@@ -248,11 +248,36 @@ private partial def skipBracesAux (s : ParseState) (depth : Nat) : ParseState :=
   | .eof => s
   | _ => skipBracesAux s.advance depth
 
-/-- Skip optional attributes block `{ ... }`. -/
-def skipAttributes : Parser Unit := do
+/-- Scan tokens between `{` and `}` for the keyword `"llzk.pub"`.
+    Returns `true` if found; consumes through the closing `}`.
+    Any other tokens are silently skipped. -/
+private partial def scanBracesForPub (s : ParseState) (depth : Nat) (found : Bool) :
+    ParseState × Bool :=
+  if depth == 0 then (s, found)
+  else if s.atEnd then (s, found)
+  else match s.peekTok with
+       | .lbrace              => scanBracesForPub s.advance (depth + 1) found
+       | .rbrace              => scanBracesForPub s.advance (depth - 1) found
+       | .eof                 => (s, found)
+       | .keyword "llzk.pub"  => scanBracesForPub s.advance depth true
+       | _                    => scanBracesForPub s.advance depth found
+
+/-- Parse optional `{llzk.pub}` attributes on a `struct.member`.
+    Returns `true` if the attribute block was present and contained `llzk.pub`,
+    `false` if absent or if it contained no `llzk.pub`.
+    All other attribute tokens are silently ignored. -/
+def parseIsPub : Parser Bool := do
   let s ← get
   if s.peekTok == .lbrace then
-    set (skipBracesAux s.advance 1)
+    let (s', found) := scanBracesForPub s.advance 1 false
+    set s'
+    return found
+  else
+    return false
+
+/-- Skip optional attributes block `{ ... }`. -/
+def skipAttributes : Parser Unit := do
+  let _ ← parseIsPub
 
 /-- Skip optional keyword `attributes` followed by `{ ... }`. -/
 def skipAttributesKw : Parser Unit := do
@@ -537,16 +562,16 @@ def parseFuncDef : Parser FuncDef := do
   expect .rbrace
   return { name, params, returnType := retType, body, pos }
 
-/-- Parse a member declaration: `struct.member @name : !type` -/
+/-- Parse a member declaration: `struct.member @name : !type {llzk.pub}?` -/
 def parseMemberDecl : Parser MemberDecl := do
   let pos ← getPos
   expectKeyword "struct.member"
   let name ← expectSymName
   expect .colon
   let ty ← parseType
-  -- Skip optional attributes like `{llzk.pub}`
-  skipAttributes
-  return { name, ty, pos }
+  -- Parse optional attributes; returns true iff `{llzk.pub}` was present.
+  let isPublic ← parseIsPub
+  return { name, ty, isPublic, pos }
 
 /-- Skip angle brackets with nesting, used for template params. -/
 private partial def skipAngleParser : Parser Unit := do
