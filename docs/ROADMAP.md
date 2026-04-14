@@ -81,8 +81,9 @@ Serialize `R1CS.System` to a standard format.
 | CLI entry point (`hey compile`) | Low | Done | `Heyting/CLI.lean` — full pipeline `parseFile → lower → compile → saveR1CSJson` |
 | Multi-field support (`--prime-field`) | Low | Done | 6 prime fields matching `llzk-lib/lib/Util/Field.cpp`: bn254 (default), bn128, babybear, goldilocks, mersenne31, koalabear |
 | Unit tests | Low | Done | `Heyting/Test/R1CSJSONTest.lean` |
-| R1CS binary format (Circom-compatible) | Low | Planned | Standard `.r1cs` format: header + constraints |
-| Witness format | Low | Planned | Map `R1CS.VarId` → integer indices |
+| Witness JSON output | Low | Done | `Heyting/Backends/WitnessJSON.lean` — wire-index array, `saveWitnessJson`; `WireAssignment.lean` for `encode`/`decode` |
+| R1CS binary format (Circom-compatible) | Low | Done | `Heyting/Backends/R1CSBinary.lean` — `systemToBinary`, `saveR1CSBinary`; default CLI output |
+| Witness binary format (`.wtns`) | Low | Done | `Heyting/Backends/WitnessBinary.lean` — `witnessToBinary`, `saveWitnessBinary`; default with `--auto`/`--input` |
 | Variable naming | Low | Planned | Carry names through for debugging |
 
 **Standard format:** The [Circom `.r1cs` binary format](https://github.com/iden3/r1csfile) is widely supported (SnarkJS, Rapidsnark, etc.). Alternatively, the JSON format from SnarkJS.
@@ -137,6 +138,6 @@ Workshop paper (FMBC) after Phase 2 complete; conference paper (CAV/ESOP/S&P) af
 3. ~~**Next:** AST → StructIR lowering (`Heyting/Passes/Lowering.lean`)~~ Done (Session 12)
 4. ~~**Then:** R1CS JSON output (`hey compile`)~~ Done (Session 13 — `R1CSJSON.lean`, `CLI.lean`)
 5. ~~**Then:** Multi-field support (`--prime-field`)~~ Done (Session 14 — 6 fields matching llzk-lib)
-6. **Then:** R1CS binary output (Circom `.r1cs` format) or test full pipeline on a real circuit
+6. ~~**Then:** R1CS binary output (Circom `.r1cs` format)~~ Done (Session 21 — `R1CSBinary.lean`, `WitnessBinary.lean`, `FieldBytes` instances in `CLI.lean`)
 7. **Later:** Array support in StructIR
 8. **Later:** Optimization passes, paper writing

@@ -12,14 +12,10 @@ import Heyting.Passes.StructIRToFlatIR
 import Heyting.Passes.Tactics
 import Heyting.Passes.Lowering
 
-import Heyting.Parser.Main
+import Heyting.Parsers.Main
 
 import Heyting.Backends.R1CSJSON
+import Heyting.Backends.FieldBytes
+import Heyting.Backends.R1CSBinary
+import Heyting.Backends.WitnessBinary
 import Heyting.CLI
-
-import Heyting.Examples.ParserExamples
-import Heyting.Examples.LoweringExamples
-import Heyting.Examples.OutputExamples
-
-import Heyting.Test.R1CSJSONTest
-import Heyting.Test.InputJSONTest

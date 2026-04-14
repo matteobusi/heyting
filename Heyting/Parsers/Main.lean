@@ -1,4 +1,4 @@
-import Heyting.Parser.Parser
+import Heyting.Parsers.Parser
 
 /-!
 # LLZK Parser — Entry Point

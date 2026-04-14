@@ -1,5 +1,5 @@
 import Std.Data.HashMap
-import Heyting.Parser.Main
+import Heyting.Parsers.Main
 import Heyting.Languages.StructIR
 
 /-!

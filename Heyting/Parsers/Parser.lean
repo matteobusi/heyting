@@ -1,4 +1,4 @@
-import Heyting.Parser.Tokenizer
+import Heyting.Parsers.Tokenizer
 
 /-!
 # LLZK Parser
