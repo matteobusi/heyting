@@ -193,3 +193,137 @@ Parser → AST → StructIR → R1CS → JSON.
 - Standard axioms: `Pipeline.compileWitnessCorrect` verified → `propext`, `Classical.choice`, `Quot.sound`.
 - `lake build`: 1186 jobs, 0 errors, 0 new warnings.
 
+---
+
+## Session 20 — 2026-04-14
+
+**Goals:** Separate tests from `lake build` — tests should only run via `lake exe tests`.
+
+**What we did:**
+
+1. **`Heyting.lean`** — Removed `Heyting.Examples.*` and `Heyting.Test.*` imports.
+   The barrel file now covers only the verified library (languages, passes, backends, CLI).
+
+2. **`Heyting/Test/Main.lean`** (new) — Entry point for the `tests` executable.
+   Imports all test and example modules; `main` is `pure ()`. The `#eval` blocks in
+   those modules fire at elaboration time, so no explicit test runner logic is needed.
+
+3. **`lakefile.toml`** — Added `[[lean_exe]] name = "tests" root = "Heyting.Test.Main"`.
+   `defaultTargets` remains `["Heyting"]`, so `lake build` never touches the test code.
+
+**Verification:**
+- `lake build` → 1183 jobs, 0 errors, 0 new warnings (pre-existing `longLine` warning in
+  `StructIRToFlatIR.lean` unchanged).
+- `lake exe tests` → all `#eval` blocks pass: 3 R1CS JSON checks, 13 InputJSON checks,
+  4 StructIR example outputs, 5 parser examples, 3 lowering examples, 2 output examples.
+
+**Invariants maintained:**
+- Zero sorries, standard axioms only — unchanged.
+- `lake build` is now strictly library+CLI only; tests are opt-in.
+
+---
+
+## Session 19 — 2026-04-14
+
+**Goals:** Implement R1CS witness JSON output — close the placeholder gap in `CLI.lean`.
+Planning session preceded this: designed the wire-index layout, agreed on `var`/`aux` namespace
+separation, chose JSON witness array as first format, deferred `.wtns` binary.
+
+**What we did:**
+
+1. **`Backends/R1CSJSON.lean`** — Fixed the `var`/`aux` namespace conflation in `countVars`:
+   - Added `countRegVars` (counts only `.var n` indices) and kept `countAuxVars` unchanged.
+   - Redefined `countVars` as `1 + countRegVars + countAuxVars` (total wires including `varOne`).
+   - `SystemSummary` now has `numRegVars` and `numAuxVars` as separate fields (dropped the
+     ambiguous `numVars`).
+   - `summaryToJson` emits `"numWires"`, `"numRegVars"`, `"numAuxVars"`, `"numPublicInputs"`.
+   - `ppSystem` header updated to show `N wires (R regular, A aux)`.
+
+2. **`Backends/WireAssignment.lean`** (new) — Pure wire-index assignment module:
+   - `WireAssignment.Sizes` — carries `numRegVars` and `numAuxVars`.
+   - `Sizes.numWires` — total wires = `1 + numRegVars + numAuxVars`.
+   - `fromConstraints` / `fromSystem` — build `Sizes` by scanning a constraint list.
+   - `encode : Sizes → VarId → Nat` — `varOne ↦ 0`, `var n ↦ n+1`, `aux n ↦ numRegVars+1+n`.
+   - `decode : Sizes → Nat → Option VarId` — inverse of `encode` within range.
+   - Future theorem comments: `encode_injective`, `decode_encode`.
+
+3. **`Backends/WitnessJSON.lean`** (new) — Witness serializer:
+   - `witnessToArray wa w` — maps wire index `i` to `w (decode wa i)` for `i` in `0..numWires-1`.
+   - `witnessToJson wa w` — JSON `{ "numWires": n, "witness": ["f0", "f1", ...] }`.
+   - `systemWitnessToJson sys w` — derives wire assignment from `sys` automatically.
+   - `saveWitnessJson sys w path` — writes JSON to file.
+
+4. **`CLI.lean`** — Added `import Heyting.Backends.WitnessJSON`. Replaced the placeholder
+   stub with `WitnessJSON.saveWitnessJson r1csSystem wr witnessPath`. The witness JSON is now
+   a real serialization of the R1CS witness, not a placeholder.
+
+5. **`Test/R1CSJSONTest.lean`** — Updated to match new `SystemSummary` fields: checks
+   `numRegVars`, `numWires` in JSON instead of the old conflated `numVars`.
+
+**Wire index layout (documented in `WireAssignment.lean`):**
+```
+index 0                         → varOne
+index 1 .. numRegVars           → var 0 .. var (numRegVars-1)
+index numRegVars+1 .. total-1   → aux 0 .. aux (numAuxVars-1)
+```
+
+**Verifiability notes (from planning):**
+- The verified chain is: `StructIR.satisfies ws m → R1CS.satisfies (compileWitness m ws) (compileProgram m)` [proved, Session 17]. The new serializer adds an unverified IO layer on top.
+- The `encode`/`decode` injectivity theorems are marked as future targets in `WireAssignment.lean`.
+- The `lowering` gap (LLZK → StructIR) is the genuine unverified interface; `evalComputeBody` acts as ground truth for `@compute` semantics by design.
+
+**Invariants maintained:**
+- Zero sorries: `grep -r "sorry" Heyting/` → empty (only a comment in `Lowering.lean`).
+- Standard axioms: unchanged from Session 18.
+- `lake build`: 1188 jobs, 0 errors, 0 warnings.
+
+---
+
+## Session 21 — 2026-04-14
+
+**Goals:** Circom binary output — `.r1cs` and `.wtns` formats.
+
+**What we did:**
+
+1. **`Backends/FieldBytes.lean`** — `FieldBytes` typeclass (already written in prior partial session):
+   - `fieldSize : Nat`, `toLeBytes : F → ByteArray`, `primeLeBytes : ByteArray`.
+   - LE writer helpers: `u32LE`, `u64LE`, `natLeBytes`, `sectionHeader`, `fileHeader`.
+   - Fixed dupNamespace warning with `set_option linter.dupNamespace false in`.
+
+2. **`Backends/R1CSBinary.lean`** (new) — Circom `.r1cs` serializer:
+   - `linCombBytes` — sort terms by wire index, write `[nTerms][wireId || coeff]` per term.
+   - `constraintBytes` — A, B, C in sequence.
+   - `headerSectionBody` — fieldSize, prime, nWires, nPubOut=0, nPubIn, nPrvIn, nLabels, mConstraints.
+   - `constraintsSectionBody`, `wire2LabelSectionBody` (identity map).
+   - `systemToBinary` — assembles 3 sections with framing; `saveR1CSBinary` writes file.
+
+3. **`Backends/WitnessBinary.lean`** (new) — Circom `.wtns` serializer:
+   - `headerSectionBody` — n8, prime, nWitness.
+   - `dataSectionBody` — dense array via `WitnessJSON.witnessToArray`, each element LE-encoded.
+   - `witnessToBinary` — 2 sections; `saveWitnessBinary` writes file.
+
+4. **`CLI.lean`** — Updated:
+   - Added `import Heyting.Backends.R1CSBinary` and `import Heyting.Backends.WitnessBinary`.
+   - Added `private instance : FieldBytes (ZMod P)` for all 6 supported fields (alongside the existing `private axiom` primality witnesses).
+   - Renamed `compileToJson` → `compileAndSave`; added `useJson : Bool` parameter.
+   - Default: writes `.r1cs` binary (+ `.wtns` if witness requested). `--json` flag writes JSON as before.
+
+5. **`Examples/OutputExamples.lean`** — Updated `compileToJson` call to `compileAndSave` with `useJson := true`; added local `FieldBytes (ZMod 1993)` instance (2-byte elements).
+
+6. **`Test/BinaryTest.lean`** (new) — 7 `#eval` checks:
+   - `.r1cs` magic bytes, version, nSections.
+   - `.r1cs` total byte count (145 bytes for a 1-constraint, 3-var, fieldSize=1 system).
+   - `.wtns` magic bytes, version, nSections.
+   - `.wtns` total byte count (49 bytes).
+   - `natLeBytes`, `u32LE`, `u64LE` correctness.
+
+7. **`Test/Main.lean`** — Added `import Heyting.Test.BinaryTest`.
+
+8. **`Heyting.lean`** — Added `FieldBytes`, `R1CSBinary`, `WitnessBinary` to barrel imports.
+
+**Verification:**
+- `lake build`: 1186 jobs, 0 errors, 0 warnings.
+- `lake exe tests`: all 23 `#eval` checks pass (16 existing + 7 new binary tests).
+- Zero sorries. Standard axioms only.
+
+

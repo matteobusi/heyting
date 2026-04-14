@@ -54,14 +54,15 @@ def constraintToJson (c : R1CS.Constraint F) : Json :=
 def constraintToHuman (c : R1CS.Constraint F) : String :=
   s!"({linCombToHuman c.A}) * ({linCombToHuman c.B}) = ({linCombToHuman c.C})"
 
-def countVars (constraints : List (R1CS.Constraint F)) : Nat :=
-  let goVar : R1CS.VarId → Nat → Nat := fun v acc =>
-    match v with
-    | .varOne => acc
-    | .var n => max acc (n + 1)
-    | .aux n => max acc (n + 1)
+-- Count the number of regular (non-aux) wire slots: max over all `.var n` indices + 1.
+-- Wire index layout: 0 = varOne, 1..numRegVars = var 0..numRegVars-1,
+--                    numRegVars+1..numRegVars+numAuxVars = aux 0..numAuxVars-1.
+def countRegVars (constraints : List (R1CS.Constraint F)) : Nat :=
   let goLC : R1CS.LinComb F → Nat → Nat := fun lc acc =>
-    lc.foldl (fun a (v, _) => goVar v a) acc
+    lc.foldl (fun a (v, _) =>
+      match v with
+      | .var n => max a (n + 1)
+      | _      => a) acc
   let goC : R1CS.Constraint F → Nat → Nat := fun c acc =>
     goLC c.A (goLC c.B (goLC c.C acc))
   constraints.foldl (fun acc c => goC c acc) 0
@@ -76,16 +77,20 @@ def countAuxVars (constraints : List (R1CS.Constraint F)) : Nat :=
     goLC c.A (goLC c.B (goLC c.C acc))
   constraints.foldl (fun acc c => goC c acc) 0
 
+/-- Total number of wire slots (including varOne): 1 + numRegVars + numAuxVars. -/
+def countVars (constraints : List (R1CS.Constraint F)) : Nat :=
+  1 + countRegVars constraints + countAuxVars constraints
+
 structure SystemSummary (F : Type) where
   numConstraints  : Nat
-  numVars         : Nat
-  numAuxVars      : Nat
+  numRegVars      : Nat   -- number of regular (.var n) wire slots
+  numAuxVars      : Nat   -- number of auxiliary (.aux n) wire slots
   numPublicInputs : Nat
   constraints     : List (R1CS.Constraint F)
 
 def summarize [Repr F] (sys : R1CS.System F) : SystemSummary F :=
   { numConstraints  := sys.constraints.length
-    numVars         := countVars sys.constraints
+    numRegVars      := countRegVars sys.constraints
     numAuxVars      := countAuxVars sys.constraints
     numPublicInputs := sys.numPublicInputs
     constraints     := sys.constraints }
@@ -93,7 +98,8 @@ def summarize [Repr F] (sys : R1CS.System F) : SystemSummary F :=
 def summaryToJson [Repr F] (s : SystemSummary F) : Json :=
   Json.mkObj [
     ("numConstraints",  s.numConstraints),
-    ("numVars",         s.numVars),
+    ("numWires",        1 + s.numRegVars + s.numAuxVars),
+    ("numRegVars",      s.numRegVars),
     ("numAuxVars",      s.numAuxVars),
     ("numPublicInputs", s.numPublicInputs),
     ("constraints",     Json.arr <| s.constraints.toArray.map constraintToJson)
@@ -107,8 +113,9 @@ def ppConstraint (c : R1CS.Constraint F) : String :=
 
 def ppSystem [Repr F] (sys : R1CS.System F) : String :=
   let s := summarize sys
+  let numWires := 1 + s.numRegVars + s.numAuxVars
   let header := s!"R1CS System: {s.numConstraints} constraints, " ++
-                s!"{s.numVars} variables ({s.numAuxVars} aux), " ++
+                s!"{numWires} wires ({s.numRegVars} regular, {s.numAuxVars} aux), " ++
                 s!"{s.numPublicInputs} public inputs"
   let body : List String := s.constraints.toArray.mapIdx (fun i c =>
     s!"  [{i}] {ppConstraint c}") |>.toList

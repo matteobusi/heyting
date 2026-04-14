@@ -1,5 +1,5 @@
 import Mathlib.Algebra.Field.ZMod
-import Heyting.Parser.Main
+import Heyting.Parsers.Main
 import Heyting.Passes.Lowering
 import Heyting.Passes.StructIRToFlatIR
 import Heyting.Passes.FlatIRToR1CS

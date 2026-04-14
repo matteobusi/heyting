@@ -24,7 +24,9 @@ def dummySys : R1CS.System F :=
 #eval do
   let s := summarize (dummySys (F := ZMod 1993))
   if s.numConstraints != 2 then IO.throwServerError "numConstraints mismatch"
-  if s.numVars != 5 then IO.throwServerError s!"numVars mismatch: expected 5, got {s.numVars}"
+  -- dummySys uses .var 1..4 → numRegVars = 5 (indices 0..4 covered)
+  if s.numRegVars != 5 then
+    IO.throwServerError s!"numRegVars mismatch: expected 5, got {s.numRegVars}"
   if s.numAuxVars != 0 then IO.throwServerError "numAuxVars mismatch"
   IO.println "Summary stats OK"
 
@@ -33,8 +35,12 @@ def dummySys : R1CS.System F :=
   match json.getObjVal? "numConstraints" with
   | .ok (.num 2) => IO.println "numConstraints JSON OK"
   | _ => IO.throwServerError "numConstraints JSON mismatch"
-  match json.getObjVal? "numVars" with
-  | .ok (.num 5) => IO.println "numVars JSON OK"
-  | _ => IO.throwServerError "numVars JSON mismatch"
+  -- numWires = 1 + 5 + 0 = 6
+  match json.getObjVal? "numWires" with
+  | .ok (.num 6) => IO.println "numWires JSON OK"
+  | _ => IO.throwServerError "numWires JSON mismatch"
+  match json.getObjVal? "numRegVars" with
+  | .ok (.num 5) => IO.println "numRegVars JSON OK"
+  | _ => IO.throwServerError "numRegVars JSON mismatch"
 
 end R1CSJSONTest

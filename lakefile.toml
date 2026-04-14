@@ -26,3 +26,7 @@ name = "Heyting"
 [[lean_exe]]
 name = "hey"
 root = "Main"
+
+[[lean_exe]]
+name = "tests"
+root = "Heyting.Test.Main"

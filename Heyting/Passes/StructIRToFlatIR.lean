@@ -1154,7 +1154,8 @@ theorem compileWitness_varAlloc_agree (m : StructIR.Module n F)
     (allocAcc : StructIR.VarId → FlatIR.VarId)
     (hpoz : 0 < next)
     (halloc_bound : ∀ vid, allocAcc vid ≠ 0 → allocAcc vid < next)
-    -- Previous allocations are consistent: compileWitness result agrees with w at allocAcc positions
+    -- Previous allocations are consistent:
+    --  compileWitness result agrees with w at allocAcc positions
     (hprev : ∀ vid, allocAcc vid ≠ 0 → allocAcc vid < next →
       acc (allocAcc vid) = w vid) :
     let bw := (compileWitness m w i varMap next env objEnv stmts acc).1

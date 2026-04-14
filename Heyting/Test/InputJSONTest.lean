@@ -1,7 +1,7 @@
 import Lean.Data.Json
 import Mathlib.Algebra.Field.ZMod
 import Mathlib.Tactic.NormNum.Prime
-import Heyting.Backends.InputJSON
+import Heyting.Parsers.InputJSON
 
 /-!
 # Input JSON Test

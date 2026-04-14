@@ -1,4 +1,4 @@
-import Heyting.Parser.Main
+import Heyting.Parsers.Main
 
 /-!
 # Parser Examples
