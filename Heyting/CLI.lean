@@ -3,8 +3,6 @@ import Mathlib.Tactic.NormNum.Prime
 import Heyting.Parsers.Main
 import Heyting.CLIArgs
 import Heyting.Passes.Lowering
-import Heyting.Passes.StructIRToFlatIR
-import Heyting.Passes.FlatIRToR1CS
 import Heyting.Passes.Pipeline
 import Heyting.Backends.R1CSJSON
 import Heyting.Backends.WitnessJSON
@@ -129,7 +127,7 @@ def compileAndSave
   let (mod, _warnings) ← LLZK.parseFile inputPath
   -- Extract param names from the original AST before lowering discards them.
   -- The main struct is the last in topological order; its @compute params are
-  -- [self, signal_1, signal_2, ...].  We skip index 0 (%self).
+  -- [ signal_1, signal_2, ...].  Differently from @constrain we do not skip index 0.
   let computeParamNames : List String :=
     match LLZK.Lowering.topoSort mod.structs with
     | .error _ => []
@@ -139,7 +137,7 @@ def compileAndSave
       | some mainSd =>
         match mainSd.funcs.find? (fun f => f.name == "compute") with
         | none => []
-        | some computeFn => (computeFn.params.drop 1).map (·.name)
+        | some computeFn => computeFn.params.map (·.name)
   match LLZK.Lowering.LLZK.lower (F:=F) mod with
   | .error e => throw (IO.userError s!"Lowering failed: {e}")
   | .ok ⟨_, sirMod⟩ =>
@@ -147,11 +145,13 @@ def compileAndSave
     let r1csSystem := Pipeline.compileProgram (F:=F) sirMod
     -- Write R1CS: binary by default, JSON if --json.
     if useJson then
-      R1CSJSON.saveR1CSJson (F:=F) r1csSystem outputPath
-      IO.println s!"Wrote R1CS JSON to {outputPath} (field: {fieldName})"
+      let r1csPath := outputPath ++ ".r1cs.json"
+      R1CSJSON.saveR1CSJson (F:=F) r1csSystem r1csPath
+      IO.println s!"Wrote R1CS JSON to {r1csPath} (field: {fieldName})"
     else
-      R1CSBinary.saveR1CSBinary (F:=F) r1csSystem outputPath
-      IO.println s!"Wrote R1CS binary to {outputPath} (field: {fieldName})"
+      let r1csPath := outputPath ++ ".r1cs"
+      R1CSBinary.saveR1CSBinary (F:=F) r1csSystem r1csPath
+      IO.println s!"Wrote R1CS binary to {r1csPath} (field: {fieldName})"
     IO.println s!"  Constraints: {r1csSystem.constraints.length}"
     IO.println s!"  Wires: {R1CSJSON.countVars r1csSystem.constraints}"
     -- Determine inputs for witness generation (--auto or --input).
@@ -161,7 +161,9 @@ def compileAndSave
         let jsonStr ← IO.FS.readFile jsonPath
         match InputJSON.parseInputsJson F computeParamNames jsonStr with
         | .error e => throw (IO.userError s!"Failed to parse inputs JSON: {e}")
-        | .ok inputs => pure (some (0 :: inputs))  -- prepend 0 for %self at index 0
+        | .ok inputs =>
+          IO.eprintln s!"inputs: { repr inputs }"
+          pure (some inputs)
       else if autoWitness then
         -- --auto: run with empty inputs (all signals default to 0)
         pure (some ([] : List F))

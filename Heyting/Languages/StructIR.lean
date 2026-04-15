@@ -245,11 +245,17 @@ def evalConstrainBody (m : Module n F) (w : Witness F)
     prop ∧ evalConstrainBody m w i env' objEnv' rest
 termination_by (i, stmts.length)
 
--- Top-level: evaluate @Main::@constrain (main = last struct)
+-- Top-level: evaluate @Main::@constrain (main = last struct).
+-- The initial local environment is seeded from the witness at the root path:
+--   `env k = w ([], k)` for all `k`.
+-- This makes `satisfies` non-vacuous for circuits with felt inputs:
+-- the parameters `%0, %1, ...` are visible in the constraint evaluation
+-- with the values that `computeWitness` wrote into `acc` at `([], k)`.
 def satisfies (w : Witness F) {n : Nat} (m : Module (n + 1) F) : Prop :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
   let mainDef := m.structs mainIdx
-  let env : LocalEnv F := fun _ => 0
+  -- Seed the env from the witness at the root path: env k = w ([], k)
+  let env : LocalEnv F := fun k => w ([], k)
   let objEnv : ObjEnv := ObjEnv.update (fun _ => []) 0 []
   evalConstrainBody m w mainIdx env objEnv mainDef.constrain.body
 
@@ -332,9 +338,13 @@ def evalComputeBody (m : Module n F)
         let val  := state.env src
         some { state with acc := fun v => if v == vid then val else state.acc v }
       | .newStruct dest =>
-        -- Allocate a fresh instance path [nextPath] for the new struct.
+        -- Allocate an instance path for the new struct.
+        -- nextPath=0 → root path [], nextPath=k>0 → path [k].
+        -- This ensures the first (root) struct in @compute gets path [],
+        -- matching the path used for %self in @constrain (initObjEnv[0] = []).
+        let path := if state.nextPath == 0 then [] else [state.nextPath]
         some { state with
-          objEnv   := state.objEnv.update dest [state.nextPath],
+          objEnv   := state.objEnv.update dest path,
           nextPath := state.nextPath + 1 }
       | .call dest target args =>
         -- Evaluate the callee's compute body with a fresh local env built from args.
@@ -366,22 +376,42 @@ termination_by (i, stmts.length)
 
 /-- Build the initial `ComputeState` from a list of public inputs.
     Inputs are placed into local variables `0 .. inputs.length - 1`.
-    All other locals default to `0`. The witness accumulator starts at `0`. -/
-def initComputeState (inputs : List F) : ComputeState F :=
+    The witness accumulator is pre-seeded with the inputs at root-path positions
+    `([], k)` for `k < inputs.length`, so that `satisfies` can read them via
+    the initial `env k = w ([], k)` seeding.
+    All other locals and witness positions default to `0`. -/
+def initComputeState (inputs : List F) (paramOffset : Nat) : ComputeState F :=
+  -- `paramOffset = constrain.numParams - compute.numParams` accounts for the
+  -- `%self` param (and any other extra constrain params) that are absent from
+  -- `@compute`.  `satisfies` seeds `env k = w([], k)` using **constrain** param
+  -- indices, so we must store input `k` at `acc([], k + paramOffset)`.
   let env : LocalEnv F := fun k =>
     match inputs[k]? with
     | some v => v
     | none   => 0
+  -- Seed acc at ([], k + paramOffset) with inputs[k].
+  let acc : Witness F := fun (path, slot) =>
+    if path == [] && slot ≥ paramOffset then
+      match inputs[slot - paramOffset]? with
+      | some v => v
+      | none   => 0
+    else 0
   { env      := env,
     objEnv   := ObjEnv.update (fun _ => []) 0 [],
-    acc      := fun _ => 0,
-    nextPath := 1 }  -- 0 is reserved for the root instance (self at path [])
+    acc      := acc,
+    nextPath := 0 }  -- nextPath=0 → first newStruct gets root path []
 
 /-- Attempt to compute a satisfying witness for the main struct from public inputs.
     Returns `none` if any `feltDiv` encounters a zero divisor. -/
 def computeWitness (m : Module (n + 1) F) (inputs : List F) : Option (Witness F) :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
-  let state₀ := initComputeState inputs
+  -- The offset between @constrain param indices and @compute param indices.
+  -- @constrain has %self as param 0; @compute does not.  So if @constrain has
+  -- 3 params (self, a, b) and @compute has 2 (a, b), the offset is 1.
+  let cNumParams := m.main.constrain.numParams
+  let pNumParams := m.main.compute.numParams
+  let offset := cNumParams - pNumParams
+  let state₀ := initComputeState inputs offset
   match evalComputeBody m mainIdx state₀ m.main.compute.body with
   | none    => none
   | some s' => some s'.acc

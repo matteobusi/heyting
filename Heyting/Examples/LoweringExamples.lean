@@ -1,8 +1,7 @@
 import Mathlib.Algebra.Field.ZMod
 import Heyting.Parsers.Main
 import Heyting.Passes.Lowering
-import Heyting.Passes.StructIRToFlatIR
-import Heyting.Passes.FlatIRToR1CS
+import Heyting.Passes.Pipeline
 
 /-!
 # Lowering Examples
@@ -78,9 +77,26 @@ the complete end-to-end pipeline from a real LLZK file to R1CS.
   match lowerMod (F := F) mod with
   | .error e => IO.println s!"Lowering failed: {e}"
   | .ok ⟨_, sirMod⟩ =>
-    let flatProg := StructIRToFlatIR.compileProgram sirMod
+    let flatProg := Pipeline.compileFlatIR sirMod
     let r1csSystem := FlatIRToR1CS.compileProgram F flatProg
     IO.println "=== Full pipeline: emit_pass.llzk → R1CS ==="
+    IO.println s!"R1CS constraints: {r1csSystem.constraints.length}"
+
+/-! ## Example 4: Full pipeline multiply.llzk → R1CS
+
+Parse → lower → StructIR → FlatIR → R1CS.
+Print the number of R1CS constraints produced. This demonstrates
+the complete end-to-end pipeline from a real LLZK file to R1CS.
+-/
+#eval do
+  let (mod, warnings) ← LLZK.parseFile
+    "multiply.llzk"
+  match lowerMod (F := F) mod with
+  | .error e => IO.println s!"Lowering failed: {e}"
+  | .ok ⟨_, sirMod⟩ =>
+    let r1csSystem := Pipeline.compileProgram (F := F) sirMod
+    IO.println "=== Full pipeline: multiply.llzk → R1CS ==="
+    IO.println s!"=== Warnings: { repr warnings } ==="
     IO.println s!"R1CS constraints: {r1csSystem.constraints.length}"
 
 end Lowering.Examples

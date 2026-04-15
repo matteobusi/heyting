@@ -1,6 +1,6 @@
 import Mathlib.Algebra.Field.ZMod
 import Heyting.Languages.StructIR
-import Heyting.Passes.StructIRToFlatIR
+import Heyting.Passes.Pipeline
 import Heyting.Passes.FlatIRToR1CS
 
 /-!
@@ -110,7 +110,7 @@ in `assertEq`.
 --   assignConst 1 0    ← zero-init for %z (param 1)
 --   assertEq 2 1       ← constrain.eq %f1, %z
 --   assertEq 3 1       ← constrain.eq %f2, %z
-#eval StructIRToFlatIR.compileProgram module1A
+#eval Pipeline.compileFlatIR module1A
 
 /-!
 ### Compilation: FlatIR → R1CS
@@ -122,22 +122,30 @@ Each FlatIR instruction compiles to R1CS constraints `A * B = C`:
 
 -- Full pipeline: StructIR → FlatIR → R1CS
 #eval FlatIRToR1CS.compileProgram F
-  (StructIRToFlatIR.compileProgram module1A)
+  (Pipeline.compileFlatIR module1A)
 
 /-!
 ### Satisfaction
 
-The parameter `%z` is initialized to 0 (all locals start at 0), so the
-constraints reduce to `w([], 0) = 0 ∧ w([], 1) = 0`.
+With the new semantics, the initial local environment is seeded from the witness
+at root-path positions: `env k = w ([], k)`.
+
+Parameters `%0` (self) and `%1` (z) get values `w ([], 0)` and `w ([], 1)`.
+Member `f1` is read via `readMember` as `w ([], 0)`.
+The constraint `constrainEq 2 1` then checks `w([], 0) = w([], 1)`.
+
+So `satisfies ws module1A` holds iff `ws ([], 0) = ws ([], 1)` (and similarly for f2).
 -/
 
--- The zero witness satisfies module1A
+-- The zero witness satisfies module1A (0 = 0)
 example : satisfies (fun _ => (0 : F)) module1A := by
   simp only [satisfies, module1A, component1A]
   repeat (unfold evalConstrainBody; simp [LocalEnv.update, ObjEnv.update])
 
--- 42 ≠ 0 in F_1993, so this fails
-example : ¬ satisfies (fun _ => (42 : F)) module1A := by
+-- A witness with w([], 0) = 7 and w([], 1) = 42 does NOT satisfy module1A
+-- (because 7 ≠ 42 in F_1993)
+example : ¬ satisfies (fun (path, k) => if path == [] && k == 0 then (7 : F) else 42)
+    module1A := by
   simp only [satisfies, module1A, component1A, not_and, not_forall]
   repeat (unfold evalConstrainBody; simp [LocalEnv.update, ObjEnv.update])
   native_decide
@@ -207,13 +215,13 @@ generates an `assertEq`.
 --   assignConst 0 0    ← zero-init for %self
 --   assignAdd 3 1 2    ← %3 = %a + %b (var 1 = readm @a, var 2 = readm @b)
 --   assertEq 3 4       ← constrain.eq %sum, %c (var 4 = readm @c)
-#eval StructIRToFlatIR.compileProgram moduleAdder
+#eval Pipeline.compileFlatIR moduleAdder
 
 -- Full pipeline: StructIR → FlatIR → R1CS
 -- The `assignAdd` becomes `(var 1 + var 2) * 1 = var 3`
 -- The `assertEq` becomes `var 3 * 1 = var 4`
 #eval FlatIRToR1CS.compileProgram F
-  (StructIRToFlatIR.compileProgram moduleAdder)
+  (Pipeline.compileFlatIR moduleAdder)
 
 /-!
 ### Satisfaction
@@ -297,11 +305,11 @@ def moduleDivider : Module 1 F where
 -/
 
 -- StructIR → FlatIR
-#eval StructIRToFlatIR.compileProgram moduleDivider
+#eval Pipeline.compileFlatIR moduleDivider
 
 -- Full pipeline — note: assignDiv produces 2 R1CS constraints
 #eval FlatIRToR1CS.compileProgram F
-  (StructIRToFlatIR.compileProgram moduleDivider)
+  (Pipeline.compileFlatIR moduleDivider)
 
 /-!
 ### Satisfaction
@@ -409,11 +417,11 @@ def moduleNested : Module 2 F where
 -/
 
 -- StructIR → FlatIR
-#eval StructIRToFlatIR.compileProgram moduleNested
+#eval Pipeline.compileFlatIR moduleNested
 
 -- Full pipeline: StructIR → FlatIR → R1CS
 #eval FlatIRToR1CS.compileProgram F
-  (StructIRToFlatIR.compileProgram moduleNested)
+  (Pipeline.compileFlatIR moduleNested)
 
 /-!
 ### Satisfaction

@@ -326,4 +326,34 @@ index numRegVars+1 .. total-1   → aux 0 .. aux (numAuxVars-1)
 - `lake exe tests`: all 23 `#eval` checks pass (16 existing + 7 new binary tests).
 - Zero sorries. Standard axioms only.
 
+---
+
+## Session 17 — 2026-04-15
+
+**Goals:** Continue the 3-pass pipeline refactor begun in Sessions 15–16 (StructIR → MemberlessIR → FlatIR → R1CS). Fix the wrong-witness bug (`[1,0,0,0,6,6]`).
+
+**What we did:**
+
+1. **Fixed `LoweringExamples.lean`** — replaced stale `StructIRToFlatIR.compileProgram` call with `Pipeline.compileProgram (F := F)`. Removed now-unused `import Heyting.Passes.FlatIRToR1CS`.
+
+2. **Cleaned up `CLI.lean`** — removed the stale `import Heyting.Passes.StructIRToFlatIR` and `import Heyting.Passes.FlatIRToR1CS` imports (CLI already used `Pipeline` correctly).
+
+3. **Deleted `Heyting/Passes/StructIRToFlatIR.lean`** (1863 lines) — the old monolithic pass is gone; replaced by `StructIRToMemberlessIR` + `MemberlessIRToFlatIR`. Updated `Heyting.lean` barrel to remove the import and add `Heyting.Passes.Pipeline`.
+
+4. **`lake build` passes** — 0 errors, only 5 expected `sorry` warnings (4 in the two new passes, 1 in Pipeline's `reflection` sorry-chain).
+
+5. **Diagnosed the wrong-witness root cause** — two bugs:
+   - **Bug A**: `initComputeState` seeded `acc([], k) = inputs[k]` at compute-param positions, but `satisfies` reads via constrain-param indices. `@constrain(%self, %a, %b)` expects `a` at `w([], 1)` and `b` at `w([], 2)`, while `@compute(%a, %b)` stored them at `([], 0)` and `([], 1)`. The offset `constrain.numParams − compute.numParams` = 1 was missing.
+   - **Bug B**: `StructIRToMemberlessIR.compileModuleWitness` initialized the accumulator as `fun _ => 0`, so param slots (which are never explicitly written by a statement) appeared as 0 in the MemberlessIR witness.
+
+6. **Fixed `StructIR.initComputeState`** — now takes `paramOffset : Nat` and seeds `acc([], slot)` only when `slot ≥ paramOffset`, using `inputs[slot - paramOffset]`. `computeWitness` computes `offset = constrain.numParams - compute.numParams` and passes it.
+
+7. **Fixed `StructIRToMemberlessIR.compileModuleWitness`** — initial accumulator now pre-seeded: `initAcc k = if k < constrain.numParams then ws([], k) else 0`.
+
+8. **Verified the fix** — `hey compile --json --input input.json multiply.llzk out/multiply` now produces witness `["1", "6", "2", "3", "6"]` (out=6, a=2, b=3, ab=6), which satisfies both R1CS constraints:
+   - `(a=2) * (b=3) = (ab=6)` ✓
+   - `(out=6) * 1 = (ab=6)` ✓
+
+**Remaining:** 4 sorries in `StructIRToMemberlessIR.lean` and `MemberlessIRToFlatIR.lean` (preservation + reflection for passes 1 and 2).
+
 

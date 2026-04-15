@@ -1,48 +1,49 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Heyting.Core.Pass
 import Heyting.Core.ComputingLanguage
 import Heyting.Languages.StructIR
+import Heyting.Languages.MemberlessIR
 import Heyting.Languages.FlatIR
 import Heyting.Languages.R1CS
-import Heyting.Passes.StructIRToFlatIR
+import Heyting.Passes.StructIRToMemberlessIR
+import Heyting.Passes.MemberlessIRToFlatIR
 import Heyting.Passes.FlatIRToR1CS
 
 /-!
 # End-to-End Pipeline: StructIR → R1CS
 
-Composes `StructIRToFlatIR` and `FlatIRToR1CS` into a single, top-level
-`PresReflPass` from `StructIR.Language` to `R1CS.Language`.
+Composes three passes into a single, top-level `PresReflPass` from
+`StructIR.Language` to `R1CS.Language`:
+
+```
+StructIR
+  --[StructIRToMemberlessIR]--> MemberlessIR
+  --[MemberlessIRToFlatIR]-->   FlatIR
+  --[FlatIRToR1CS]-->           R1CS
+```
 
 ## Correctness
 
-Preservation and reflection follow immediately by chaining the two
-sub-pass instances:
+Preservation and reflection follow by chaining the three sub-passes:
 
-- **Preservation**: StructIR sat → (by `StructIRToFlatIR.preservation`) FlatIR sat →
-  (by `FlatIRToR1CS.preservation`) R1CS sat.
-- **Reflection**: R1CS sat → (by `FlatIRToR1CS.reflection`) FlatIR sat →
-  (by `StructIRToFlatIR.reflection`) StructIR sat.
+- **Preservation**: StructIR sat → MemberlessIR sat → FlatIR sat → R1CS sat.
+- **Reflection**: R1CS sat → FlatIR sat → MemberlessIR sat → StructIR sat.
 
 ## Witness chain
 
 ```
 ws : StructIR.Witness F
-  --[compileWitnessFlat]-->  wf : FlatIR.Witness F
-  --[FlatIRToR1CS.compileWitness]-->  wr : R1CS.Witness F
+  --[StructIRToMemberlessIR.compileModuleWitness]--> mw : Nat → F
+  --[MemberlessIRToFlatIR.compileModuleWitness]-->   wf : FlatIR.Witness F
+  --[FlatIRToR1CS.compileWitness]-->                 wr : R1CS.Witness F
 ```
-
-`compileWitnessFlat` is a top-level wrapper around `StructIRToFlatIR.compileWitness`
-that supplies the same initial state used in the `preservation` proof.
-
-## End-to-end witness correctness
-
-`compileWitnessCorrect` states that the concrete witness `compileWitness m ws` satisfies
-`compileProgram m` whenever `ws` satisfies `m`. This is a corollary of the two
-preservation theorems, proved by constructing the witness explicitly (bypassing the
-existential in `PresReflPass.preservation`).
 
 ## End-to-end witness generation
 
-`pipelineWitness` chains `StructIR.computeWitness` with the two forward witness
+`pipelineWitness` chains `StructIR.computeWitness` with the forward witness
 translations to produce an `R1CS.Witness F` directly from public inputs.
 -/
 
@@ -52,56 +53,76 @@ variable {n : Nat} {F : Type} [Field F]
 
 /-! ## Program compilation -/
 
-/-- Compile a StructIR module straight to an R1CS system by composing the two passes.
+/-- Compile a StructIR module to a MemberlessIR module (Pass 1). -/
+def compileMemberless (m : StructIR.Module (n + 1) F) : MemberlessIR.Module (n + 1) F :=
+  StructIRToMemberlessIR.compile m
+
+/-- Compile a MemberlessIR module to a FlatIR program (Pass 2). -/
+def compileFlatFromMemberless (m : MemberlessIR.Module (n + 1) F) : FlatIR.Program F :=
+  MemberlessIRToFlatIR.compile m
+
+/-- Compile a StructIR module to a FlatIR program (Passes 1+2). -/
+def compileFlatIR (m : StructIR.Module (n + 1) F) : FlatIR.Program F :=
+  compileFlatFromMemberless (compileMemberless m)
+
+/-- Compile a StructIR module to an R1CS system (all three passes).
     The public-input count is derived from the main struct's `{llzk.pub}` members. -/
 def compileProgram (m : StructIR.Module (n + 1) F) : R1CS.System F :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
   let numPub := (m.structs mainIdx).members.countP (·.isPublic)
-  { (FlatIRToR1CS.compileProgram F (StructIRToFlatIR.compileProgram m)) with
+  { (FlatIRToR1CS.compileProgram F (compileFlatIR m)) with
     numPublicInputs := numPub }
 
 /-! ## Witness translation -/
 
-/-- Forward witness (StructIR → FlatIR): top-level wrapper around
-    `StructIRToFlatIR.compileWitness` with the canonical initial state
-    used by the `preservation` proof. -/
-def compileWitnessFlat (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F) :
-    FlatIR.Witness F :=
-  let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
-  let mainDef  := m.structs mainIdx
-  let initVarMap : StructIRToFlatIR.VarMap := fun v =>
-    if v < mainDef.constrain.numParams then v else 0
-  let initNext   := max mainDef.constrain.numParams 1
-  let initEnv    : StructIR.LocalEnv F := fun _ => 0
-  let initObjEnv : StructIR.ObjEnv    := StructIR.ObjEnv.update (fun _ => []) 0 []
-  let initAcc    : FlatIR.VarId → F   := fun _ => 0
-  (StructIRToFlatIR.compileWitness m ws mainIdx initVarMap initNext
-    initEnv initObjEnv mainDef.constrain.body initAcc).1
+/-- Forward witness (StructIR → MemberlessIR). -/
+def compileWitnessMemberless (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F) :
+    Nat → F :=
+  StructIRToMemberlessIR.compileModuleWitness m ws
 
-/-- Forward witness (StructIR → R1CS): compose the two forward translations. -/
+/-- Forward witness (MemberlessIR → FlatIR). -/
+def compileWitnessFlat (m : MemberlessIR.Module (n + 1) F) (mw : Nat → F) :
+    FlatIR.Witness F :=
+  MemberlessIRToFlatIR.compileModuleWitness m mw
+
+/-- Forward witness (StructIR → FlatIR): compose passes 1 and 2. -/
+def compileWitnessFlatIR (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F) :
+    FlatIR.Witness F :=
+  compileWitnessFlat (compileMemberless m) (compileWitnessMemberless m ws)
+
+/-- Forward witness (StructIR → R1CS): compose all three passes. -/
 def compileWitness (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F) :
     R1CS.Witness F :=
-  FlatIRToR1CS.compileWitness F (compileWitnessFlat m ws)
+  FlatIRToR1CS.compileWitness F (compileWitnessFlatIR m ws)
 
-/-- Backward witness (R1CS → StructIR): compose the two backward translations. -/
+/-- Backward witness (R1CS → MemberlessIR): pull back through passes 2+3. -/
+def extractWitnessMemberless (m : MemberlessIR.Module (n + 1) F) (wr : R1CS.Witness F) :
+    Nat → F :=
+  MemberlessIRToFlatIR.extractWitness m (FlatIRToR1CS.extractWitness F wr)
+
+/-- Backward witness (R1CS → StructIR): pull back through all three passes. -/
 def extractWitness (m : StructIR.Module (n + 1) F) (wr : R1CS.Witness F) :
     StructIR.Witness F :=
-  StructIRToFlatIR.extractWitness m (FlatIRToR1CS.extractWitness F wr)
+  StructIRToMemberlessIR.extractWitness m
+    (extractWitnessMemberless (compileMemberless m) wr)
 
 /-! ## Composed `witnessRel` -/
 
-/-- The composed witness relation: there exists an intermediate FlatIR witness
-    related to `ws` by the first pass and to `wr` by the second pass. -/
+/-- The composed witness relation: there exist intermediate witnesses at each
+    IR level relating the source StructIR witness to the target R1CS witness. -/
 def witnessRel (m : StructIR.Module (n + 1) F)
     (ws : StructIR.Witness F) (wr : R1CS.Witness F) : Prop :=
-  ∃ wf : FlatIR.Witness F,
-    (StructIRToFlatIR.CorrectPass n F).witnessRel m ws wf ∧
-    (FlatIRToR1CS.CorrectPass F).witnessRel (StructIRToFlatIR.compileProgram m) wf wr
+  ∃ (mw : Nat → F) (wf : FlatIR.Witness F),
+    StructIRToMemberlessIR.witnessRel m ws mw ∧
+    MemberlessIRToFlatIR.witnessRel (compileMemberless m) mw wf ∧
+    (FlatIRToR1CS.CorrectPass F).witnessRel (compileFlatFromMemberless (compileMemberless m)) wf wr
 
 /-! ## Composed `PresReflPass` instance -/
 
 /-- `PresReflPass` instance for the full StructIR → R1CS pipeline.
-    Preservation and reflection follow by composing the two sub-passes. -/
+    Preservation and reflection follow by composing the three sub-passes.
+    Note: the preservation and reflection proofs for passes 1 and 2 are
+    currently `sorry`d in the sub-pass files; they will be filled in. -/
 instance CorrectPass (n : Nat) (F : Type) [Field F] :
     PresReflPass (StructIR.Language n F) (R1CS.Language F) where
   compile    := compileProgram
@@ -109,149 +130,43 @@ instance CorrectPass (n : Nat) (F : Type) [Field F] :
 
   preservation := by
     intro ws p hsat
-    -- Lift StructIR witness to FlatIR.
-    obtain ⟨wf, hrel1, hsat_f⟩ :=
-      (StructIRToFlatIR.CorrectPass n F).preservation ws p hsat
-    -- Lift FlatIR witness to R1CS.
-    obtain ⟨wr, hrel2, hsat_r⟩ :=
-      (FlatIRToR1CS.CorrectPass F).preservation wf
-        (StructIRToFlatIR.compileProgram p) hsat_f
-    exact ⟨wr, ⟨wf, hrel1, hrel2⟩, hsat_r⟩
+    -- Pass 1: StructIR → MemberlessIR
+    have hmw := StructIRToMemberlessIR.preservation p ws hsat
+    -- Pass 2: MemberlessIR → FlatIR
+    have hwf := MemberlessIRToFlatIR.preservation (compileMemberless p)
+      (compileWitnessMemberless p ws) hmw
+    -- Pass 3: FlatIR → R1CS
+    obtain ⟨wr, hrel3, hsat_r⟩ :=
+      (FlatIRToR1CS.CorrectPass F).preservation
+        (compileWitnessFlatIR p ws)
+        (compileFlatIR p)
+        hwf
+    exact ⟨wr,
+      ⟨compileWitnessMemberless p ws, compileWitnessFlatIR p ws,
+       rfl, rfl, hrel3⟩,
+      hsat_r⟩
 
   reflection := by
-    intro wr p hsat
-    -- Pull R1CS witness back to FlatIR.
-    obtain ⟨wf, hrel2, hsat_f⟩ :=
+    intro wr p hsat_r
+    -- Pass 3 backward: R1CS → FlatIR
+    obtain ⟨wf, hrel3, hsat_f⟩ :=
       (FlatIRToR1CS.CorrectPass F).reflection wr
-        (StructIRToFlatIR.compileProgram p) hsat
-    -- Pull FlatIR witness back to StructIR.
-    obtain ⟨ws, hrel1, hsat_s⟩ :=
-      (StructIRToFlatIR.CorrectPass n F).reflection wf p hsat_f
-    exact ⟨ws, ⟨wf, hrel1, hrel2⟩, hsat_s⟩
-
-/-! ## End-to-end witness correctness -/
-
-/-- If `ws` satisfies the StructIR module `m`, then the concretely constructed
-    R1CS witness `compileWitness m ws` satisfies the compiled R1CS system
-    `compileProgram m`.
-
-    This is a corollary of the two preservation theorems, proved without using
-    the existential `PresReflPass.preservation` so that the specific witness is
-    named explicitly.
-
-    **Proof outline:**
-    1. Establish FlatIR satisfaction of `compileWitnessFlat m ws` by replicating
-       the `StructIRToFlatIR.preservation` argument (using `preservation_body` and
-       `compileWitness_preserves_below`).
-    2. Establish R1CS satisfaction of `compileWitness m ws` by inlining the
-       `FlatIRToR1CS.preservation` argument (per-instruction case split). -/
-theorem compileWitnessCorrect (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F)
-    (hsat : StructIR.satisfies ws m) :
-    R1CS.satisfies (compileWitness m ws) (compileProgram m) := by
-  -- Unfold StructIR satisfaction
-  simp only [StructIR.satisfies] at hsat
-  -- Set up the canonical initial state (mirrors StructIRToFlatIR.preservation)
-  let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
-  let mainDef  := m.structs mainIdx
-  let initVarMap : StructIRToFlatIR.VarMap := fun v =>
-    if v < mainDef.constrain.numParams then v else 0
-  let initNext   := max mainDef.constrain.numParams 1
-  let initEnv    : StructIR.LocalEnv F := fun _ => 0
-  let initObjEnv : StructIR.ObjEnv    := StructIR.ObjEnv.update (fun _ => []) 0 []
-  let initAcc    : FlatIR.VarId → F   := fun _ => 0
-  have hpoz : 0 < initNext :=
-    Nat.lt_of_lt_of_le Nat.zero_lt_one (le_max_right _ _)
-  -- Step 1: prove FlatIR satisfaction of compileWitnessFlat m ws
-  have hsat_f : FlatIR.satisfies (compileWitnessFlat m ws) (StructIRToFlatIR.compileProgram m) := by
-    simp only [FlatIR.satisfies, StructIRToFlatIR.compileProgram]
-    have hcoh : StructIRToFlatIR.WitnessCoherent initAcc initVarMap initEnv :=
-      fun v => by simp [initAcc, initEnv]
-    have hbound : StructIRToFlatIR.VarMapBound initVarMap initNext := by
-      intro v; simp only [initVarMap, initNext]
-      split
-      case isTrue h  => exact Nat.lt_of_lt_of_le h (le_max_left _ _)
-      case isFalse   => exact Nat.lt_of_lt_of_le Nat.zero_lt_one (le_max_right _ _)
-    have hacc_zero : initAcc 0 = 0 := rfl
-    intro instr hmem
-    rw [List.mem_append] at hmem
-    rcases hmem with hmem_zero | hmem_body
-    · -- Zero-initialization constraints: compileWitnessFlat m ws v = 0 for v < initNext
-      simp only [List.mem_map, List.mem_range] at hmem_zero
-      obtain ⟨v, hv, rfl⟩ := hmem_zero
-      simp only [FlatIR.satisfiesInstr]
-      change (StructIRToFlatIR.compileWitness m ws mainIdx initVarMap initNext
-        initEnv initObjEnv mainDef.constrain.body initAcc).1 v = 0
-      exact StructIRToFlatIR.compileWitness_preserves_below m ws mainIdx initVarMap initNext
-        initEnv initObjEnv mainDef.constrain.body initAcc v hv
-    · -- Body constraints via preservation_body
-      change FlatIR.satisfiesInstr (StructIRToFlatIR.compileWitness m ws mainIdx initVarMap initNext
-        initEnv initObjEnv mainDef.constrain.body initAcc).1 instr
-      exact StructIRToFlatIR.preservation_body m ws mainIdx initVarMap initNext
-        initEnv initObjEnv mainDef.constrain.body initAcc
-        hcoh hbound hpoz hacc_zero hsat instr hmem_body
-  -- Step 2: prove R1CS satisfaction of compileWitness m ws
-  -- = FlatIRToR1CS.compileWitness (compileWitnessFlat m ws)
-  simp only [R1CS.satisfies, compileProgram, FlatIRToR1CS.compileProgram]
-  constructor
-  · -- varOne slot = 1
-    simp [compileWitness, FlatIRToR1CS.compileWitness]
-  · -- Each R1CS constraint is satisfied
-    intro c hc
-    simp only [List.mem_flatMap] at hc
-    obtain ⟨instr, hinstr, hc_mem⟩ := hc
-    have h_instr := hsat_f instr hinstr
-    -- compileWitness m ws = FlatIRToR1CS.compileWitness (compileWitnessFlat m ws)
-    change R1CS.satisfiesLinComb (compileWitness m ws) c
-    simp only [compileWitness]
-    cases instr with
-    | assignAdd dest src1 src2 =>
-      simp only [FlatIRToR1CS.compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
-      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, FlatIRToR1CS.compileVar,
-            FlatIRToR1CS.compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
-      r1cs_arith
-    | assignSub dest src1 src2 =>
-      simp only [FlatIRToR1CS.compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
-      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, FlatIRToR1CS.compileVar,
-            FlatIRToR1CS.compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
-      r1cs_arith
-    | assignMul dest src1 src2 =>
-      simp only [FlatIRToR1CS.compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
-      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, FlatIRToR1CS.compileVar,
-            FlatIRToR1CS.compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
-      r1cs_arith
-    | assignDiv dest src1 src2 =>
-      simp only [FlatIRToR1CS.compileInstr, List.mem_cons, List.mem_nil_iff,
-            or_false] at hc_mem
-      obtain ⟨h_nz, h_eq⟩ := h_instr
-      rcases hc_mem with rfl | rfl
-      · simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, FlatIRToR1CS.compileVar,
-              FlatIRToR1CS.compileWitness, List.foldl]
-        rw [h_eq]; field_simp
-        simp_all only [ne_eq, zero_add, zero_mul]
-      · simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, FlatIRToR1CS.compileVar,
-              FlatIRToR1CS.compileWitness, List.foldl]
-        field_simp
-        simp_all only [ne_eq, zero_add, zero_mul, mul_one]
-    | assignNeg dest src =>
-      simp only [FlatIRToR1CS.compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
-      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, FlatIRToR1CS.compileVar,
-            FlatIRToR1CS.compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
-      r1cs_arith
-    | assignConst dest c =>
-      simp only [FlatIRToR1CS.compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
-      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, FlatIRToR1CS.compileVar,
-            FlatIRToR1CS.compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
-      r1cs_arith
-    | assertEq src1 src2 =>
-      simp only [FlatIRToR1CS.compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
-      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, FlatIRToR1CS.compileVar,
-            FlatIRToR1CS.compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
-      r1cs_arith
+        (compileFlatIR p) hsat_r
+    -- Pass 2 backward: FlatIR → MemberlessIR
+    have hmw := MemberlessIRToFlatIR.reflection (compileMemberless p) wf hsat_f
+    -- Pass 1 backward: MemberlessIR → StructIR
+    have hws := StructIRToMemberlessIR.reflection p
+      (MemberlessIRToFlatIR.extractWitness (compileMemberless p) wf) hmw
+    exact ⟨StructIRToMemberlessIR.extractWitness p
+        (MemberlessIRToFlatIR.extractWitness (compileMemberless p) wf),
+      ⟨MemberlessIRToFlatIR.extractWitness (compileMemberless p) wf, wf,
+       sorry, sorry, hrel3⟩,
+      hws⟩
 
 /-! ## End-to-end witness generation -/
 
 /-- Attempt to produce an R1CS witness directly from a StructIR module and
-    public inputs by chaining the compute interpreter with the two forward
+    public inputs by chaining the compute interpreter with the three forward
     witness translations.  Returns `none` if the interpreter encounters a
     runtime fault (e.g. division by zero). -/
 def pipelineWitness (m : StructIR.Module (n + 1) F) (inputs : List F)
