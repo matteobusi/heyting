@@ -92,11 +92,23 @@ def checkDefBeforeUse {n : Nat} {F : Type}
       | none => defined
     allDefined && destOk && checkDefBeforeUse numParams newDefined rest
 
-abbrev Module (n : Nat) (F : Type) :=
-  (i : Fin n) -> StructDef n F
-
 abbrev Witness (F : Type) := VarId -> F
 abbrev LocalEnv (F : Type) := LocalVar -> F
+
+/-- A `StructInlineIR` module carries the per-struct definitions plus
+    well-formedness proofs needed by downstream passes:
+    - `noDupReads`: no `(path, member)` pair is read twice in the main body.
+    - `isSSA`: in each struct's constrain body, no local variable is written
+      twice (SSA form). -/
+structure Module (n : Nat) (F : Type) where
+  structs : (i : Fin n) → StructDef n F
+  noDupReads : ∀ (hn : 0 < n),
+    let mainIdx : Fin n := ⟨n - 1, Nat.sub_one_lt_of_le hn le_rfl⟩
+    let initObjEnv : ObjEnv := StructIR.ObjEnv.update (fun _ => []) 0 []
+    (readPositions structs mainIdx initObjEnv
+      (structs mainIdx).constrain.body).Nodup
+  isSSA : ∀ (i : Fin n),
+    (constrainDests (structs i).constrain.body).Nodup
 
 def LocalEnv.update (env : LocalEnv F) (v : LocalVar) (val : F) : LocalEnv F :=
   fun w => if w == v then val else env w
@@ -133,7 +145,7 @@ def evalConstrainBody (m : Module n F) (w : Witness F)
 
 def satisfies (w : Witness F) {n : Nat} (m : Module (n + 1) F) : Prop :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
-  let mainDef := m mainIdx
+  let mainDef := m.structs mainIdx
   let env : LocalEnv F := fun k => w ([], k)
   let objEnv : ObjEnv := StructIR.ObjEnv.update (fun _ => []) 0 []
   evalConstrainBody m w mainIdx env objEnv mainDef.constrain.body
@@ -212,5 +224,55 @@ theorem runState_append (w : Witness F) (env : LocalEnv F) (objEnv : ObjEnv)
   | cons s rest ih =>
     simp only [List.cons_append, runState]
     exact ih _ _
+
+/-- Object-env tracker for `readPositions`. Mirrors the `objEnv` component of
+    `runState` but independently of any felt witness `w`. -/
+def readObjEnv (objEnv : ObjEnv) (stmts : List (ConstrainStmt n F)) : ObjEnv :=
+  match stmts with
+  | [] => objEnv
+  | stmt :: rest =>
+    match stmt with
+    | .readMember dest self member =>
+      let path := objEnv self
+      readObjEnv (StructIR.ObjEnv.update objEnv dest (path ++ [member])) rest
+    | _ => readObjEnv objEnv rest
+
+omit [Field F] in
+theorem readObjEnv_append (objEnv : ObjEnv) (s1 s2 : List (ConstrainStmt n F)) :
+    readObjEnv objEnv (s1 ++ s2) = readObjEnv (readObjEnv objEnv s1) s2 := by
+  induction s1 generalizing objEnv with
+  | nil => simp [readObjEnv]
+  | cons s rest ih =>
+    simp only [List.cons_append, readObjEnv]
+    cases s <;> (dsimp only; exact ih _)
+
+/-- `readObjEnv` matches the objEnv component of `runState` (they both only
+    get updated by `readMember`, identically). -/
+theorem readObjEnv_eq_runState (w : Witness F) (env : LocalEnv F) (objEnv : ObjEnv)
+    (stmts : List (ConstrainStmt n F)) :
+    readObjEnv objEnv stmts = (runState w env objEnv stmts).2 := by
+  induction stmts generalizing env objEnv with
+  | nil => simp [readObjEnv, runState]
+  | cons s rest ih =>
+    simp only [readObjEnv, runState, stepState]
+    cases s <;> (dsimp only; apply ih)
+
+omit [Field F] in
+/-- `readPositions` of a concatenation splits into two pieces, the second
+    evaluated under the objEnv produced by processing the first. -/
+theorem readPositions_append {F : Type}
+    (structs : (i : Fin n) → StructDef n F) (i : Fin n) (objEnv : ObjEnv)
+    (s1 s2 : List (ConstrainStmt n F)) :
+    readPositions structs i objEnv (s1 ++ s2) =
+      readPositions structs i objEnv s1 ++
+      readPositions structs i (readObjEnv objEnv s1) s2 := by
+  induction s1 generalizing objEnv with
+  | nil => simp [readPositions, readObjEnv]
+  | cons s rest ih =>
+    simp only [List.cons_append, readPositions, readObjEnv]
+    cases s
+    all_goals (dsimp only; rw [ih])
+    -- For readMember, we additionally append the recorded (path, member)
+    simp
 
 end StructInlineIR

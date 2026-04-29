@@ -29,6 +29,5 @@ example {n : Nat} {F : Type} [Field F]
     (m : StructInlineIR.Module (n + 1) F)
     (w : StructInlineIR.Witness F) :
     StructInlineIRToMemberlessIR.witnessRel m w
-      (StructInlineIRToMemberlessIR.compileWitness m w) := by
-  intro k
+      (StructInlineIRToMemberlessIR.compileWitness m w) :=
   rfl

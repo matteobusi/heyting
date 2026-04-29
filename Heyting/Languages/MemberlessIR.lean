@@ -92,39 +92,40 @@ variable {F : Type} [Field F] {n : Nat}
 
 /-- Evaluate a `MemberlessIR` constrain body for function at index `i`.
 
-    The `env` maps each local variable to its current felt value.
-    Returns the conjunction of all `constrainEq` constraints encountered,
-    together with the `feltDiv` non-zero side conditions. -/
+    The `env` is the full witness `mw : Nat → F`; it is NOT updated by felt
+    operations (felt ops are treated as constraints, asserting that
+    `env[dest]` equals the computed value). This matches R1CS semantics and
+    avoids issues with non-SSA programs where updates would diverge from the
+    witness. -/
 def evalBody (m : Module n F) (i : Fin n) (env : LocalEnv F)
     (stmts : List (Stmt n i F)) : Prop :=
   match stmts with
   | [] => True
   | stmt :: rest =>
-    let (env', prop) :=
+    let prop :=
       match stmt with
       | .feltAdd dest src1 src2 =>
-        (env.update dest (env src1 + env src2), True)
+        env dest = env src1 + env src2
       | .feltSub dest src1 src2 =>
-        (env.update dest (env src1 - env src2), True)
+        env dest = env src1 - env src2
       | .feltMul dest src1 src2 =>
-        (env.update dest (env src1 * env src2), True)
+        env dest = env src1 * env src2
       | .feltDiv dest src1 src2 =>
-        (env.update dest (env src1 * (env src2)⁻¹), env src2 ≠ 0)
+        env src2 ≠ 0 ∧ env dest = env src1 * (env src2)⁻¹
       | .feltNeg dest src =>
-        (env.update dest (-(env src)), True)
+        env dest = -(env src)
       | .feltConst dest c =>
-        (env.update dest c, True)
+        env dest = c
       | .constrainEq src1 src2 =>
-        (env, env src1 = env src2)
+        env src1 = env src2
       | .call target args =>
         let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
         let calleeEnv : LocalEnv F := fun param =>
           match args[param]? with
           | some arg => env arg
           | none     => 0
-        let callProp := evalBody m j calleeEnv (m j).body
-        (env, callProp)
-    prop ∧ evalBody m i env' rest
+        evalBody m j calleeEnv (m j).body
+    prop ∧ evalBody m i env rest
   termination_by (i, stmts.length)
 
 /-- Top-level satisfiability for a `MemberlessIR` module.

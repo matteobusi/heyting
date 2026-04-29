@@ -26,14 +26,14 @@ private instance : FieldBytes.FieldBytes (ZMod p) where
   toLeBytes    := fun x => FieldBytes.natLeBytes x.val 2
   primeLeBytes := FieldBytes.natLeBytes p 2
 
-#eval do
+#eval! do
   IO.println "=== Example 1: JSON Output for emit_pass.llzk (ZMod 1993) ==="
   let inPath := "llzk-lib/test/Dialect/Constrain/emit_pass.llzk"
   let outPath := "out/emit_pass.json"
   IO.FS.createDirAll "out"
   Heyting.CLI.compileAndSave (F := ZMod p) "F1993" inPath outPath true false (none : Option String)
 
-#eval do
+#eval! do
   IO.println "\n=== Example 2: JSON Output for circom_isZero.llzk (ZMod 1993) ==="
   let inPath := "llzk-lib/test/Conversions/circom_isZero.llzk"
   let outPath := "out/circom_isZero.json"

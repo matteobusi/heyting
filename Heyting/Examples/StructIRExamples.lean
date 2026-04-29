@@ -110,7 +110,7 @@ in `assertEq`.
 --   assignConst 1 0    ← zero-init for %z (param 1)
 --   assertEq 2 1       ← constrain.eq %f1, %z
 --   assertEq 3 1       ← constrain.eq %f2, %z
-#eval Pipeline.compileFlatIR module1A
+#eval! Pipeline.compileFlatIR module1A
 
 /-!
 ### Compilation: FlatIR → R1CS
@@ -121,7 +121,7 @@ Each FlatIR instruction compiles to R1CS constraints `A * B = C`:
 -/
 
 -- Full pipeline: StructIR → FlatIR → R1CS
-#eval FlatIRToR1CS.compileProgram F
+#eval! FlatIRToR1CS.compileProgram F
   (Pipeline.compileFlatIR module1A)
 
 /-!
@@ -215,12 +215,12 @@ generates an `assertEq`.
 --   assignConst 0 0    ← zero-init for %self
 --   assignAdd 3 1 2    ← %3 = %a + %b (var 1 = readm @a, var 2 = readm @b)
 --   assertEq 3 4       ← constrain.eq %sum, %c (var 4 = readm @c)
-#eval Pipeline.compileFlatIR moduleAdder
+#eval! Pipeline.compileFlatIR moduleAdder
 
 -- Full pipeline: StructIR → FlatIR → R1CS
 -- The `assignAdd` becomes `(var 1 + var 2) * 1 = var 3`
 -- The `assertEq` becomes `var 3 * 1 = var 4`
-#eval FlatIRToR1CS.compileProgram F
+#eval! FlatIRToR1CS.compileProgram F
   (Pipeline.compileFlatIR moduleAdder)
 
 /-!
@@ -305,10 +305,10 @@ def moduleDivider : Module 1 F where
 -/
 
 -- StructIR → FlatIR
-#eval Pipeline.compileFlatIR moduleDivider
+#eval! Pipeline.compileFlatIR moduleDivider
 
 -- Full pipeline — note: assignDiv produces 2 R1CS constraints
-#eval FlatIRToR1CS.compileProgram F
+#eval! FlatIRToR1CS.compileProgram F
   (Pipeline.compileFlatIR moduleDivider)
 
 /-!
@@ -417,10 +417,10 @@ def moduleNested : Module 2 F where
 -/
 
 -- StructIR → FlatIR
-#eval Pipeline.compileFlatIR moduleNested
+#eval! Pipeline.compileFlatIR moduleNested
 
 -- Full pipeline: StructIR → FlatIR → R1CS
-#eval FlatIRToR1CS.compileProgram F
+#eval! FlatIRToR1CS.compileProgram F
   (Pipeline.compileFlatIR moduleNested)
 
 /-!

@@ -18,6 +18,17 @@ abbrev ConstrainStmtInline (n : Nat) (F : Type) :=
 
 abbrev Subst := Nat → Nat
 
+/-- A generic dummy `StructInlineIR.Module` used only as a phantom parameter
+    to `StructInlineIR.evalConstrainBody` in proofs. Its contents are never
+    inspected because `evalConstrainBody` does not decompose its module
+    argument (StructInlineIR is call-free, so there is no recursion into
+    other structs). -/
+def dummyModule (n : Nat) (F : Type) : StructInlineIR.Module n F :=
+  ⟨fun _ => { name := "", members := [], constrain := { numParams := 0, body := [] } },
+   fun _ => by simp only [StructInlineIR.readPositions]; exact List.nodup_nil,
+   fun _ => by simp [StructInlineIR.constrainDests]⟩
+
+
 def Subst.update (subst : Subst) (src dst : Nat) : Subst :=
   fun v => if v == src then dst else subst v
 
@@ -212,7 +223,21 @@ def compileStruct (m : StructIR.Module n F) (i : Fin n) : StructInlineIR.StructD
       body := body } }
 
 def compile (m : StructIR.Module (n + 1) F) : StructInlineIR.Module (n + 1) F :=
-  fun i => compileStruct m i
+  ⟨fun i => compileStruct m i, compile_noDupReads m, compile_isSSA m⟩
+where
+  /-- Nodup proof obligation on the compiled module. -/
+  compile_noDupReads (m : StructIR.Module (n + 1) F) :
+      ∀ (hn : 0 < n + 1),
+      let mainIdx : Fin (n + 1) := ⟨n + 1 - 1, Nat.sub_one_lt_of_le hn le_rfl⟩
+      let initObjEnv : StructIR.ObjEnv := StructIR.ObjEnv.update (fun _ => []) 0 []
+      (StructInlineIR.readPositions (fun i => compileStruct m i) mainIdx initObjEnv
+        (compileStruct m mainIdx).constrain.body).Nodup := by
+    intro _; sorry
+  /-- SSA property on the compiled module. -/
+  compile_isSSA (m : StructIR.Module (n + 1) F) :
+      ∀ (i : Fin (n + 1)),
+      (StructInlineIR.constrainDests (compileStruct m i).constrain.body).Nodup := by
+    intro _; sorry
 
 def witnessRel (m : StructIR.Module (n + 1) F)
     (ws : StructIR.Witness F) (wi : StructIR.Witness F) : Prop :=
@@ -503,10 +528,10 @@ private theorem inlineBody_props (m : StructIR.Module n F) (w : StructIR.Witness
     (∀ (valSubst objSubst : Subst) (next : Nat)
         (envs envi : StructIR.LocalEnv F) (objs obji : StructIR.ObjEnv),
        EnvRel valSubst envs envi → ObjRel objSubst objs obji →
-       SubstBounded valSubst next → SubstBounded objSubst next → ObjFresh obji next →
+        SubstBounded valSubst next → SubstBounded objSubst next → ObjFresh obji next →
         (StructIR.evalConstrainBody m w i envs objs body ↔
          StructInlineIR.evalConstrainBody
-           (fun _ => { name := "", members := [], constrain := { numParams := 0, body := [] } })
+           (dummyModule n F)
            w i envi obji
            (inlineBody m i valSubst objSubst next body).1)) := by
   induction k generalizing i body with
@@ -900,8 +925,7 @@ private theorem inlineBody_props (m : StructIR.Module n F) (w : StructIR.Witness
                  (StructIR.evalConstrainBody m w j calleeEnv calleeObjEnv
                    (m.structs j).constrain.body ↔
                   StructInlineIR.evalConstrainBody
-                    (fun _ => { name := "", members := [],
-                                constrain := { numParams := 0, body := [] } })
+                    (dummyModule n F)
                     w j (envi.update next 0) obji ic) :=
                correct_callee cvS coS (next + 1) calleeEnv (envi.update next 0)
                  calleeObjEnv obji hcalleeEnvRel hcalleeObjRel hcvS hcoS
@@ -911,8 +935,7 @@ private theorem inlineBody_props (m : StructIR.Module n F) (w : StructIR.Witness
                  (StructIR.evalConstrainBody m w j calleeEnv calleeObjEnv
                    (m.structs j).constrain.body ↔
                   StructInlineIR.evalConstrainBody
-                    (fun _ => { name := "", members := [],
-                                constrain := { numParams := 0, body := [] } })
+                    (dummyModule n F)
                     w i (envi.update next 0) obji ic) := by
                rw [hcallee_iff_j]
                exact Iff.of_eq (StructInlineIR.evalConstrainBody_irrel _ _ w j i _ _ _)
@@ -928,8 +951,7 @@ private theorem inlineBody_props (m : StructIR.Module n F) (w : StructIR.Witness
                exact hObjFresh p (Nat.le_trans (Nat.le_of_succ_le hna_ge) hp)
              have htail_iff : (StructIR.evalConstrainBody m w i envs objs rest ↔
                  StructInlineIR.evalConstrainBody
-                   (fun _ => { name := "", members := [],
-                               constrain := { numParams := 0, body := [] } })
+                   (dummyModule n F)
                    w i (StructInlineIR.runState w (envi.update next 0) obji ic).1
                    (StructInlineIR.runState w (envi.update next 0) obji ic).2 tail) :=
                correct_rest valSubst objSubst na envs
@@ -941,8 +963,7 @@ private theorem inlineBody_props (m : StructIR.Module n F) (w : StructIR.Witness
              --   (True) ∧ eval (ic ++ tail) on (envi.update next 0, obji)
              -- = (True) ∧ eval ic ∧ eval tail (after runState ic)
              change _ ↔ True ∧ StructInlineIR.evalConstrainBody
-               (fun _ => { name := "", members := [],
-                           constrain := { numParams := 0, body := [] } })
+               (dummyModule n F)
                w i (StructInlineIR.LocalEnv.update envi next 0) obji (ic ++ tail)
              rw [StructInlineIR.evalConstrainBody_append]
              constructor
@@ -976,7 +997,7 @@ theorem inlineBody_correct (m : StructIR.Module n F) (w : StructIR.Witness F)
     (hObjFresh : ObjFresh obji next) :
     StructIR.evalConstrainBody m w i envs objs body ↔
     StructInlineIR.evalConstrainBody
-      (fun _ => { name := "", members := [], constrain := { numParams := 0, body := [] } })
+      (dummyModule n F)
       w i envi obji
       (inlineBody m i valSubst objSubst next body).1 := by
   have h := (inlineBody_props m w (i.val + 1) i (Nat.lt_succ_self _) body).2
@@ -1310,7 +1331,7 @@ theorem expandBody_correct (m : StructIR.Module n F) (w : StructIR.Witness F)
           StructIR.evalConstrainBody m w j calleeEnv calleeObjEnv
             (m.structs j).constrain.body ↔
           StructInlineIR.evalConstrainBody
-            (fun _ => { name := "", members := [], constrain := { numParams := 0, body := [] } })
+            (dummyModule n F)
             w j envi0 objEnv ic :=
         inlineBody_correct m w j cvS coS (next + 1) (m.structs j).constrain.body
           calleeEnv envi0 calleeObjEnv objEnv hEnvRel hObjRel hcvS hcoS (objFresh_succ hFresh)

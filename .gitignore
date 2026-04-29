@@ -26,6 +26,7 @@ out/
 *.wtns
 *.r1cs.json
 *.witness.json
+*.circom
 
 # ── Python / tooling virtualenvs ────────────────────────────────────────────
 .venv/

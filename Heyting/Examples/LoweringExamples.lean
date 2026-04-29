@@ -35,7 +35,7 @@ Parse a 5-struct circuit (`emit_pass.llzk`) where each struct has a simple
 `@constrain` body with `constrain.eq`. Lower to StructIR and print a summary.
 This is the simplest real-world case: no `nondet`, no arrays.
 -/
-#eval do
+#eval! do
   let (mod, _warnings) ← LLZK.parseFile
     "llzk-lib/test/Dialect/Constrain/emit_pass.llzk"
   match lowerMod (F := F) mod with
@@ -51,7 +51,7 @@ This is the simplest real-world case: no `nondet`, no arrays.
 Parse `emit_pass.llzk`, lower to StructIR, and print all struct names
 with their member counts and constrain body sizes.
 -/
-#eval do
+#eval! do
   let (mod, _warnings) ← LLZK.parseFile
     "llzk-lib/test/Dialect/Constrain/emit_pass.llzk"
   match lowerMod (F := F) mod with
@@ -71,7 +71,7 @@ Print the number of R1CS constraints produced. This demonstrates
 the complete end-to-end pipeline from a real LLZK file to R1CS.
 `emit_pass.llzk` (ComponentA–ComponentE) yields 4 R1CS constraints.
 -/
-#eval do
+#eval! do
   let (mod, _warnings) ← LLZK.parseFile
     "llzk-lib/test/Dialect/Constrain/emit_pass.llzk"
   match lowerMod (F := F) mod with
@@ -88,7 +88,7 @@ Parse → lower → StructIR → FlatIR → R1CS.
 Print the number of R1CS constraints produced. This demonstrates
 the complete end-to-end pipeline from a real LLZK file to R1CS.
 -/
-#eval do
+#eval! do
   let (mod, warnings) ← LLZK.parseFile
     "multiply.llzk"
   match lowerMod (F := F) mod with
