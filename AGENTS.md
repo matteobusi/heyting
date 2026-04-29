@@ -15,6 +15,7 @@ Every theorem: **0 sorries**, **standard axioms only** (`propext`, `Classical.ch
 ```bash
 lake build        # library
 lake build hey    # compiler binary
+lake exe tests    # run #eval test suite
 ```
 
 Requires [elan](https://github.com/leanprover/elan). Lean 4.28.0, Mathlib v4.28.0.
@@ -27,22 +28,34 @@ Heyting/
     Language.lean          -- Language typeclass
     Pass.lean              -- Pass, PreservingPass, ReflectingPass, PresReflPass
     TrinitaryCC.lean       -- TPσ ↔ CC~ ↔ TPτ (Abate et al.)
+    VarIdEncoding.lean     -- Bijective Nat encoding for StructIR.VarId
   Languages/
-    StructIR.lean          -- Hierarchical IR (structs, calls, felt ops)
-    FlatIR.lean            -- Flat instruction list (7 types)
+    StructIR.lean          -- Hierarchical IR (structs, calls, felt ops, readMember)
+    StructInlineIR.lean    -- Call-free IR (readMember preserved; calls inlined)
+    MemberlessIR.lean      -- Flat-variable IR (no struct hierarchy; calls preserved)
+    FlatIR.lean            -- Flat instruction list (7 types; no calls)
     R1CS.lean              -- Rank-1 Constraint Systems
   Passes/
-    StructIRToFlatIR.lean  -- StructIR → FlatIR (~1860 lines)
-    FlatIRToR1CS.lean      -- FlatIR → R1CS (~220 lines)
+    StructIRToStructInlineIR.lean  -- Pass 1: StructIR → StructInlineIR (~1400 lines)
+    StructInlineIRToMemberlessIR.lean -- Pass 2: StructInlineIR → MemberlessIR (~80 lines)
+    MemberlessIRToFlatIR.lean      -- Pass 3: MemberlessIR → FlatIR (~260 lines)
+    FlatIRToR1CS.lean              -- Pass 4: FlatIR → R1CS (~270 lines)
+    Pipeline.lean          -- 4-pass composition; compileProgram; pipelineWitness
     Lowering.lean          -- LLZK AST → StructIR (unverified, partial)
     Tactics.lean           -- r1cs_arith, r1cs_unfold_sat macros
-  Parser/
+  Parsers/
     AST.lean               -- Untyped LLZK AST
     Tokenizer.lean         -- MLIR textual IR tokenizer
     Parser.lean            -- Recursive descent parser
     Main.lean              -- parseFile, ppModule
+    InputJSON.lean         -- JSON witness input parser
   Backends/
     R1CSJSON.lean          -- R1CS → JSON serialization
+    R1CSBinary.lean        -- R1CS → Circom .r1cs binary
+    WitnessJSON.lean       -- Witness → JSON
+    WitnessBinary.lean     -- Witness → .wtns binary
+    WireAssignment.lean    -- Wire index encoding
+    FieldBytes.lean        -- Field-element byte serialization
   Examples/
     StructIRExamples.lean  -- 4 validated examples
     LoweringExamples.lean  -- LLZK → StructIR → R1CS pipeline
@@ -50,6 +63,11 @@ Heyting/
     ParserExamples.lean    -- Parser on 5 real LLZK files
   Test/
     R1CSJSONTest.lean      -- Unit tests for R1CS JSON
+    BinaryTest.lean        -- Unit tests for R1CS/witness binary
+    InputJSONTest.lean     -- Unit tests for witness input JSON
+    VarIdEncodingTest.lean -- Unit tests for VarIdEncoding
+    StructInlineIRTest.lean -- Structural tests for StructInlineIR
+    Main.lean              -- Test entry point (lake exe tests)
   CLI.lean                 -- hey compile; prime field dispatch
   CLIArgs.lean             -- CLI argument parser
 docs/
@@ -62,7 +80,31 @@ docs/
   llzk-dialects.md -- LLZK MLIR dialect reference
   diary.md         -- Chronological session diary
   MATTEO_NOTES.md  -- Author's design notes
+  superpowers/     -- Design specs and implementation plans
+multiply.llzk      -- Test circuit: a * b = out (2 R1CS constraints)
 ```
+
+## Pipeline
+
+The compiler runs four passes:
+
+```
+StructIR
+  --[Pass 1: StructIRToStructInlineIR]--> StructInlineIR   (inline all calls)
+  --[Pass 2: StructInlineIRToMemberlessIR]--> MemberlessIR  (encode VarId → Nat)
+  --[Pass 3: MemberlessIRToFlatIR]---------> FlatIR         (inline calls, flatten)
+  --[Pass 4: FlatIRToR1CS]-----------------> R1CS           (encode to A·B=C)
+```
+
+### Proof status per pass
+
+| Pass | File | PresReflPass | Notes |
+|------|------|:---:|-------|
+| 1: StructIR → StructInlineIR | `StructIRToStructInlineIR.lean` | ✅ | Full `PresReflPass`; identity `witnessRel` |
+| 2: StructInlineIR → MemberlessIR | `StructInlineIRToMemberlessIR.lean` | ⚠️ | `Pass` only; `PresReflPass` is phase-2 work |
+| 3: MemberlessIR → FlatIR | `MemberlessIRToFlatIR.lean` | ⚠️ | `witnessRel` defined; no `Pass` instance yet |
+| 4: FlatIR → R1CS | `FlatIRToR1CS.lean` | ✅ | Full `PresReflPass` (`CorrectPass`) |
+| Pipeline (end-to-end) | `Pipeline.lean` | ⚠️ | `Pass` only; needs passes 2 & 3 done |
 
 ## Correctness framework
 
@@ -111,39 +153,56 @@ Examples/tests use `F := ZMod 1993`. Do not hardcode a prime in proof files.
 
 **Imports:** Minimize — import specific Mathlib modules, not `import Mathlib`.
 
-**New StructIR statement type** — add cases in:
-`compileConstrainBody`, `compileWitness`, `buildVarAlloc`, `evalConstrainBody`,
-`readPositions`, and all proof theorems (`preservation_body`, `reflection_direct`,
-`reflection_body`, `compileConstrainBody_instrVars_bounded`, `compileWitness_preserves_below`,
-`compileWitness_next_le`, `compileWitness_compileConstrainBody_next`, `buildVarAlloc_next_eq`,
-`buildVarAlloc_alloc_bound`, `compileWitness_varAlloc_agree`, `buildVarAlloc_preserves_absent`,
-`buildVarAlloc_acc_irrelevant`).
+**New StructIR statement type** — add cases in both `StructIR.lean` and
+`StructIRToStructInlineIR.lean`: `inlineBody`, `expandBody`, `inlineBody_props`
+(frame + correctness), `inlineBody_frame`, `inlineBody_correct`, `expandBody_correct`,
+and `evalConstrainBody_agree`.
 
-**New FlatIR instruction** — add to `compileInstr` (1–2 constraints), then preservation +
-reflection cases via `r1cs_arith`; fall back to `linear_combination`/`field_simp`.
-See `docs/tactics.md`.
+**New FlatIR instruction** — add to `FlatIRToR1CS.compileInstr` (1–2 constraints),
+then preservation + reflection cases via `r1cs_arith`; fall back to
+`linear_combination`/`field_simp`. See `docs/tactics.md`.
+
+**Pass 1 proof structure (`StructIRToStructInlineIR.lean`)**:
+The key theorem is `expandBody_correct`: source `evalConstrainBody` ↔ target
+`StructInlineIR.evalConstrainBody` after expansion. The `call` case uses:
+- `inlineBody_correct` (proved by combined k-bounded strong induction `inlineBody_props`)
+- `StructIR.evalConstrainBody_agree` (env-agreement for bounded-variable bodies)
+- `inlineBody_frame` (positions < next unchanged after running inlined code)
+- `StructInlineIR.evalConstrainBody_append` (splitting evaluation over appended lists)
+
+**Pass 2 open question** (`StructInlineIRToMemberlessIR.lean`):
+Currently compiles `readMember dest self member` to `constrainEq dest (Nat.pair self member)`.
+This treats local variable `self` as if it *is* the encoded path — which is only correct if
+`objEnv self` is always determined by `self` alone. The semantic gap between
+StructInlineIR's `ObjEnv`-threaded `readMember` and MemberlessIR's flat `constrainEq`
+must be resolved before pass 2 can be proved. See `docs/WARNING.md` §8.
+
+**Pass 3 proof structure (`MemberlessIRToFlatIR.lean`)**:
+Follow the old `StructIRToFlatIR` pattern: `compileWitness_agrees` invariant
+(`∀ v, wt (vm v) = env v`), preservation/reflection by joint induction on
+`(i, stmts.length)`. The `call` case inlines the callee body.
 
 **Macro hygiene:** Tactics in `Tactics.lean` cannot reference names from other files.
-`StructIRToFlatIR.lean` keeps its own `VarMap` alias to avoid collisions. Pass-specific
-unfolding at the call site, not in a tactic.
+Pass-specific unfolding at the call site, not in a tactic.
 
 **Helper lemma extraction:** Cannot factor out proof code involving a recursive call to
-the theorem being proved (felt-op cases in `reflection_direct`/`reflection_body`).
-Non-recursive obligations can be factored (e.g. `preservation_body_peel_binop`).
+the theorem being proved (felt-op cases in induction proofs). Non-recursive obligations
+can be factored (e.g., `preservation_body_peel_binop` pattern).
 
 ## Verification checklist
 
 1. `lean_diagnostic_messages <file>` → 0 errors
-2. `lake build` → 0 errors
+2. `lake build` → 0 errors, 0 warnings
 3. `lean_verify <file> <theorem>` → standard axioms only
-4. No `sorry`: `grep -r "sorry" Heyting/` → empty
+4. No `sorry`: `grep -r "sorry" Heyting/` → empty (only comment hits OK)
+5. `lake exe tests` → 0 errors
 
 ## Documentation
 
 | File | When to update |
 |------|----------------|
 | `docs/GUARANTEES.md` / `docs/languages.md` | Pass behavior, new languages, correctness framework |
-| `docs/WARNING.md` | New assumptions, limitations, resolutions; check before touching `assignDiv`, `noDupReads`, `objEnv` |
+| `docs/WARNING.md` | New assumptions, limitations, resolutions |
 | `docs/cli.md` | CLI flags, supported fields |
 | `docs/llzk-dialects.md` | New LLZK dialects/ops, parser work |
 | `docs/diary.md` | Append session summary each session |

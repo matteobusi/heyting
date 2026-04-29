@@ -1,143 +1,141 @@
 # Heyting Roadmap
 
-Detailed plan for the next phases of development. The verified core
-(StructIR → FlatIR → R1CS) is complete. The focus now shifts to making
-Heyting practical: parsing real inputs, producing real outputs, and
-extending the language coverage.
+Development phases. ✅ = complete; 🔄 = in progress; ⬜ = not started.
 
 ---
 
-## Phase 1: Proof Engineering (current)
+## Phase 1: Proof Engineering ✅
 
 **Goal:** Make pass proofs easier to write and maintain.
 
-**Status:** Started in Session 10, major progress in Session 12.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Custom R1CS tactics (`Passes/Tactics.lean`) | Done | `r1cs_arith`, `r1cs_unfold_sat` |
-| Pass-internal helper lemmas | Done | Generic `witnessCoherent_update_from_sat`, `preservation_body_peel_binop`, multi-pattern binop merging |
-| Refactor existing proofs to use helpers | Done | StructIRToFlatIR reduced from 2010 → 1861 lines; 6 coherence lemmas → 1, 4 binop cases merged |
-| Document proof patterns | Done | See `docs/tactics.md` |
-
-**Impact:** Adding a new felt operation (e.g., `feltPow`) should require only:
-1. The instruction case in 4 functions (compile, compileWitness, buildVarAlloc, eval)
-2. One `satisfiesInstr` proof (in the FlatIR→R1CS pass)
-3. The `compileWitness_preserves_below` + coherence plumbing is now generic
+| Task | Status |
+|------|--------|
+| Custom R1CS tactics (`Passes/Tactics.lean`) | ✅ |
+| Pass-internal helper lemmas | ✅ |
+| Refactor existing proofs to use helpers | ✅ |
+| Document proof patterns (`docs/tactics.md`) | ✅ |
 
 ---
 
-## Phase 2: Practical I/O
+## Phase 2: Practical I/O ✅
 
 **Goal:** Read real LLZK circuit files and produce real R1CS output.
 
 ### 2a. LLZK Parser ✅
 
-Parse LLZK MLIR textual IR into an untyped AST. This is the first stage
-of the bridge between the verified core and real-world ZKP circuits.
-
-**Status:** Complete (Lean 4 native parser, Option A).
-
-| Task | Status | Notes |
-|------|--------|-------|
-| LLZK textual IR tokenizer | Done | `Heyting/Parser/Tokenizer.lean` — handles `%ssa`, `@sym`, `!type`, int literals, keywords, punctuation |
-| Recursive descent parser | Done | `Heyting/Parser/Parser.lean` — modules, structs, functions, felt ops, struct ops, constrain.eq, calls, nondet |
-| Untyped AST definition | Done | `Heyting/Parser/AST.lean` — `LLZK.Module`, `StructDef`, `FuncDef`, `Stmt` (17 variants) |
-| Pretty-printer & stats | Done | `Heyting/Parser/Main.lean` — `ppModule`, `countStmts` |
-| Qualified name support | Done | Handles `@Mod::@func` in function.call |
-| Multi-section files | Done | Splits on `// -----`, parses each section, merges structs |
-| Unsupported op skipping | Done | `constrain.in`, `arith.*`, `array.*`, bitwise ops → skip with warnings |
-
-**Tested on 5 real LLZK files from `llzk-lib/test/Dialect/`:**
-- `emit_pass.llzk` — 5 structs, 20 stmts
-- `nondet_preservation.llzk` — 1 struct, 9 stmts
-- `circomlib.llzk` — 2 structs, 42 stmts (with qualified calls)
-- `felt_arith_pass.llzk` — free functions only (correctly skipped)
-- `structs_pass.llzk` — 25 structs, 81 stmts (with template params skipped)
+| Task | Status |
+|------|--------|
+| Tokenizer (`Parsers/Tokenizer.lean`) | ✅ |
+| Recursive descent parser (`Parsers/Parser.lean`) | ✅ |
+| Untyped AST (`Parsers/AST.lean`) | ✅ |
+| Multi-section file support | ✅ |
+| Unsupported op skipping with warnings | ✅ |
+| Tested on 5 real LLZK files from `llzk-lib/test/` | ✅ |
 
 ### 2a′. AST → StructIR Lowering ✅
 
-Lower the untyped `LLZK.Module` AST into typed `StructIR.Module`. This
-requires resolving struct references to `Fin` indices, assigning member
-indices, and verifying `noDupReads`.
+Unverified `partial` lowering with `Except String` error propagation.
 
-**Status:** Complete (Session 12). Unverified `partial` lowering pass with `Except String` error propagation.
-
-| Task | Complexity | Notes |
-|------|------------|-------|
-| Struct dependency resolution | Medium | Done — Kahn's BFS topological sort, `Fin` index assignment |
-| Member type/index assignment | Medium | Done — `lowerMembers`, `buildMemberIndex` |
-| SSA → variable mapping | Medium | Done — `buildSSAMap` assigns monotonic `Nat` indices |
-| `noDupReads` validation | Medium | Done — decidable `List.Nodup` check at runtime |
-| Error reporting for unsupported patterns | Low | Done — `Except String` propagation |
+| Task | Status |
+|------|--------|
+| Topo sort + Fin index assignment | ✅ |
+| Member type/index assignment | ✅ |
+| SSA → variable mapping | ✅ |
+| `noDupReads` / `isSSA` / `isDefBeforeUse` validation | ✅ |
 
 ### 2b. R1CS Output ✅
 
-Serialize `R1CS.System` to a standard format.
-
-| Task | Complexity | Status | Notes |
-|------|------------|--------|-------|
-| JSON output | Low | Done | `Heyting/Backends/R1CSJSON.lean` — `systemToJson`, `saveR1CSJson` |
-| CLI entry point (`hey compile`) | Low | Done | `Heyting/CLI.lean` — full pipeline `parseFile → lower → compile → saveR1CSJson` |
-| Multi-field support (`--prime-field`) | Low | Done | 6 prime fields matching `llzk-lib/lib/Util/Field.cpp`: bn254 (default), bn128, babybear, goldilocks, mersenne31, koalabear |
-| Unit tests | Low | Done | `Heyting/Test/R1CSJSONTest.lean` |
-| Witness JSON output | Low | Done | `Heyting/Backends/WitnessJSON.lean` — wire-index array, `saveWitnessJson`; `WireAssignment.lean` for `encode`/`decode` |
-| R1CS binary format (Circom-compatible) | Low | Done | `Heyting/Backends/R1CSBinary.lean` — `systemToBinary`, `saveR1CSBinary`; default CLI output |
-| Witness binary format (`.wtns`) | Low | Done | `Heyting/Backends/WitnessBinary.lean` — `witnessToBinary`, `saveWitnessBinary`; default with `--auto`/`--input` |
-| Variable naming | Low | Planned | Carry names through for debugging |
-
-**Standard format:** The [Circom `.r1cs` binary format](https://github.com/iden3/r1csfile) is widely supported (SnarkJS, Rapidsnark, etc.). Alternatively, the JSON format from SnarkJS.
+| Task | Status |
+|------|--------|
+| JSON output (`Backends/R1CSJSON.lean`) | ✅ |
+| CLI entry point `hey compile` | ✅ |
+| Multi-field support (`--prime-field`, 6 fields) | ✅ |
+| Witness JSON output | ✅ |
+| R1CS binary format (Circom `.r1cs`) | ✅ |
+| Witness binary format (`.wtns`) | ✅ |
+| Unit tests (`Test/R1CSJSONTest.lean`, `BinaryTest.lean`) | ✅ |
 
 ---
 
-## Phase 3: Language Extensions
+## Phase 2.5: Complete the PresReflPass chain 🔄
+
+**Goal:** Prove passes 2 and 3, composing the full end-to-end `PresReflPass`.
+
+### Current status
+
+| Pass | File | PresReflPass |
+|------|------|:---:|
+| 1: StructIR → StructInlineIR | `StructIRToStructInlineIR.lean` | ✅ |
+| 2: StructInlineIR → MemberlessIR | `StructInlineIRToMemberlessIR.lean` | ⚠️ `Pass` only |
+| 3: MemberlessIR → FlatIR | `MemberlessIRToFlatIR.lean` | ⚠️ `Pass` only |
+| 4: FlatIR → R1CS | `FlatIRToR1CS.lean` | ✅ |
+| Pipeline | `Pipeline.lean` | ⚠️ `Pass` only |
+
+### 2.5a. Resolve Pass 2 semantic gap
+
+**Blocker:** `readMember dest self member` → `constrainEq dest (Nat.pair self member)`
+treats local variable `self` as if it *is* the encoded path. This is only correct when
+`objEnv self` is determined by `self` alone. Design question: does StructInlineIR (after
+call inlining) guarantee this? If not, a different compilation strategy is needed.
+See `docs/WARNING.md` §8.
+
+**Tasks:**
+- Decide: is the current `constrainEq` strategy correct, or does Pass 2 need redesign?
+- Prove (or redesign + prove) `StructInlineIRToMemberlessIR.PresReflPass`.
+
+### 2.5b. Prove Pass 3 (`MemberlessIRToFlatIR`)
+
+The proof structure mirrors the old `StructIRToFlatIR` pass:
+- `compileWitness_agrees` invariant: `∀ v, wt (vm v) = env v`
+- Preservation + reflection by induction on `(i, stmts.length)`
+- `call` case: callee invariant via IH; frame for outer `vm` unchanged
+
+Estimated complexity: ~600–900 lines.
+
+### 2.5c. Wire up pipeline `PresReflPass`
+
+Once 2.5a and 2.5b are done, `Pipeline.CorrectPipeline` follows by composing the four
+sub-pass instances (preservation: forward chain; reflection: reverse chain).
+
+---
+
+## Phase 3: Language Extensions ⬜
 
 ### 3a. Array Support
 
-Add `array` dialect support to StructIR. Arrays appear in many real circuits
-(e.g., lookup tables, permutation arguments).
-
-| Task | Complexity | Notes |
-|------|------------|-------|
-| `ArrayType` in `MemberDecl` | Low | `array : Fin n → MemberType` |
-| `readArray`/`writeArray` statements | Medium | Index expressions, bounds |
-| Array flattening in StructIR→FlatIR | Medium | Unroll to individual felt reads |
-| Proofs for array cases | High | New cases in all proof lemmas |
+| Task | Complexity |
+|------|------------|
+| `ArrayType` in `MemberDecl` | Low |
+| `readArray`/`writeArray` statements | Medium |
+| Array flattening in StructIR→StructInlineIR | Medium |
+| Proofs for array cases | High |
 
 ### 3b. Polymorphism / Generics
 
-LLZK's `poly` dialect allows parametric structs. This is lower priority —
-most circuits can be monomorphized.
+LLZK's `poly` dialect allows parametric structs. Lower priority — most circuits can be
+monomorphized first.
 
 ### 3c. Control Flow
 
-LLZK uses MLIR's `scf` dialect for loops and conditionals. Loops in
-constraint generation are bounded (circuit size is fixed), so they can
-be unrolled. Not needed for initial circuits.
+LLZK uses `scf` for bounded loops. Loops in constraint generation are circuit-size-fixed,
+so they can be unrolled.
 
 ---
 
-## Phase 4: Optimization Passes
+## Phase 4: Optimization Passes ⬜
 
-Verified optimization passes (dead constraint elimination, constant folding, CSE, linear combination merging). Each would be a separate `PresReflPass`. Not started.
-
-## Phase 5: Verified Backend
-
-Formalize a prover (Groth16 or Plonk) or verify a generated prover's specification in Lean. Very high complexity; not started.
-
-## Phase 6: Paper / Publication
-
-Workshop paper (FMBC) after Phase 2 complete; conference paper (CAV/ESOP/S&P) after Phase 4.
+Verified optimization passes (dead constraint elimination, constant folding, CSE, linear
+combination merging). Each would be a separate `PresReflPass`.
 
 ---
 
-## Suggested Order for Next Sessions
+## Phase 5: Verified Backend ⬜
 
-1. ~~**Session 11:** Refactor `StructIRToFlatIR.lean` proofs to use `Core/Tactics.lean`~~ Done (Session 12)
-2. ~~**Session 12:** Build LLZK parser~~ Done — Lean 4 native parser on `feature/llzk-parser`
-3. ~~**Next:** AST → StructIR lowering (`Heyting/Passes/Lowering.lean`)~~ Done (Session 12)
-4. ~~**Then:** R1CS JSON output (`hey compile`)~~ Done (Session 13 — `R1CSJSON.lean`, `CLI.lean`)
-5. ~~**Then:** Multi-field support (`--prime-field`)~~ Done (Session 14 — 6 fields matching llzk-lib)
-6. ~~**Then:** R1CS binary output (Circom `.r1cs` format)~~ Done (Session 21 — `R1CSBinary.lean`, `WitnessBinary.lean`, `FieldBytes` instances in `CLI.lean`)
-7. **Later:** Array support in StructIR
-8. **Later:** Optimization passes, paper writing
+Formalize a prover (Groth16 or Plonk) or verify a generated prover's specification.
+
+---
+
+## Phase 6: Paper / Publication ⬜
+
+Workshop paper (FMBC) after Phase 2.5 complete; conference paper (CAV/ESOP/S&P) after
+Phase 4.

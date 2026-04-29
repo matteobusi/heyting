@@ -117,3 +117,59 @@ lake build hey
 ```
 
 Replace `HigherOrder` and `initialize_mathlib_Mathlib_Tactic_HigherOrder` with whatever module name appears in the linker error. Repeat for each missing symbol.
+
+---
+
+## 8. Pass 2 semantic gap: `readMember` → `constrainEq` — Active
+
+**Date:** 2026-04-29
+**Status:** Active design question — blocks `PresReflPass` for Pass 2
+**Affects:** `Heyting/Passes/StructInlineIRToMemberlessIR.lean`
+
+### The issue
+
+`StructInlineIRToMemberlessIR.compileStmt` currently compiles:
+
+```
+readMember dest self member  →  constrainEq dest (Nat.pair self member)
+```
+
+In StructInlineIR, `readMember dest self member` reads `w(objEnv self, member)` into
+`env[dest]` (i.e., reads from the witness at the path tracked by `objEnv self`) and
+updates `objEnv[dest] := objEnv self ++ [member]`. The key point: the path is given by
+`objEnv self`, not by the value of the local variable `self`.
+
+In MemberlessIR, `constrainEq dest k` asserts `menv[dest] = menv[k]`. So
+`constrainEq dest (Nat.pair self member)` asserts that the witness value at slot `dest`
+equals the witness value at slot `Nat.pair self member` — treating `self` (a local
+variable ID, a `Nat`) as if it *encodes the path*.
+
+This is only correct if `objEnv self` (the instance path currently stored for local
+variable `self`) equals `VarIdEncoding.decode (Nat.pair self 0).1` — that is, if the
+integer `self` encodes the path the ObjEnv has for it. After call inlining (Pass 1),
+local variable IDs in StructInlineIR are not necessarily contiguous or path-encoding.
+
+### Impact
+
+Until this gap is resolved, neither preservation nor reflection can be proved for Pass 2.
+The `Pass` instance is present but `PresReflPass` obligations are deferred.
+
+### Options
+
+1. **Redesign Pass 2 compilation.** Instead of `constrainEq dest (Nat.pair self member)`,
+   pre-compute a concrete `InstancePath` for each `readMember` site during compilation and
+   encode it as `VarIdEncoding.encode (path, member)`. This requires threading `objEnv`
+   state through the compilation (as `compileWitness` already does). The `constrainEq`
+   target becomes a concrete `Nat` constant, not a variable lookup.
+
+2. **Strengthen StructInlineIR well-formedness.** Add a module-level invariant asserting
+   that after inlining, each local variable's ObjEnv path is determined by its ID. This
+   would be a strong structural property that may not hold in general.
+
+3. **Change the MemberlessIR semantics.** Give MemberlessIR a separate `readSlot` notion
+   that maps `(selfVarId, memberIdx)` to a slot, matching the StructInlineIR semantics
+   more directly. This changes MemberlessIR's language design.
+
+Option 1 is the most straightforward: the compilation mirrors what `compileWitness` already
+does (it threads `ObjEnv` state), and the encoding becomes a static embedding rather than
+a variable reference.
