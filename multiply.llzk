@@ -1,0 +1,14 @@
+module attributes {llzk.lang} {
+  struct.def @Multiply {
+    function.def @compute(%a: !felt.type, %b: !felt.type) -> !struct.type<@Multiply> {
+      %self = struct.new : !struct.type<@Multiply>
+      function.return %self : !struct.type<@Multiply>
+    }
+
+    function.def @constrain(%self: !struct.type<@Multiply>, %a: !felt.type, %b: !felt.type, %out: !felt.type) {
+      %ab = felt.mul %a, %b
+      constrain.eq %ab, %out : !felt.type
+      function.return
+    }
+  }
+}

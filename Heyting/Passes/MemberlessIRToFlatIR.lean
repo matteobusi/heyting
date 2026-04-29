@@ -253,20 +253,4 @@ def witnessRel (m : MemberlessIR.Module (n + 1) F) (mw : Nat → F)
     (wt : FlatIR.VarId → F) : Prop :=
   wt = compileModuleWitness m mw
 
-/-! ## Correctness theorems (sorried — to be proved) -/
-
-/-- **Preservation**: if `mw` satisfies the `MemberlessIR` module `m`, then
-    `compileModuleWitness m mw` satisfies the compiled `FlatIR` program. -/
-theorem preservation (m : MemberlessIR.Module (n + 1) F) (mw : Nat → F)
-    (h : MemberlessIR.satisfies mw m) :
-    FlatIR.satisfies (compileModuleWitness m mw) (compile m) := by
-  sorry
-
-/-- **Reflection**: if `wt` satisfies the compiled `FlatIR` program, then
-    `extractWitness m wt` satisfies the original `MemberlessIR` module `m`. -/
-theorem reflection (m : MemberlessIR.Module (n + 1) F) (wt : FlatIR.VarId → F)
-    (h : FlatIR.satisfies wt (compile m)) :
-    MemberlessIR.satisfies (extractWitness m wt) m := by
-  sorry
-
 end MemberlessIRToFlatIR

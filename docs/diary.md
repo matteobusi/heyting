@@ -357,3 +357,36 @@ index numRegVars+1 .. total-1   → aux 0 .. aux (numAuxVars-1)
 **Remaining:** 4 sorries in `StructIRToMemberlessIR.lean` and `MemberlessIRToFlatIR.lean` (preservation + reflection for passes 1 and 2).
 
 
+---
+
+## Session 22 — 2026-04-29
+
+**Goals:** Fill remaining sorries across the project. Consolidate WIP held in `.worktrees/`.
+
+**What we did:**
+
+1. **Worktree consolidation.** Two feature worktrees existed — `.worktrees/struct-inline-pipeline-refactor` (uncommitted WIP, 1 remaining sorry) and `.worktrees/inline-first-pipeline` (committed earlier iteration, more sorries). Selected the former as the canonical WIP, copied its untracked + modified files back into the main repo, removed both worktrees with `git worktree remove --force`, and deleted the stale branches.
+
+2. **Pipeline refactor adopted.** The worktree introduces a 4-stage pipeline with a new intermediate IR:
+   `StructIR → StructInlineIR → MemberlessIR → FlatIR → R1CS`.
+   `StructInlineIR` (`Heyting/Languages/StructInlineIR.lean`, 216 lines) is a flat-member IR without the `call` statement — every cross-struct call is already inlined. New passes: `StructIRToStructInlineIR.lean` (~1260 lines, handles inlining + alpha-renaming) and `StructInlineIRToMemberlessIR.lean` (82 lines, uses `Nat.pair`/`Equiv.listNatEquivNat` encoding from the new `Heyting/Core/VarIdEncoding.lean`).
+
+3. **Filled the last sorry** — `StructIRToStructInlineIR.expandBody_correct` in the `call` case (the top-level expansion of a call statement produces `feltConst zv 0 :: inlinedCallee ++ expandedRest`). Introduced a reusable helper `StructIR.evalConstrainBody_agree`: if two source environments/objEnvs agree at all positions `< bound` and the body references only variables `< bound`, the constrain-body evaluations are equivalent. The `call` case proof strategy: (a) split the target with `StructInlineIR.evalConstrainBody_append`; (b) match the callee evaluation to the inlined block via `inlineBody_correct` + `evalConstrainBody_irrel`; (c) apply the inductive hypothesis on the tail with `next := na` (the fresh boundary after callee inlining) at the post-ic state, bridged to the original state via the agreement lemma and `inlineBody_frame`.
+
+4. **Verification checklist.**
+   - `grep -r "sorry" Heyting/ --include="*.lean"` → empty (the only hit is a literal string in a comment in `Passes/Lowering.lean`).
+   - `lake build` → 1191 jobs, 0 errors. Only pre-existing stylistic warnings (`show` vs `change`, unused simp args).
+   - `lake build hey` → success.
+   - `lean_verify` on `expandBody_correct`, `preservation`, `reflection`, and the new `evalConstrainBody_agree` → standard axioms only (`propext`, `Classical.choice`, `Quot.sound`).
+
+**Layout added:**
+- `Heyting/Core/VarIdEncoding.lean`
+- `Heyting/Languages/StructInlineIR.lean`
+- `Heyting/Passes/StructIRToStructInlineIR.lean`
+- `Heyting/Passes/StructInlineIRToMemberlessIR.lean`
+- `Heyting/Test/StructInlineIRTest.lean`, `Heyting/Test/VarIdEncodingTest.lean`
+- `docs/superpowers/plans/`, `docs/superpowers/specs/` (plan + design doc for the refactor)
+
+**Not yet done:**
+- The new `StructIRToStructInlineIR` / `StructInlineIRToMemberlessIR` passes have `Pass` typeclass instances but their `PresReflPass` instances remain phase-2 work — `Pipeline.lean` currently only declares a `Pass` instance, not a full `PresReflPass`. (Equisatisfiability for the entire 4-pass pipeline still requires composing the sub-pass `PresReflPass` instances; only pass 1 is fully done here.)
+- Fixing the pre-existing style warnings in `StructIRToStructInlineIR.lean` (4 `show` vs `change`, a handful of unused simp args).

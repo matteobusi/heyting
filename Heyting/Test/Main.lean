@@ -1,6 +1,8 @@
 import Heyting.Test.R1CSJSONTest
 import Heyting.Test.InputJSONTest
 import Heyting.Test.BinaryTest
+import Heyting.Test.VarIdEncodingTest
+import Heyting.Test.StructInlineIRTest
 
 import Heyting.Examples.StructIRExamples
 import Heyting.Examples.ParserExamples
