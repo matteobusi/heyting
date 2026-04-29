@@ -390,3 +390,43 @@ index numRegVars+1 .. total-1   → aux 0 .. aux (numAuxVars-1)
 **Not yet done:**
 - The new `StructIRToStructInlineIR` / `StructInlineIRToMemberlessIR` passes have `Pass` typeclass instances but their `PresReflPass` instances remain phase-2 work — `Pipeline.lean` currently only declares a `Pass` instance, not a full `PresReflPass`. (Equisatisfiability for the entire 4-pass pipeline still requires composing the sub-pass `PresReflPass` instances; only pass 1 is fully done here.)
 - Fixing the pre-existing style warnings in `StructIRToStructInlineIR.lean` (4 `show` vs `change`, a handful of unused simp args).
+
+
+---
+
+## Session 23 — 2026-04-29 (afternoon)
+
+**Goals:** Redesign Pass 2 (`StructInlineIRToMemberlessIR`) under Option 2 (drop `readMember`; pre-populate `mw` via witness replay) with the goal of proving `PresReflPass`. Reach a stable WIP checkpoint.
+
+**What we did:**
+
+1. **MemberlessIR semantics change.** `evalBody` for felt operations is now an **assertion** (`env dest = env src1 + env src2`) rather than an **update** (`env.update dest (env src1 + env src2)`). This aligns with R1CS semantics (felt ops are constraints, not assignments) and — more importantly — makes the Option 2 preservation proof tractable: under the new semantics, MemberlessIR's `menv` is fixed (= `mw`) throughout the body, and we need only to show that `mw` satisfies all the asserted equations.
+
+2. **StructInlineIR.Module extended.** Added `isSSA : ∀ i, (constrainDests (structs i).constrain.body).Nodup` alongside the existing `noDupReads`. Both are needed for Pass 2 correctness: `isSSA` for preservation (single-assignment ⇒ intermediate env values match final witness), `noDupReads` for reflection (unique-read ⇒ `buildReadMap` injective).
+
+3. **Pass 2 rewritten.** New design:
+   - `compileStmt`: drops `readMember` entirely (previously emitted a spurious `constrainEq dest (Nat.pair self member)` — semantically incorrect).
+   - `compileWitnessBody`: threads env+ObjEnv through the body as StructInlineIR's `evalConstrainBody` would, updating `acc` at each written slot (felt ops compute values; `readMember dest self member` stores `ws(objEnv self, member)`).
+   - `compileWitness`: seeds `initAcc = fun k => ws([], k)` pointwise matching `initEnv` so the `acc = env` invariant starts true.
+   - `buildReadMap` + `extractWitness`: backward mapping from MemberlessIR → StructInlineIR witness via ObjEnv replay.
+   - `witnessRel m ws mw := mw = compileWitness m ws`.
+
+4. **Key invariant proved:** `compileWitnessBody_agrees` — if `∀ k, acc k = env k` initially, then `compileWitnessBody ws env objEnv stmts acc k = (runState ws env objEnv stmts).1 k` for all k. Establishes that `mw` equals the final StructInlineIR env at every slot. No axioms beyond the standard three.
+
+5. **Pass 1 compile updated.** `StructIRToStructInlineIR.compile` now produces a `Module` structure carrying the two well-formedness proofs. The two proofs (`compile_noDupReads`, `compile_isSSA`) are left as `sorry` — they require a structural induction over `expandBody`/`inlineBody` that I did not complete this session.
+
+6. **Pass 2 `preservation`/`reflection`: sorry.** The proofs require connecting step-local env values to the final witness, which depends on SSA + def-before-use. The full proof is mechanical but requires additional infrastructure.
+
+**Verification state:**
+- `lake build` → 0 errors, 4 sorry warnings (compile_noDupReads, compile_isSSA, preservation, reflection).
+- `lake build hey` → CLI binary builds.
+- `lake exe tests` → all pass (examples use `#eval!` to bypass sorry-dependent evaluation).
+- `multiply.llzk` → 2 R1CS constraints (simple `a*b = out` circuit).
+
+**Open obligations (4 sorries):**
+- `StructIRToStructInlineIR.compile_noDupReads` — needs `readPositions_inlineBody_eq` / `readPositions_expandBody_eq`.
+- `StructIRToStructInlineIR.compile_isSSA` — needs induction showing `inlineBody`/`expandBody` preserve dest-uniqueness.
+- `StructInlineIRToMemberlessIR.preservation` — needs SSA + DBU machinery linking step-local and final env values.
+- `StructInlineIRToMemberlessIR.reflection` — needs `buildReadMap` injectivity via `m.noDupReads`.
+
+**Next step:** complete the four proofs. None are blocked on design questions; all are mechanical structural inductions of moderate size (~200 lines each).
