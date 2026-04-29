@@ -1,3 +1,47 @@
-/.lake
-/out
-/.worktrees
+# ── Hidden files and folders ───────────────────────────────────────────────
+# Exclude all hidden files and directories (dot-prefixed), except the ones
+# Git itself needs and the ones we explicitly want to track.
+.*
+!.github
+!.gitignore
+!.gitmodules
+
+# ── macOS ───────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon?
+
+# ── Lean 4 / Lake build caches ─────────────────────────────────────────────
+.lake/
+lake-manifest.json.bak
+
+# ── Build / output artefacts ────────────────────────────────────────────────
+out/
+*.r1cs
+*.wtns
+*.r1cs.json
+*.witness.json
+
+# ── Python / tooling virtualenvs ────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── Editor / IDE ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Temporary / local files ─────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
