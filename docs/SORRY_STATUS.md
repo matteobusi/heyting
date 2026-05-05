@@ -1,6 +1,6 @@
 # Sorry Status
 
-**Last updated**: 2025-05-02  
+**Last updated**: 2026-05-05  
 **Total sorries**: 9 (all in individual pass theorems)
 
 All 4 individual passes have `PresReflPass` instances. The Pipeline `PresReflPass` instance is 
@@ -18,7 +18,44 @@ are completed, the pipeline is automatically fully proven.
 | **Pass 4** (FlatIR → R1CS) | 0 | — | ✅ | Fully proven! |
 | **Pipeline** (StructIR → R1CS) | 0 | — | ✅ | Proven by composition! |
 
-**Total**: 9 sorries in theorems, 0 elsewhere.
+**Total**: 9 sorries in pass proofs, 0 in new checked-semantics files.
+
+---
+
+## Checked semantics staging (Session 2026-05-05)
+
+Added additive checked-execution modules (no new sorries):
+
+- `Heyting/Core/CheckedSemantics.lean`
+  - `Result` type for deterministic checked execution:
+    - `.success trace`
+    - `.failure checkedPrefix failed`
+  - `TraceStutter`, `BiTraceStutter`, and `ResultRel` relations for simulation scaffolding.
+
+- `Heyting/Languages/FlatIRChecked.lean`
+  - Deterministic per-instruction checker `checkStep`.
+  - Deterministic checked executor `evalChecked` (first-failure semantics).
+  - Equivalence bridge to existing semantics:
+    - `evalChecked_success_iff_satisfies`
+    - `checkedSuccess_iff_satisfies`
+    - directional corollaries `checkedSuccess_of_satisfies` and
+      `satisfies_of_checkedSuccess`.
+
+- `Heyting/Passes/MemberlessIRToFlatIRChecked.lean`
+  - Pass-3 simulation scaffold definitions:
+    - source/target checked-step types and traces,
+    - step relation shape,
+    - forward/backward simulation theorem statements (as `Prop` aliases),
+    - base lemmas `checkedTraceRel_nil` and `stepRel_feltAdd_assignAdd`.
+
+No existing `PresReflPass` instances or theorem statements were changed.
+
+**Language simplification update (same day):**
+
+- `MemberlessIR.Stmt` no longer contains `call`; `MemberlessIR` is now intrinsically call-free.
+- `MemberlessIR.evalBody` and `MemberlessIRToFlatIR` were simplified accordingly
+  (no recursive-call cases).
+- Existing pass theorem statements and current sorry counts are unchanged.
 
 ---
 

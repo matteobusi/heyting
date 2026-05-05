@@ -223,6 +223,63 @@ Parser → AST → StructIR → R1CS → JSON.
 
 ---
 
+## Session 21 — 2026-05-05
+
+**Goals:** Introduce an additive deterministic checked-execution semantics layer, prove equivalence
+to existing `satisfies` for at least one language, and stage Pass 3 stuttering-simulation
+scaffolding.
+
+**What we did:**
+
+1. **Added core checked semantics** in `Heyting/Core/CheckedSemantics.lean`:
+   - `Result Step := success trace | failure checkedPrefix failed`
+   - utility combinators (`Result.prepend`, `Result.appendPrefix`, `Result.seq`)
+   - simulation relations `TraceStutter`, `BiTraceStutter`, and `ResultRel`.
+
+2. **Added FlatIR checked executor** in `Heyting/Languages/FlatIRChecked.lean`:
+   - `checkStep` checks one instruction deterministically.
+   - `evalChecked` executes left-to-right, returning full success trace or first failure with
+     checked prefix.
+   - `checkedSuccess` predicate (`evalChecked w prog = .success prog`).
+
+3. **Proved equivalence bridge for FlatIR**:
+   - `evalChecked_success_iff_satisfies`
+   - `checkedSuccess_iff_satisfies`
+   - corollaries `checkedSuccess_of_satisfies` and `satisfies_of_checkedSuccess`.
+
+4. **Added Pass 3 checked-simulation scaffold** in
+   `Heyting/Passes/MemberlessIRToFlatIRChecked.lean`:
+   - source/target checked-step and trace aliases,
+   - coarse step relation shape for statement/instruction classes,
+   - `checkedTraceRel`, `forwardSimulationStatement`, `backwardSimulationStatement` signatures,
+   - base lemmas: `checkedTraceRel_nil`, `stepRel_feltAdd_assignAdd`.
+
+5. **Integrated modules into barrel** (`Heyting.lean`) with additive imports only; no existing
+   pass or pipeline proof interfaces changed.
+
+**Verification:**
+- Targeted builds run during edits:
+  - `lake build Heyting.Core.Pass`
+  - `lake build Heyting.Languages.FlatIR`
+  - `lake build Heyting.Passes.MemberlessIRToFlatIR`
+  - `lake build Heyting.Languages.FlatIRChecked`
+  - `lake build Heyting.Passes.MemberlessIRToFlatIRChecked`
+- Final gate: `lake build` passed.
+
+**State impact:**
+- Existing pass sorries unchanged (Pass 1: 2, Pass 2: 4, Pass 3: 3).
+- No new axioms introduced.
+- No theorem statement changes in existing files.
+
+**Follow-up update (same day):** Simplified `MemberlessIR` by removing the
+`call` constructor from `MemberlessIR.Stmt`. Updated `MemberlessIR` semantics,
+`MemberlessIRToFlatIR` compilation/witness helpers, and docs (`README.md`,
+`AGENTS.md`, `docs/languages.md`, `docs/GUARANTEES.md`,
+`docs/PASS3_PRESERVATION_ROADMAP.md`) to reflect that MemberlessIR is now
+intrinsically call-free.
+
+---
+
 ## Session 19 — 2026-04-14
 
 **Goals:** Implement R1CS witness JSON output — close the placeholder gap in `CLI.lean`.

@@ -109,18 +109,18 @@ Each `Func` has `numParams : Nat` and `body : List (Stmt n i F)`.
 |-----------|----------------------|
 | Felt ops (add/sub/mul/div/neg/const) | Update `env[dest]` |
 | `constrainEq src1 src2` | Assert `env[src1] = env[src2]` |
-| `call target args` | Recurse into callee body with args-seeded env |
 
-There is no `readMember` — struct member access has been erased. There is no
-`ObjEnv` threading. The witness is `Nat → F`.
+There is no `readMember` and no `call` — struct member access and calls have
+already been erased/inlined. There is no `ObjEnv` threading. The witness is
+`Nat → F`.
 
 **Satisfaction**: `evalBody m mainIdx initEnv (m mainIdx).body` where
 `initEnv k = w k` (the witness seeds the initial environment).
 
 MemberlessIR sits between StructInlineIR and FlatIR. Pass 2
-(`StructInlineIRToMemberlessIR`) eliminates struct-member access. Pass 3
-(`MemberlessIRToFlatIR`) inlines the remaining `call` statements and
-produces a flat list.
+(`StructInlineIRToMemberlessIR`) eliminates struct-member access while keeping
+the language call-free. Pass 3 (`MemberlessIRToFlatIR`) lowers statements to a
+flat instruction list.
 
 ---
 

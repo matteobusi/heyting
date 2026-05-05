@@ -91,10 +91,9 @@ theorem preservation (m : MemberlessIR.Module (n + 1) F)
 2. **Generalize to other felt ops**: `feltSub`, `feltMul` follow the same pattern.
 3. **Handle `feltDiv`**: Similar but needs non-zero check.
 4. **Handle `constrainEq`**: Direct from MemberlessIR constraint.
-5. **Handle `call`**: Use termination metric and inductive hypothesis.
-6. **Handle `readMember`**: No instruction, witness value from Pass 2.
-7. **Complete witness agreement helper**: Prove the invariant is maintained.
-8. **Connect to top-level**: Instantiate with initial conditions.
+5. **Handle `readMember`**: No instruction, witness value from Pass 2.
+6. **Complete witness agreement helper**: Prove the invariant is maintained.
+7. **Connect to top-level**: Instantiate with initial conditions.
 
 ## Key Lemmas Needed
 
@@ -111,9 +110,9 @@ theorem preservation (m : MemberlessIR.Module (n + 1) F)
 
 ## Expected Difficulty
 
-**Medium-High**. The call inlining case requires careful handling of the termination metric and 
-inductive hypothesis. The witness agreement invariant requires threading through all statement cases. 
-However, the structure is clear and each case is mechanical.
+**Medium**. With MemberlessIR now call-free, the proof reduces to straight
+induction over statement lists. The witness agreement invariant still needs to
+be threaded through all statement cases, but each case is mechanical.
 
 ## Next Steps
 

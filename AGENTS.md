@@ -32,7 +32,7 @@ Heyting/
   Languages/
     StructIR.lean          -- Hierarchical IR (structs, calls, felt ops, readMember)
     StructInlineIR.lean    -- Call-free IR (readMember preserved; calls inlined)
-    MemberlessIR.lean      -- Flat-variable IR (no struct hierarchy; calls preserved)
+    MemberlessIR.lean      -- Flat-variable IR (no struct hierarchy; call-free)
     FlatIR.lean            -- Flat instruction list (7 types; no calls)
     R1CS.lean              -- Rank-1 Constraint Systems
   Passes/
@@ -92,7 +92,7 @@ The compiler runs four passes:
 StructIR
   --[Pass 1: StructIRToStructInlineIR]--> StructInlineIR   (inline all calls)
   --[Pass 2: StructInlineIRToMemberlessIR]--> MemberlessIR  (encode VarId → Nat)
-  --[Pass 3: MemberlessIRToFlatIR]---------> FlatIR         (inline calls, flatten)
+  --[Pass 3: MemberlessIRToFlatIR]---------> FlatIR         (flatten to instruction list)
   --[Pass 4: FlatIRToR1CS]-----------------> R1CS           (encode to A·B=C)
 ```
 

@@ -135,7 +135,7 @@ type. The preservation and reflection theorems themselves are fully proven.
 | | Language | Variable ID | Program type | Satisfaction |
 |---|---|---|---|---|
 | **Source** | `StructInlineIR.Language n F` | `InstancePath × Nat` | `Module (n+1) F` — call-free, `readMember` present | `evalConstrainBody` with `ObjEnv` threading |
-| **Target** | `MemberlessIR.instLanguage n F` | `Nat` | `Module (n+1) F` — no `readMember`, `call` still present | `evalBody` over flat `Nat` slots |
+| **Target** | `MemberlessIR.instLanguage n F` | `Nat` | `Module (n+1) F` — no `readMember`, call-free | `evalBody` over flat `Nat` slots |
 
 ### Compilation
 
@@ -185,7 +185,7 @@ statements where it returns `mw member` instead of `mw dest`. See
 
 | | Language | Variable ID | Program type | Satisfaction |
 |---|---|---|---|---|
-| **Source** | `MemberlessIR.instLanguage n F` | `Nat` | `Module (n+1) F` — flat felt ops + `call` | `evalBody` with recursive call inlining |
+| **Source** | `MemberlessIR.instLanguage n F` | `Nat` | `Module (n+1) F` — flat felt ops, call-free | `evalBody` over flat `Nat` slots |
 | **Target** | `FlatIR.Language F` | `Nat` | `List (Instr F)` — 7 instruction types, no calls | `∀ instr ∈ prog, satisfiesInstr w instr` |
 
 ### Compilation
@@ -194,9 +194,6 @@ statements where it returns `mw member` instead of `mw dest`. See
 - Felt ops → one FlatIR `assign*` instruction, allocating a fresh slot
   from a monotone counter.
 - `constrainEq` → `assertEq (vm src1) (vm src2)`.
-- `call` → recursively compile the callee body with a callee-local
-  `VarMap` seeded from the call arguments; counter is shared (monotone
-  across the whole compilation).
 
 Variable allocation: `VarMap : LocalVar → FlatIR.VarId` translates
 MemberlessIR local vars to FlatIR slots. Initial map is the identity on

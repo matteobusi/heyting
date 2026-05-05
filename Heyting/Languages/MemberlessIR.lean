@@ -11,11 +11,10 @@ An intermediate IR that sits between `StructIR` and `FlatIR`.
 
 ## Purpose
 
-`MemberlessIR` is the output of Pass 1 (struct flattening). It is identical to
-`StructIR` except:
+`MemberlessIR` is the output of Pass 2 (member flattening). It is identical to
+`StructInlineIR` except:
 - All struct member accesses (`readMember`, `writeMember`, `newStruct`) are gone.
 - All struct-typed variables have been replaced by flat felt variables.
-- The `call` statement is still present (call inlining happens in Pass 2).
 - The witness type is `Nat → F` (a flat assignment of field values to variable IDs).
 
 ## Witness and satisfiability
@@ -33,8 +32,7 @@ Each `Func` in `MemberlessIR` has:
 - `numParams : Nat` — number of felt parameters (slots `0..numParams-1` in `env`)
 - `body : List Stmt` — sequence of felt-arithmetic and call statements
 
-Termination of evaluation is guaranteed by the same topological index as
-`StructIR`: struct `i` can only call struct `j < i`.
+`MemberlessIR` is call-free.
 -/
 
 namespace MemberlessIR
@@ -44,8 +42,7 @@ abbrev LocalVar := Nat
 /-! ## Statements -/
 
 /-- A statement in a `MemberlessIR` function body.
-    Parameterized by `n` (module size) and `i` (owning struct index) so that
-    cross-struct calls are statically bounded. -/
+    Parameterized by `n` (module size) and `i` (owning struct index). -/
 inductive Stmt (n : Nat) (i : Fin n) (F : Type) where
   /-- `dest := src1 + src2` -/
   | feltAdd (dest src1 src2 : LocalVar)
@@ -61,8 +58,6 @@ inductive Stmt (n : Nat) (i : Fin n) (F : Type) where
   | feltConst (dest : LocalVar) (c : F)
   /-- Emit the constraint `src1 = src2` -/
   | constrainEq (src1 src2 : LocalVar)
-  /-- Inline a call to function `target` (index `< i`) with given arguments -/
-  | call (target : Fin i) (args : List LocalVar)
   /-- Pre-populated witness slot: read member at `index` from struct at `self`,
       store result in `dest`. No constraint emitted; witness supplies the value.
       This corresponds to `struct.readm` in LLZK: a signal pre-allocated in the
@@ -80,8 +75,7 @@ structure Func (n : Nat) (i : Fin n) (F : Type) where
   body      : List (Stmt n i F)
   deriving Repr
 
-/-- A `MemberlessIR` module: `n` functions, topologically ordered (leaves first).
-    The main function is at index `n - 1`. -/
+/-- A `MemberlessIR` module: `n` functions, with main at index `n - 1`. -/
 abbrev Module (n : Nat) (F : Type) := (i : Fin n) → Func n i F
 
 /-! ## Semantics -/
@@ -123,19 +117,12 @@ def evalBody (m : Module n F) (i : Fin n) (env : LocalEnv F)
         env dest = c
       | .constrainEq src1 src2 =>
         env src1 = env src2
-      | .call target args =>
-        let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
-        let calleeEnv : LocalEnv F := fun param =>
-          match args[param]? with
-          | some arg => env arg
-          | none     => 0
-        evalBody m j calleeEnv (m j).body
       | .readMember dest self index =>
         -- Pre-populated witness slot: read member `index` from struct at `self`,
         -- store in `dest`. No constraint emitted; witness supplies the value.
         True
     prop ∧ evalBody m i env rest
-  termination_by (i, stmts.length)
+  termination_by stmts.length
 
 /-- Top-level satisfiability for a `MemberlessIR` module.
 

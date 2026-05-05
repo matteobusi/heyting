@@ -25,7 +25,7 @@ Together, these give equisatisfiability: the source and compiled programs accept
 |----------|-------------|------|
 | **StructIR** | Structured IR with structs, functions, nesting, cross-struct calls | `Heyting/Languages/StructIR.lean` |
 | **StructInlineIR** | Call-free IR (all calls inlined; readMember preserved) | `Heyting/Languages/StructInlineIR.lean` |
-| **MemberlessIR** | Flat-variable IR (no struct hierarchy; calls preserved) | `Heyting/Languages/MemberlessIR.lean` |
+| **MemberlessIR** | Flat-variable IR (no struct hierarchy; call-free) | `Heyting/Languages/MemberlessIR.lean` |
 | **FlatIR** | Flat instruction language: felt arithmetic + equality assertions | `Heyting/Languages/FlatIR.lean` |
 | **R1CS** | Rank-1 Constraint Systems (`A * B = C` over linear combinations) | `Heyting/Languages/R1CS.lean` |
 

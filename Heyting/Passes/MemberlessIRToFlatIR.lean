@@ -9,16 +9,14 @@ import Heyting.Languages.FlatIR
 /-!
 # MemberlessIR → FlatIR Pass
 
-Inlines all cross-function calls and lowers felt-arithmetic operations to a
-flat list of `FlatIR` instructions.
+Lowers `MemberlessIR` felt-arithmetic operations to a flat list of
+`FlatIR` instructions.
 
 ## Concerns handled by this pass
 
-1. **Call inlining**: `MemberlessIR.Stmt.call` is replaced by the callee body
-   with arguments substituted into a fresh variable map.
-2. **Param absorption**: felt parameters (`0..numParams-1`) are absorbed into
+1. **Param absorption**: felt parameters (`0..numParams-1`) are absorbed into
    the flat variable namespace via the initial `VarMap`.
-3. **Member read handling**: `readMember dest self index` allocates a slot for
+2. **Member read handling**: `readMember dest self index` allocates a slot for
    `dest` but emits no instruction — the witness value is pre-populated by the
    compileWitness chain from Pass 2.
 
@@ -42,15 +40,14 @@ to `FlatIR` variable IDs.
 | `feltNeg dest src` | `assignNeg next (vm src)` | `vm[dest] := next; next++` |
 | `feltConst dest c` | `assignConst next c` | `vm[dest] := next; next++` |
 | `constrainEq src1 src2` | `assertEq (vm src1) (vm src2)` | none |
-| `call target args` | *(recurse on callee body)* | none |
 | `readMember dest self index` | *(none — pre-populated slot)* | `vm[dest] := next; next++` |
 
 ## Witness translation
 
 ### Forward (`compileWitness`)
 
-Mirrors `compileConstrainBody`, threading both the `FlatIR` accumulator and the
-`MemberlessIR` local environment (to track argument values for inlined calls).
+Mirrors `compileBody`, threading both the `FlatIR` accumulator and the
+`MemberlessIR` local environment.
 
 ### Backward (`extractWitness`)
 
@@ -79,7 +76,7 @@ def VarMap.update (vm : VarMap) (local_ : MemberlessIR.LocalVar) (flat : FlatIR.
 
 /-! ## Program compilation -/
 
-/-- Compile a `MemberlessIR` body (with inline call expansion) to `FlatIR`.
+/-- Compile a `MemberlessIR` body to `FlatIR`.
 
     Returns `(instructions, next')` where `next'` is the next available
     `FlatIR.VarId` after all allocations in this body.
@@ -87,7 +84,7 @@ def VarMap.update (vm : VarMap) (local_ : MemberlessIR.LocalVar) (flat : FlatIR.
     `memberSlot` is a function that maps member index to its pre-allocated
     FlatIR slot (for readMember operations).
 
-    Termination: structural on `(i, stmts.length)` — callee `j < i`. -/
+    Termination: structural on `stmts.length`. -/
 def compileBody (m : MemberlessIR.Module n F) (i : Fin n) (vm : VarMap) (next : Nat)
     (memberSlot : Nat → Nat)
     (stmts : List (MemberlessIR.Stmt n i F)) :
@@ -118,21 +115,13 @@ def compileBody (m : MemberlessIR.Module n F) (i : Fin n) (vm : VarMap) (next : 
          vm.update dest next, next + 1)
       | .constrainEq src1 src2 =>
         ([FlatIR.Instr.assertEq (vm src1) (vm src2)], vm, next)
-      | .call target args =>
-        let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
-        let calleeVm : VarMap := fun param =>
-          match args[param]? with
-          | some arg => vm arg
-          | none     => 0  -- unused params default to flat var 0
-        let (callInstrs, next'') := compileBody m j calleeVm next memberSlot (m j).body
-        (callInstrs, vm, next'')
-      | .readMember dest self index =>
+      | .readMember dest _self _index =>
         -- readMember allocates a fresh slot for `dest` and emits no instruction.
         -- The witness value is assigned by `compileWitness`.
         ([], vm.update dest next, next + 1)
     let (restInstrs, finalNext) := compileBody m i vm' next' memberSlot rest
     (instrs ++ restInstrs, finalNext)
-  termination_by (i, stmts.length)
+  termination_by stmts.length
 
 /-- Collect all member indices accessed by readMember in the main function body.
     Each member index corresponds to a pre-allocated signal in the FlatIR. -/
@@ -168,8 +157,8 @@ def compile (m : MemberlessIR.Module (n + 1) F) : FlatIR.Program F :=
 
 /-- Build the `FlatIR` witness from a `MemberlessIR` witness `mw`.
 
-    Mirrors `compileBody`, threading a `LocalEnv` to track argument values
-    through inlined calls, and an accumulator for the `FlatIR` witness.
+    Mirrors `compileBody`, threading a `LocalEnv` and an accumulator for
+    the `FlatIR` witness.
     `memberSlot` maps member index to its pre-allocated FlatIR slot. -/
 def compileWitness (m : MemberlessIR.Module n F)
     (mw : Nat → F)
@@ -207,26 +196,13 @@ def compileWitness (m : MemberlessIR.Module n F)
          fun k => if k == next then c else acc k)
       | .constrainEq _ _ =>
         (env, vm, next, acc)
-      | .call target args =>
-        let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
-        let calleeEnv : MemberlessIR.LocalEnv F := fun param =>
-          match args[param]? with
-          | some arg => env arg
-          | none     => 0
-        let calleeVm : VarMap := fun param =>
-          match args[param]? with
-          | some arg => vm arg
-          | none     => 0
-        let (acc', next') := compileWitness m mw j calleeVm next memberSlot calleeEnv
-          (m j).body acc
-        (env, vm, next', acc')
-      | .readMember dest self index =>
+      | .readMember dest _self _index =>
         -- readMember allocates a fresh slot and writes witness value `mw dest`.
         let v := mw dest
         (env.update dest v, vm.update dest next, next + 1,
          fun k => if k == next then v else acc k)
     compileWitness m mw i vm' next' memberSlot env' rest acc'
-  termination_by (i, stmts.length)
+  termination_by stmts.length
 
 /-- Build the top-level `FlatIR` witness from a `MemberlessIR` witness `mw`.
 
@@ -258,18 +234,10 @@ match stmts with
       | .feltDiv dest _ _ | .feltNeg dest _ | .feltConst dest _ =>
         (vm.update dest next, next + 1)
       | .constrainEq _ _ => (vm, next)
-      | .call target args =>
-        let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
-        let calleeVm : VarMap := fun param =>
-          match args[param]? with
-          | some arg => vm arg
-          | none     => 0
-        let (_, next'') := buildVarMap m j calleeVm next (m j).body
-        (vm, next'')
-      | .readMember dest self index =>
+      | .readMember dest _self _index =>
         (vm.update dest next, next + 1)
     buildVarMap m i vm' next' rest
-  termination_by (i, stmts.length)
+  termination_by stmts.length
 
 /-- Extract a `MemberlessIR` witness from a `FlatIR` witness `wt`.
 
@@ -302,7 +270,7 @@ theorem preservation (m : MemberlessIR.Module (n + 1) F)
     (mw : Nat → F)
     (h : MemberlessIR.satisfies mw m) :
     FlatIR.satisfies (compileModuleWitness m mw) (compile m) := by
-  -- Strategy: prove by joint induction on (i, stmts.length)
+  -- Strategy: prove by induction on body length
   -- Key invariant: compileWitness agrees with MemberlessIR env on vm positions
   -- For each compiled instruction, show it's satisfied by the compiled witness
   sorry
