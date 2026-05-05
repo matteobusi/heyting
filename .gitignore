@@ -46,3 +46,6 @@ __pycache__/
 *.tmp
 *.bak
 *.orig
+
+# ── Local handoff docs ───────────────────────────────────────────────────────
+docs/handover/

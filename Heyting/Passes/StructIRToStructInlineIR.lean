@@ -232,12 +232,28 @@ where
       let initObjEnv : StructIR.ObjEnv := StructIR.ObjEnv.update (fun _ => []) 0 []
       (StructInlineIR.readPositions (fun i => compileStruct m i) mainIdx initObjEnv
         (compileStruct m mainIdx).constrain.body).Nodup := by
-    intro _; sorry
+    intros hs mainIdx initObjEnv
+    let body := (m.structs mainIdx).constrain.body
+    have hSource := m.noDupReads hs
+    -- The compiled body is expandBody m mainIdx (maxVarBody body + 1) body.
+    -- expandBody preserves readPositions: felt ops/constrainEq don't read,
+    -- readMember adds (path, member.val), call inlines preserving readPositions.
+    -- Since source readPositions are nodup (hSource) and preserved, compiled are nodup.
+    sorry
+
   /-- SSA property on the compiled module. -/
   compile_isSSA (m : StructIR.Module (n + 1) F) :
       ∀ (i : Fin (n + 1)),
       (StructInlineIR.constrainDests (compileStruct m i).constrain.body).Nodup := by
-    intro _; sorry
+    intro i
+    -- The proof is by structural induction on the source body.
+    -- Key invariants:
+    --   1. Each felt op / readMember allocates a fresh dest at position 'next'
+    --   2. The next fresh position strictly increases
+    --   3. constrainEq allocates no dest
+    --   4. Call inlines with fresh variables starting at next+1, then rest
+    -- These invariants guarantee all dests are distinct.
+    sorry
 
 def witnessRel (m : StructIR.Module (n + 1) F)
     (ws : StructIR.Witness F) (wi : StructIR.Witness F) : Prop :=

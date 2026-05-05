@@ -18,94 +18,92 @@ namespace Pipeline
 
 variable {n : Nat} {F : Type} [Field F]
 
-/-- Compile StructIR to StructInlineIR (pass 1). -/
-def compileInline (m : StructIR.Module (n + 1) F) : StructInlineIR.Module (n + 1) F :=
-  StructIRToStructInlineIR.compile m
+/-! ## Pass composition instances
 
-/-- Compile StructInlineIR to MemberlessIR (pass 2). -/
-def compileMemberlessFromInline (m : StructInlineIR.Module (n + 1) F) :
-    MemberlessIR.Module (n + 1) F :=
-  StructInlineIRToMemberlessIR.compile m
+The four-pass pipeline is built by composing individual `PresReflPass` instances:
 
-/-- Compile StructIR to MemberlessIR (passes 1+2). -/
-def compileMemberless (m : StructIR.Module (n + 1) F) : MemberlessIR.Module (n + 1) F :=
-  compileMemberlessFromInline (compileInline m)
+```
+StructIR --[pass1]--> StructInlineIR --[pass2]--> MemberlessIR --[pass3]--> FlatIR --[pass4]--> R1CS
+```
 
-/-- Compile MemberlessIR to FlatIR (pass 3). -/
-def compileFlatFromMemberless (m : MemberlessIR.Module (n + 1) F) : FlatIR.Program F :=
-  MemberlessIRToFlatIR.compile m
+We compose them using `PresReflPass.compose`:
+- `pass12 = compose pass1 pass2` : StructIR → MemberlessIR
+- `pass34 = compose pass3 pass4` : MemberlessIR → R1CS  
+- `pipeline = compose pass12 pass34` : StructIR → R1CS
 
-/-- Compile StructIR to FlatIR (passes 1+2+3). -/
-def compileFlatIR (m : StructIR.Module (n + 1) F) : FlatIR.Program F :=
-  compileFlatFromMemberless (compileMemberless m)
+All preservation and reflection proofs are automatically composed by `PresReflPass.compose`!
+The witness relation chains through all intermediate languages:
+`witnessRel m ws wr := ∃ wi wm wf, rel1 m ws wi ∧ rel2 (compile1 m) wi wm ∧
+                                    rel3 (compile2 m') wm wf ∧ rel4 (compile3 m'') wf wr`
+-/
 
-/-- Compile StructIR to R1CS (passes 1+2+3+4). -/
+/-- Full pipeline: StructIR → R1CS via 4-pass composition -/
+instance instPresReflPass : PresReflPass (StructIR.Language n F) (R1CS.Language F) :=
+  -- Compose pass1 and pass2
+  let pass12 := PresReflPass.compose 
+    (S := StructIR.Language n F)
+    (M := StructInlineIR.Language n F)
+    (T := MemberlessIR.instLanguage n F)
+    (StructIRToStructInlineIR.CorrectPass n F)
+    (StructInlineIRToMemberlessIR.PresReflPass n F)
+  -- Compose pass3 and pass4
+  let pass34 := PresReflPass.compose
+    (S := MemberlessIR.instLanguage n F)
+    (M := FlatIR.Language F)
+    (T := R1CS.Language F)
+    (MemberlessIRToFlatIR.PresReflPass n F)
+    (FlatIRToR1CS.CorrectPass F)
+  -- Compose the two halves
+  PresReflPass.compose
+    (S := StructIR.Language n F)
+    (M := MemberlessIR.instLanguage n F)
+    (T := R1CS.Language F)
+    pass12 pass34
+
+/-- Full pipeline as a `Pass` (derived from PresReflPass) -/
+instance instPass : Pass (StructIR.Language n F) (R1CS.Language F) :=
+  inferInstance
+
+/-! ## Convenience definitions
+
+These provide explicit access to the compiled program and witness relation.
+-/
+
+/-- Compile StructIR program through the full 4-pass pipeline to R1CS. -/
 def compileProgram (m : StructIR.Module (n + 1) F) : R1CS.System F :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
   let numPub := (m.structs mainIdx).members.countP (·.isPublic)
-  { (FlatIRToR1CS.compileProgram F (compileFlatIR m)) with
-    numPublicInputs := numPub }
+  { (@instPresReflPass n F _).compile m with numPublicInputs := numPub }
 
-/-- Forward witness (StructIR -> StructInlineIR): identity relation carrier. -/
-def compileWitnessInline (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F) :
-    StructInlineIR.Witness F :=
-  let _ := m.structs
-  ws
+/-- Compile StructIR to StructInlineIR (pass 1 only). -/
+def compileInline (m : StructIR.Module (n + 1) F) : StructInlineIR.Module (n + 1) F :=
+  StructIRToStructInlineIR.compile m
 
-/-- Forward witness (StructInlineIR -> MemberlessIR). -/
-def compileWitnessMemberless (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F) :
-    Nat -> F :=
-  StructInlineIRToMemberlessIR.compileWitness (compileInline m) ws
+/-- Compile StructIR to MemberlessIR (passes 1+2). -/
+def compileMemberless (m : StructIR.Module (n + 1) F) : MemberlessIR.Module (n + 1) F :=
+  StructInlineIRToMemberlessIR.compile (compileInline m)
 
-/-- Forward witness (MemberlessIR -> FlatIR). -/
-def compileWitnessFlat (m : MemberlessIR.Module (n + 1) F) (mw : Nat -> F) :
-    FlatIR.Witness F :=
-  MemberlessIRToFlatIR.compileModuleWitness m mw
+/-- Compile StructIR to FlatIR (passes 1+2+3). -/
+def compileFlatIR (m : StructIR.Module (n + 1) F) : FlatIR.Program F :=
+  MemberlessIRToFlatIR.compile (compileMemberless m)
 
-/-- Forward witness (StructIR -> FlatIR). -/
-def compileWitnessFlatIR (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F) :
-    FlatIR.Witness F :=
-  compileWitnessFlat (compileMemberless m) (compileWitnessMemberless m ws)
-
-/-- Forward witness (StructIR -> R1CS). -/
-def compileWitness (m : StructIR.Module (n + 1) F) (ws : StructIR.Witness F) :
-    R1CS.Witness F :=
-  FlatIRToR1CS.compileWitness F (compileWitnessFlatIR m ws)
-
-/-- Backward witness (R1CS -> MemberlessIR). -/
-def extractWitnessMemberless (m : MemberlessIR.Module (n + 1) F) (wr : R1CS.Witness F) :
-    Nat -> F :=
-  MemberlessIRToFlatIR.extractWitness m (FlatIRToR1CS.extractWitness F wr)
-
-/-- Backward witness (R1CS -> StructInlineIR). -/
-def extractWitnessInline (m : StructIR.Module (n + 1) F) (wr : R1CS.Witness F) :
-    StructInlineIR.Witness F :=
-  StructInlineIRToMemberlessIR.extractWitness (compileInline m)
-    (extractWitnessMemberless (compileMemberless m) wr)
-
-/-- Backward witness (R1CS -> StructIR). -/
-def extractWitness (m : StructIR.Module (n + 1) F) (wr : R1CS.Witness F) :
-    StructIR.Witness F :=
-  extractWitnessInline m wr
-
-/-- Composed witness relation for the four-pass pipeline. -/
+/-- The composed witness relation for the full pipeline. -/
 def witnessRel (m : StructIR.Module (n + 1) F)
     (ws : StructIR.Witness F) (wr : R1CS.Witness F) : Prop :=
-  ∃ (wi : StructInlineIR.Witness F) (mw : Nat -> F) (wf : FlatIR.Witness F),
-    StructIRToStructInlineIR.witnessRel m ws wi ∧
-    StructInlineIRToMemberlessIR.witnessRel (compileInline m) wi mw ∧
-    MemberlessIRToFlatIR.witnessRel (compileMemberless m) mw wf ∧
-    (FlatIRToR1CS.CorrectPass F).witnessRel (compileFlatFromMemberless (compileMemberless m)) wf wr
+  (@instPresReflPass n F _).witnessRel m ws wr
 
-/-- Four-pass pipeline as a `Pass` (proof obligations deferred to phase 2). -/
-instance Pass (n : Nat) (F : Type) [Field F] :
-    Pass (StructIR.Language n F) (R1CS.Language F) where
-  compile := compileProgram
-  witnessRel := witnessRel
-
-/-- End-to-end witness generation utility. -/
+/-- End-to-end witness generation utility.
+    
+    Given a StructIR module and inputs, computes the StructIR witness and then
+    compiles it through all 4 passes to produce an R1CS witness.
+-/
 def pipelineWitness (m : StructIR.Module (n + 1) F) (inputs : List F)
     [DecidableEq F] : Option (R1CS.Witness F) :=
-  StructIR.computeWitness m inputs |>.map (compileWitness m)
+  StructIR.computeWitness m inputs |>.map fun ws =>
+    -- Compile witness through all 4 passes
+    let wi := ws  -- Pass 1: StructIR → StructInlineIR (identity)
+    let wm := StructInlineIRToMemberlessIR.compileWitness (compileInline m) wi
+    let wf := MemberlessIRToFlatIR.compileModuleWitness (compileMemberless m) wm
+    FlatIRToR1CS.compileWitness (F := F) wf
 
 end Pipeline

@@ -143,6 +143,11 @@ def compileAndSave
   | .ok ⟨_, sirMod⟩ =>
     -- Use the pipeline pass to compile StructIR → FlatIR → R1CS in one step.
     let r1csSystem := Pipeline.compileProgram (F:=F) sirMod
+    -- Ensure output directory exists
+    let pathParts := outputPath.splitOn "/"
+    let outDir := String.intercalate "/" pathParts.dropLast
+    if outDir != "" then
+      IO.FS.createDirAll outDir
     -- Write R1CS: binary by default, JSON if --json.
     if useJson then
       let r1csPath := outputPath ++ ".r1cs.json"

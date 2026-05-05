@@ -63,6 +63,11 @@ inductive Stmt (n : Nat) (i : Fin n) (F : Type) where
   | constrainEq (src1 src2 : LocalVar)
   /-- Inline a call to function `target` (index `< i`) with given arguments -/
   | call (target : Fin i) (args : List LocalVar)
+  /-- Pre-populated witness slot: read member at `index` from struct at `self`,
+      store result in `dest`. No constraint emitted; witness supplies the value.
+      This corresponds to `struct.readm` in LLZK: a signal pre-allocated in the
+      witness table, not computed by the constraint system. -/
+  | readMember (dest self : LocalVar) (index : Nat)
   deriving Repr
 
 /-! ## Functions and programs -/
@@ -125,6 +130,10 @@ def evalBody (m : Module n F) (i : Fin n) (env : LocalEnv F)
           | some arg => env arg
           | none     => 0
         evalBody m j calleeEnv (m j).body
+      | .readMember dest self index =>
+        -- Pre-populated witness slot: read member `index` from struct at `self`,
+        -- store in `dest`. No constraint emitted; witness supplies the value.
+        True
     prop ∧ evalBody m i env rest
   termination_by (i, stmts.length)
 

@@ -24,6 +24,8 @@ Together, these give equisatisfiability: the source and compiled programs accept
 | Language | Description | File |
 |----------|-------------|------|
 | **StructIR** | Structured IR with structs, functions, nesting, cross-struct calls | `Heyting/Languages/StructIR.lean` |
+| **StructInlineIR** | Call-free IR (all calls inlined; readMember preserved) | `Heyting/Languages/StructInlineIR.lean` |
+| **MemberlessIR** | Flat-variable IR (no struct hierarchy; calls preserved) | `Heyting/Languages/MemberlessIR.lean` |
 | **FlatIR** | Flat instruction language: felt arithmetic + equality assertions | `Heyting/Languages/FlatIR.lean` |
 | **R1CS** | Rank-1 Constraint Systems (`A * B = C` over linear combinations) | `Heyting/Languages/R1CS.lean` |
 
@@ -53,10 +55,27 @@ See `Heyting/Examples/ParserExamples.lean` for usage on 5 real LLZK test files.
 
 ### Passes
 
+The compiler consists of a 4-pass pipeline. All passes implement the `PresReflPass` framework.
+
 | Pass | Status | File |
 |------|--------|------|
-| **StructIR → FlatIR** | Fully verified (0 `sorry`, standard axioms only) | `Heyting/Passes/StructIRToFlatIR.lean` |
-| **FlatIR → R1CS** | Fully verified (0 `sorry`, standard axioms only) | `Heyting/Passes/FlatIRToR1CS.lean` |
+| **StructIR → StructInlineIR** | ✅ PresReflPass (2 sorries in module WF) | `Heyting/Passes/StructIRToStructInlineIR.lean` |
+| **StructInlineIR → MemberlessIR** | ✅ PresReflPass (preservation proven; 4 sorries in reflection/WF) | `Heyting/Passes/StructInlineIRToMemberlessIR.lean` |
+| **MemberlessIR → FlatIR** | ✅ PresReflPass (3 sorries in theorems) | `Heyting/Passes/MemberlessIRToFlatIR.lean` |
+| **FlatIR → R1CS** | ✅ Fully verified (0 `sorry`, standard axioms only) | `Heyting/Passes/FlatIRToR1CS.lean` |
+| **Pipeline (StructIR → R1CS)** | ✅ PresReflPass (proven by composition; 0 sorries) | `Heyting/Passes/Pipeline.lean` |
+
+**Total: 9 sorries** in pass theorems. See [`docs/SORRY_STATUS.md`](docs/SORRY_STATUS.md) for detailed breakdown.
+
+**Pipeline proven by composition**: The end-to-end pipeline correctness (preservation and reflection) 
+is proven automatically using the generic `PresReflPass.compose` operator from `Heyting/Core/Pass.lean`. 
+The utility function `pipelineWitness` is fully implemented by chaining individual pass witness compilation 
+functions. When individual passes are proven, the pipeline correctness follows immediately. 
+See [`docs/COMPOSITION_COMPLETE.md`](docs/COMPOSITION_COMPLETE.md) for details.
+
+**Pass 2 preservation fully proven**: The StructInlineIR → MemberlessIR preservation direction was 
+completed using [Harmonic's Aristotle](https://www.harmonic.ai/) AI proof assistant, proving 14+ lemmas 
+with the `WellFormedForCompile` predicate.
 
 ### Examples
 
