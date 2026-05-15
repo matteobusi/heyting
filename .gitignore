@@ -49,3 +49,5 @@ __pycache__/
 
 # ── Local handoff docs ───────────────────────────────────────────────────────
 docs/handover/
+skills-lock.json
+config.json
