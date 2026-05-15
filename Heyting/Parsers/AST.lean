@@ -88,13 +88,13 @@ inductive Stmt where
 
 /-! ## Function and struct declarations -/
 
-/-- Parameter declaration: `%name : !type`. -/
+/-- Parsed parameter declaration: `%name : !type`. -/
 structure ParamDecl where
   name : SSAName
   ty   : Ty
   deriving Repr
 
-/-- Function definition. -/
+/-- Parsed function definition before lowering resolves names and indices. -/
 structure FuncDef where
   name       : SymName            -- e.g., "compute" or "constrain"
   params     : List ParamDecl
@@ -103,7 +103,7 @@ structure FuncDef where
   pos        : Pos
   deriving Repr
 
-/-- Member declaration: `struct.member @name : !type {llzk.pub}?`. -/
+/-- Parsed struct member declaration: `struct.member @name : !type {llzk.pub}?`. -/
 structure MemberDecl where
   name     : SymName
   ty       : Ty
@@ -111,7 +111,7 @@ structure MemberDecl where
   pos      : Pos
   deriving Repr
 
-/-- Struct definition. -/
+/-- Parsed struct definition consisting of members and function bodies. -/
 structure StructDef where
   name     : SymName
   members  : List MemberDecl
@@ -119,7 +119,7 @@ structure StructDef where
   pos      : Pos
   deriving Repr
 
-/-- Top-level module. -/
+/-- Parsed top-level module containing struct definitions. -/
 structure Module where
   structs : List StructDef
   pos     : Pos

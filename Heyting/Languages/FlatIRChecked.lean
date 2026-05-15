@@ -1,14 +1,28 @@
 import Heyting.Core.CheckedSemantics
 import Heyting.Languages.FlatIR
 
+/-!
+# FlatIR Checked Execution
+
+Executable checked semantics for `FlatIR` programs.
+
+This file evaluates each instruction under a concrete witness, returns either a
+successful checked trace or the first failing instruction, and proves that this
+checked execution agrees with the declarative `FlatIR.satisfies` semantics.
+-/
+
 namespace FlatIRChecked
 
 open CheckedSemantics
 
 variable {F : Type} [Field F]
 
+/-! ## Checked execution -/
+
+/-- Checked-execution steps are just FlatIR instructions themselves. -/
 abbrev CheckedStep (F : Type) := FlatIR.Instr F
 
+/-- Boolean checker for a single FlatIR instruction under a witness. -/
 noncomputable def checkStep (w : FlatIR.Witness F) (instr : FlatIR.Instr F) : Bool := by
   classical
   exact
@@ -21,12 +35,14 @@ noncomputable def checkStep (w : FlatIR.Witness F) (instr : FlatIR.Instr F) : Bo
   | .assignConst dest c       => decide (w dest = c)
   | .assertEq src1 src2       => decide (w src1 = w src2)
 
+/-- Boolean checker agrees with declarative instruction satisfaction. -/
 theorem checkStep_true_iff_satisfiesInstr (w : FlatIR.Witness F)
     (instr : FlatIR.Instr F) :
     checkStep w instr = true ↔ FlatIR.satisfiesInstr w instr := by
   classical
   cases instr <;> simp [checkStep, FlatIR.satisfiesInstr]
 
+/-- Deterministic checked execution over a whole FlatIR program. -/
 noncomputable def evalChecked (w : FlatIR.Witness F) (prog : FlatIR.Program F) :
     Result (CheckedStep F) :=
   match prog with
@@ -39,9 +55,11 @@ noncomputable def evalChecked (w : FlatIR.Witness F) (prog : FlatIR.Program F) :
     else
       .failure [] instr
 
+/-- Predicate that checked execution succeeds on every instruction in the program. -/
 def checkedSuccess (w : FlatIR.Witness F) (prog : FlatIR.Program F) : Prop :=
   evalChecked w prog = .success prog
 
+/-- Checked execution succeeds exactly when the declarative semantics holds. -/
 theorem evalChecked_success_iff_satisfies (w : FlatIR.Witness F) (prog : FlatIR.Program F) :
     evalChecked w prog = .success prog ↔ FlatIR.satisfies w prog := by
   induction prog with
@@ -84,14 +102,17 @@ theorem evalChecked_success_iff_satisfies (w : FlatIR.Witness F) (prog : FlatIR.
       have hRestEq : evalChecked w rest = .success rest := ih.mpr hRestSat
       simp [evalChecked, hCheck, hRestEq]
 
+/-- Convenience corollary: declarative satisfaction implies checked success. -/
 theorem checkedSuccess_iff_satisfies (w : FlatIR.Witness F) (prog : FlatIR.Program F) :
     checkedSuccess w prog ↔ FlatIR.satisfies w prog := by
   exact evalChecked_success_iff_satisfies w prog
 
+/-- Package `FlatIR.satisfies -> checkedSuccess` direction as a theorem. -/
 theorem checkedSuccess_of_satisfies (w : FlatIR.Witness F) (prog : FlatIR.Program F)
     (h : FlatIR.satisfies w prog) : checkedSuccess w prog :=
   (checkedSuccess_iff_satisfies w prog).2 h
 
+/-- Package `checkedSuccess -> FlatIR.satisfies` direction as a theorem. -/
 theorem satisfies_of_checkedSuccess (w : FlatIR.Witness F) (prog : FlatIR.Program F)
     (h : checkedSuccess w prog) : FlatIR.satisfies w prog :=
   (checkedSuccess_iff_satisfies w prog).1 h

@@ -1,38 +1,66 @@
 import Heyting.Core.Language
 
+/-!
+# Compiler Pass Interfaces
+
+Shared pass interfaces for Heyting's correctness framework.
+
+`Pass` records executable compilation plus witness relation. `PreservingPass`
+and `ReflectingPass` package completeness and soundness directions, and
+`PresReflPass` combines both into the main correctness notion used by proved
+passes in this repository.
+-/
+
+/--
+A compiler pass between two languages, consisting of a program translation and
+a relation between source and target witnesses.
+-/
 class Pass
   {Vs Vt : Type} {Fs Ft : Type}
   [Field Fs] [Field Ft]
   (S : Language Vs Fs) (T : Language Vt Ft) where
+  /-- Compile a source program into a target program. -/
   compile : S.Program → T.Program
+  /-- Relate a source witness and a target witness for a given source program. -/
   witnessRel : S.Program → Witness Vs Fs → Witness Vt Ft → Prop
 
 
+/--
+A pass that preserves satisfiability: every satisfying source witness can be
+transported to a related satisfying target witness.
+-/
 class PreservingPass
   {Vs Vt : Type} {Fs Ft : Type}
   [Field Fs] [Field Ft]
   (S : Language Vs Fs) (T : Language Vt Ft)
 extends Pass S T where
-  -- Preservation (completeness): the compiler doesn't add spurious constraints.
-  -- If ws satisfies the source, there exists a related wt satisfying the target.
-  -- This is an additional guarantee beyond CC~.
+  /--
+  Preservation / completeness: compilation does not add spurious constraints.
+  -/
   preservation :
     ∀ (ws : Witness Vs Fs) (p : S.Program), S.satisfies ws p →
       ∃ (wt : Witness Vt Ft), witnessRel p ws wt ∧ T.satisfies wt (compile p)
 
+/--
+A pass that reflects satisfiability: every satisfying target witness comes from
+a related satisfying source witness.
+-/
 class ReflectingPass
   {Vs Vt : Type} {Fs Ft : Type}
   [Field Fs] [Field Ft]
   (S : Language Vs Fs) (T : Language Vt Ft)
 extends Pass S T where
-  -- Reflection (soundness): the compiler doesn't lose constraints.
-  -- If wt satisfies the target, there exists a related ws satisfying the source.
-  -- This is CC~ (trace-relating compiler correctness) from Abate et al. (ESOP 2020),
-  -- and is equivalent to TPσ and TPτ (proved in TrinitaryCC.lean).
+  /--
+  Reflection / soundness: compilation does not lose constraints.
+
+  This is CC~ (trace-relating compiler correctness) from Abate et al. (ESOP
+  2020), equivalent here to TPσ and TPτ.
+  -/
   reflection :
     ∀ (wt : Witness Vt Ft) (p : S.Program), T.satisfies wt (compile p) →
       ∃ ws, witnessRel p ws wt ∧ S.satisfies ws p
 
+/-- A pass that satisfies both preservation and reflection. -/
 class PresReflPass
   {Vs Vt : Type} {Fs Ft : Type}
   [Field Fs] [Field Ft]

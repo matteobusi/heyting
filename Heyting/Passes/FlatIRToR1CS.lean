@@ -246,7 +246,10 @@ instance CorrectPass : PresReflPass (FlatIR.Language F) (R1CS.Language F) where
           simp at h_c2
           simp_all only [List.not_mem_nil, IsEmpty.forall_iff, implies_true, one_mul, zero_ne_one]
         · have h_nz : w (R1CS.VarId.var src2) ≠ 0 := by
-            intro h_zero; rw [h_zero] at h_c2; simp at h_c2; aesop
+            intro h_zero
+            rw [h_zero] at h_c2
+            simp at h_c2
+            aesop
           field_simp at h_c1 ⊢
           exact h_c1
       | assignNeg dest src =>

@@ -45,11 +45,11 @@ structure Sizes where
   numAuxVars : Nat
   deriving Repr
 
-/-- Total number of wires (including the constant-1 wire at index 0). -/
+/-- Total number of wires, including the constant-1 wire at index `0`. -/
 def Sizes.numWires (wa : Sizes) : Nat :=
   1 + wa.numRegVars + wa.numAuxVars
 
-/-- Compute `Sizes` from a constraint list by scanning all `VarId`s. -/
+/-- Compute `Sizes` from a constraint list by scanning all mentioned `VarId`s. -/
 def fromConstraints [Repr F] (constraints : List (R1CS.Constraint F)) : Sizes :=
   { numRegVars := R1CSJSON.countRegVars constraints
     numAuxVars := R1CSJSON.countAuxVars constraints }

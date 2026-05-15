@@ -1,9 +1,27 @@
 import Heyting.Core.Language
 
+/-!
+# FlatIR
+
+Flat intermediate language used between `StructIR` and `R1CS`.
+
+`FlatIR` is register-based and SSA-like. It keeps only felt arithmetic and
+equality constraints, with calls and structured object operations already
+eliminated or encoded.
+-/
+
 namespace FlatIR
   variable (F : Type) [Field F]
+
+  /-- FlatIR variables are plain natural-number registers. -/
   abbrev VarId := Nat
 
+  /--
+  Flat instruction language used after inlining/flattening StructIR.
+
+  Instructions are SSA-like equations over registers, except `assertEq`, which
+  records a constraint without producing a destination.
+  -/
   inductive Instr (F : Type) where
     | assignAdd (dest : VarId) (src1 src2 : VarId)
     | assignSub (dest : VarId) (src1 src2 : VarId)
@@ -14,10 +32,13 @@ namespace FlatIR
     | assertEq (src1 src2 : VarId)
     deriving Repr
 
+  /-- A FlatIR program is a list of flat instructions. -/
   abbrev Program (F : Type) := List (Instr F)
 
+  /-- A FlatIR witness assigns a field element to each flat register. -/
   abbrev Witness (F : Type) := VarId → F
 
+  /-- Satisfaction of a single FlatIR instruction by a witness. -/
   def satisfiesInstr {F : Type} [Field F] (w : Witness F) (instr : Instr F) : Prop :=
     match instr with
     | .assignAdd dest src1 src2 => w dest = w src1 + w src2
@@ -28,7 +49,7 @@ namespace FlatIR
     | .assignConst dest c       => w dest = c
     | .assertEq src1 src2       => w src1 = w src2
 
-  -- Variables referenced by an instruction
+  /-- All variables referenced by an instruction, including its destination. -/
   def instrVars {F : Type} (instr : Instr F) : List VarId :=
     match instr with
     | .assignAdd dest src1 src2 => [dest, src1, src2]
@@ -39,7 +60,7 @@ namespace FlatIR
     | .assignConst dest _       => [dest]
     | .assertEq src1 src2       => [src1, src2]
 
-  -- If two witnesses agree on all variables of an instruction, satisfaction transfers
+  /-- If two witnesses agree on all variables of an instruction, satisfaction transfers. -/
   theorem satisfiesInstr_congr {F : Type} [Field F] {w1 w2 : Witness F}
       {instr : Instr F}
       (h : ∀ v ∈ instrVars instr, w1 v = w2 v) :
@@ -73,9 +94,11 @@ namespace FlatIR
       simp only [satisfiesInstr,
         h src1 (by tauto), h src2 (by tauto)]
 
+  /-- Satisfaction of a FlatIR program means satisfying every instruction in it. -/
   def satisfies {F : Type} [Field F] (w : Witness F) (prog : Program F) : Prop :=
     ∀ instr ∈ prog, satisfiesInstr w instr
 
+  /-- FlatIR as an instance of the generic `Language` interface. -/
   instance Language (F : Type) [Field F] : Language VarId F where
     Program := Program F
     satisfies := satisfies

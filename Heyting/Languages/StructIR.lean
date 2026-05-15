@@ -23,23 +23,31 @@ also unrepresentable.
 
 namespace StructIR
 
+/-- Local variables in StructIR bodies are numbered by natural numbers. -/
 abbrev LocalVar := Nat
 
 /-! ## Core types -/
 
--- Member types: felt or a reference to struct `j` (which must exist in module)
+/-- Type of a struct member: either a field element or a nested sub-struct. -/
 inductive MemberType (n : Nat) where
   | felt : MemberType n
   | substruct : Fin n → MemberType n
   deriving Repr
 
--- A struct member declaration
+/-- Declaration of a single struct member. -/
 structure MemberDecl (n : Nat) where
   name     : String
   type     : MemberType n
   isPublic : Bool     -- true iff `{llzk.pub}` was present on this member
   deriving Repr
 
+/-! ## Statement syntax -/
+
+/--
+Statements in `@constrain` bodies.
+
+The index parameter `i` enforces that calls may only target structs `j < i`.
+-/
 -- Statements in @constrain (constraint-generating function)
 -- Parameterized by `i`: the index of the struct this function belongs to.
 -- Calls can only target structs `j < i`.
@@ -56,6 +64,7 @@ inductive ConstrainStmt (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
   | call (target : Fin i) (args : List LocalVar)
   deriving Repr
 
+/-- Destination variable written by a constrain statement, if any. -/
 def ConstrainStmt.dest {n i F numMembers} : ConstrainStmt n i F numMembers → Option LocalVar
   | .feltAdd d _ _ => some d
   | .feltSub d _ _ => some d
@@ -67,6 +76,7 @@ def ConstrainStmt.dest {n i F numMembers} : ConstrainStmt n i F numMembers → O
   | .constrainEq _ _ => none
   | .call _ _ => none
 
+/-- Variables read by a constrain statement. -/
 def ConstrainStmt.reads {n i F numMembers} : ConstrainStmt n i F numMembers → List LocalVar
   | .feltAdd _ s1 s2 => [s1, s2]
   | .feltSub _ s1 s2 => [s1, s2]
@@ -78,6 +88,10 @@ def ConstrainStmt.reads {n i F numMembers} : ConstrainStmt n i F numMembers → 
   | .constrainEq s1 s2 => [s1, s2]
   | .call _ args => args
 
+/--
+SSA checker for constrain bodies, parameterized by the set of initially-defined
+locals.
+-/
 def isSSA {n i F numMembers} : (LocalVar → Bool) → List (ConstrainStmt n i F numMembers) → Bool
   | _, [] => true
   | init, s :: sl =>
@@ -86,7 +100,7 @@ def isSSA {n i F numMembers} : (LocalVar → Bool) → List (ConstrainStmt n i F
     | some d => !init d && isSSA (fun x => init x || x == d) sl
     | none => isSSA init sl
 
--- Statements in @compute (witness-generating function)
+/-- Statements in `@compute` bodies. -/
 inductive ComputeStmt (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
     where
   | feltAdd (dest : LocalVar) (src1 src2 : LocalVar)
@@ -101,14 +115,14 @@ inductive ComputeStmt (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
   | call (dest : LocalVar) (target : Fin i) (args : List LocalVar)
   deriving Repr
 
--- @constrain function: parameter count + body
+/-- A `@constrain` function body for a struct. -/
 structure ConstrainFunc (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
     where
   numParams : Nat   -- first param (0) is always %self
   body : List (ConstrainStmt n i F numMembers)
   deriving Repr
 
--- @compute function: parameter count + body + return variable
+/-- A `@compute` function body together with its return local. -/
 structure ComputeFunc (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
     where
   numParams : Nat
@@ -122,6 +136,7 @@ A `StructDef` at index `i` in a module of `n` structs knows its own index.
 Its statements can only reference structs `j < i`.
 -/
 
+/-- Definition of a StructIR struct: members plus compute/constrain bodies. -/
 structure StructDef (n : Nat) (i : Fin n) (F : Type) where
   name : String
   members : List (MemberDecl n)
@@ -129,12 +144,15 @@ structure StructDef (n : Nat) (i : Fin n) (F : Type) where
   constrain : ConstrainFunc n i F members.length
   deriving Repr
 
+/-- Remove all occurrences of local variable `v` from a list. -/
 def dropVar (v : LocalVar) (vars : List LocalVar) : List LocalVar :=
   vars.filter fun x => x != v
 
+/-- Pick call-site locals that correspond to the given callee parameter indices. -/
 def collectNeededArgs (args neededParams : List LocalVar) : List LocalVar :=
   neededParams.filterMap fun p => args[p]?
 
+/-- Check that all callee parameters in `neededParams` are supplied by `args`. -/
 def neededArgsAvailable (args neededParams : List LocalVar) : Bool :=
   neededParams.all fun p => (args[p]?).isSome
 

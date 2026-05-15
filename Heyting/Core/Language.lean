@@ -1,13 +1,30 @@
 import Mathlib.Algebra.Field.Basic
 
--- A witness is an assignment of field values to variables
+/-!
+# Generic Constraint Languages
+
+Core abstraction for constraint languages used throughout Heyting.
+
+`Language` packages:
+- a program syntax type, and
+- a satisfaction relation between witnesses and programs.
+
+Compiler passes, checked semantics, and correctness statements are all phrased
+against this interface.
+-/
+
+/-- A witness assigns field values to variables of a language. -/
 abbrev Witness (V : Type) (F : Type) := V → F
 
--- A language is defined by its syntax and semantics
+/--
+A formal constraint language over variables `V` and field `F`.
+
+`Program` is the syntax of the language, while `satisfies w p` gives its
+semantic validity predicate for witness `w` and program `p`.
+-/
 class Language (V : Type) (F : Type) [Field F] where
-  -- The syntax of the language, typically defined inductively
+  /-- The program type of the language. -/
   Program : Type
 
-  -- For ZKP languages, it suffices to know that a witness [w] satisfies the
-  -- constraints of [p]
+  /-- Semantic satisfaction of program `p` by witness `w`. -/
   satisfies : Witness V F -> Program -> Prop

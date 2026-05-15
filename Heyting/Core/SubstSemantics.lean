@@ -30,21 +30,26 @@ inductive PTerm where
 /-- Path substitutions map locals to path terms. -/
 abbrev PathSubst := LocalVar → PTerm
 
+/-- Apply a path substitution to a symbolic path term. -/
 def PTerm.subst (σo : PathSubst) : PTerm → PTerm
   | .var v => σo v
   | .const p => .const p
   | .append base member => .append (subst σo base) member
 
+/-- Interpret a symbolic path term under a concrete object environment. -/
 def PTerm.interp (ρo : LocalVar → InstancePath) : PTerm → InstancePath
   | .var v => ρo v
   | .const p => p
   | .append base member => interp ρo base ++ [member]
 
+/-- Identity path substitution. -/
 def PTerm.idSubst : PathSubst := fun v => .var v
 
+/-- Compose two path substitutions left-to-right. -/
 def PTerm.composeSubst (σo₁ σo₂ : PathSubst) : PathSubst :=
   fun v => (σo₁ v).subst σo₂
 
+/-- Override a path substitution at one local variable. -/
 def bindO (σo : PathSubst) (x : LocalVar) (t : PTerm) : PathSubst :=
   fun y => if y == x then t else σo y
 
@@ -86,6 +91,7 @@ inductive VTerm (F : Type) where
 /-- Value substitutions map locals to value terms. -/
 abbrev ValSubst (F : Type) := LocalVar → VTerm F
 
+/-- Apply value/path substitutions to a symbolic value term. -/
 def VTerm.subst {F : Type} (σv : ValSubst F) (σo : PathSubst) : VTerm F → VTerm F
   | .var v => σv v
   | .const c => .const c
@@ -96,6 +102,7 @@ def VTerm.subst {F : Type} (σv : ValSubst F) (σo : PathSubst) : VTerm F → VT
   | .neg arg => .neg (subst σv σo arg)
   | .witnessAt path member => .witnessAt (path.subst σo) member
 
+/-- Interpret a symbolic value term under concrete value/object environments. -/
 def VTerm.interp {F : Type} [Field F] (w : Witness F) (ρv : LocalVar → F)
     (ρo : LocalVar → InstancePath) : VTerm F → F
   | .var v => ρv v
@@ -107,12 +114,15 @@ def VTerm.interp {F : Type} [Field F] (w : Witness F) (ρv : LocalVar → F)
   | .neg arg => -(interp w ρv ρo arg)
   | .witnessAt path member => w (PTerm.interp ρo path, member)
 
+/-- Identity value substitution. -/
 def VTerm.idSubst {F : Type} : ValSubst F := fun v => .var v
 
+/-- Compose value substitutions, threading the path substitution for witness reads. -/
 def VTerm.composeValSubst {F : Type} (σv₁ : ValSubst F)
     (σv₂ : ValSubst F) (σo₂ : PathSubst) : ValSubst F :=
   fun v => (σv₁ v).subst σv₂ σo₂
 
+/-- Override a value substitution at one local variable. -/
 def bindV {F : Type} (σv : ValSubst F) (x : LocalVar) (t : VTerm F) : ValSubst F :=
   fun y => if y == x then t else σv y
 
@@ -170,10 +180,12 @@ inductive CAtom (F : Type) where
   | neZero (term : VTerm F)
   deriving Repr, DecidableEq
 
+/-- Apply substitutions to an atomic checked constraint. -/
 def CAtom.subst {F : Type} (σv : ValSubst F) (σo : PathSubst) : CAtom F → CAtom F
   | .eq lhs rhs => .eq (lhs.subst σv σo) (rhs.subst σv σo)
   | .neZero term => .neZero (term.subst σv σo)
 
+/-- Interpret an atomic checked constraint as a proposition. -/
 def CAtom.interp {F : Type} [Field F] (w : Witness F) (ρv : LocalVar → F)
     (ρo : LocalVar → InstancePath) : CAtom F → Prop
   | .eq lhs rhs => VTerm.interp w ρv ρo lhs = VTerm.interp w ρv ρo rhs

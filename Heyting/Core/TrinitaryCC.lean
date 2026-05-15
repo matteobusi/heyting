@@ -3,17 +3,15 @@ import Mathlib.Data.Set.Basic
 import Heyting.Core.Language
 import Heyting.Core.Pass
 
-/-
-  This is a re-adapted version of the ESORICS 2020 paper
-    "Trace-Relating Compiler Correctness and Secure Compilation" by Abate et al.
-  We'll refer to it as TRCCCS from now onwards.
+/-!
+# Trinitarian Compiler Correctness for Witness Semantics
 
-  We limit ourselves to re-stating and proving their results in the ZKP setting
-  and within our framework.
+This file adapts results from Abate et al., "Trace-Relating Compiler
+Correctness and Secure Compilation" (ESORICS 2020), to Heyting's ZKP setting.
 
-  In the ZKP setting:
-    - "traces" correspond to witnesses, thus
-    - the "behavior" of a program p is its satisfaction set { w | satisfies w p }.
+Here, traces are replaced by witnesses, so a program's behavior is its
+satisfaction set `{ w | satisfies w p }`. The file restates the `τ`, `σ`,
+`TPσ`, `TPτ`, and `CC~` viewpoint in terms of witness relations.
 -/
 
 /-
@@ -22,30 +20,29 @@ import Heyting.Core.Pass
   some source witness in πS.
   (Definition 2.5 of TRCCCS)
 -/
+/-! ## Property transformers and correctness notions -/
+
+/-
+  τ is the existential image of the witness relation on properties.
+  Given a source property πS, τ(πS) collects all target witnesses related to
+  some source witness in πS.
+  (Definition 2.5 of TRCCCS)
+-/
+/-- Existential image of a source witness property along the pass witness relation. -/
 def τ
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   {S : Language Vs Fs} {T : Language Vt Ft} [P : Pass S T]
   (p : S.Program) (πS : Set (Witness Vs Fs)) : Set (Witness Vt Ft) :=
   { wt | ∃ ws ∈ πS, P.witnessRel p ws wt }
 
-/-
-  σ is the universal image of the witness relation on properties.
-  Given a target property πT, σ(πT) collects all source witnesses whose
-  related target witnesses all fall within πT.
-  (Definition 2.5 of TRCCCS)
--/
+/-- Universal preimage of a target witness property along the pass witness relation. -/
 def σ
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   {S : Language Vs Fs} {T : Language Vt Ft} [P : Pass S T]
   (p : S.Program) (πT : Set (Witness Vt Ft)) : Set (Witness Vs Fs) :=
   { ws | ∀ wt, P.witnessRel p ws wt → wt ∈ πT }
 
-/-
-  WPσ is witness-property preservation through σ.
-  For all target properties πT: if the source program's satisfaction set is
-  contained in σ(πT), then the target program's satisfaction set is contained
-  in πT.
--/
+/-- Witness-property preservation stated through `σ`. -/
 def WPσ
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   (S : Language Vs Fs) (T : Language Vt Ft) [P : Pass S T] : Prop :=
@@ -53,12 +50,7 @@ def WPσ
     (∀ ws, S.satisfies ws p → ws ∈ σ (S := S) (T := T) p πT) →
     (∀ wt, T.satisfies wt (P.compile p) → wt ∈ πT)
 
-/-
-  WPτ is witness-property preservation through τ.
-  For all source properties πS: if the source program's satisfaction set is
-  contained in πS, then the target program's satisfaction set is contained
-  in τ̃(πS).
--/
+/-- Witness-property preservation stated through `τ`. -/
 def WPτ
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   (S : Language Vs Fs) (T : Language Vt Ft) [P : Pass S T] : Prop :=
@@ -67,11 +59,7 @@ def WPτ
     (∀ wt, T.satisfies wt (P.compile p) →
       wt ∈ τ (S := S) (T := T) p πS)
 
-/-
-  cc is trace-relating compiler correctness (CC~ from Def. 1.2 of TRCCCS).
-  For every target witness satisfying the compiled program, there exists a
-  related source witness satisfying the source program.
--/
+/-- Trace-relating compiler correctness specialized to witness semantics. -/
 def cc
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   (S : Language Vs Fs) (T : Language Vt Ft) [P : Pass S T] : Prop :=
@@ -79,9 +67,7 @@ def cc
       T.satisfies wt (P.compile p) →
         ∃ ws, P.witnessRel p ws wt ∧ S.satisfies ws p
 
-/-
-  This class specifies when a pass is trace property preserving via σ
--/
+/-- Passes satisfying witness-property preservation through `σ`. -/
 class TPσPass
   {Vs Vt : Type} {Fs Ft : Type}
   [Field Fs] [Field Ft]
@@ -89,9 +75,7 @@ class TPσPass
 extends Pass S T where
   witness_preservation : WPσ S T
 
-/-
-  This class specifies when a pass is trace property preserving via τ̃
--/
+/-- Passes satisfying witness-property preservation through `τ`. -/
 class TPτPass
   {Vs Vt : Type} {Fs Ft : Type}
   [Field Fs] [Field Ft]
@@ -99,9 +83,7 @@ class TPτPass
 extends Pass S T where
   witness_preservation : WPτ S T
 
-/-
-  TPσ ↔ CC~ (part of the trinitarian view, Theorem 2.6 of TRCCCS)
--/
+/-- `TPσ` coincides with `CC~` in witness semantics. -/
 lemma TPσ_iff_CC
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   {S : Language Vs Fs} {T : Language Vt Ft} :
@@ -119,9 +101,7 @@ lemma TPσ_iff_CC
     obtain ⟨ws, h_rel, h_sat_s⟩ := h p wt h_sat
     exact h_sub ws h_sat_s wt h_rel
 
-/-
-  TPτ ↔ CC~ (part of the trinitarian view, Theorem 2.6 of TRCCCS)
--/
+/-- `TPτ` coincides with `CC~` in witness semantics. -/
 lemma TPτ_iff_CC
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   {S : Language Vs Fs} {T : Language Vt Ft} :
@@ -140,9 +120,7 @@ lemma TPτ_iff_CC
     obtain ⟨ws, h_rel, h_sat_s⟩ := h p wt h_sat
     exact ⟨ws, h_sub ws h_sat_s, h_rel⟩
 
-/-
-  TPσ ↔ TPτ (corollary of the trinitarian view, Theorem 2.6 of TRCCCS)
--/
+/-- `TPσ` and `TPτ` are equivalent formulations of witness-property preservation. -/
 lemma TPσ_iff_TPτ
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   {S : Language Vs Fs} {T : Language Vt Ft} :

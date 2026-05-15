@@ -72,13 +72,7 @@ theorem checkAtom_concretize_eq [DecidableEq F]
     (w : StructIR.Witness F) (a : Atom F) :
     FlatIRSubst.checkAtom (F := F) (fun _ => 0) (concretizeAtom w a) =
       StructIRSubst.checkAtom w a := by
-  cases a with
-  | eq lhs rhs =>
-    simp [FlatIRSubst.checkAtom, StructIRSubst.checkAtom, concretizeAtom, concretizeVTerm,
-      VTerm.interp]
-  | neZero t =>
-    simp [FlatIRSubst.checkAtom, StructIRSubst.checkAtom, concretizeAtom, concretizeVTerm,
-      VTerm.interp]
+  simpa using checkAtom_concretize_eq_with w (fun _ => 0) a
 
 theorem checkAtom_concretize_eq_with [DecidableEq F]
     (wSrc : StructIR.Witness F) (wTgt : FlatIR.Witness F) (a : Atom F) :

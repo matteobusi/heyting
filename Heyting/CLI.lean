@@ -11,6 +11,16 @@ import Heyting.Backends.WitnessBinary
 import Heyting.Parsers.InputJSON
 import Heyting.Languages.StructIR
 
+/-!
+# Command-Line Interface
+
+Executable entry point for `hey`.
+
+The CLI parses LLZK source files, lowers them to `StructIR`, compiles through
+the active pipeline to `R1CS`, and optionally emits witness files by running the
+executable witness generator.
+-/
+
 namespace Heyting.CLI
 
 open CLIArgs FieldBytes
@@ -79,12 +89,16 @@ private instance : FieldBytes (ZMod KOALABEAR_p) where
   toLeBytes    := fun x => natLeBytes x.val 4
   primeLeBytes := natLeBytes KOALABEAR_p 4
 
+/-! ## Commands and argument handling -/
+
+/-- Supported top-level CLI commands. -/
 inductive Command where
   | compile (llzk : String) (output : String) (json : Bool)
       (auto : Bool) (input : Option String) (prime : Option String)
   | help
   deriving Repr
 
+/-- Human-readable usage text for `hey`. -/
 def usage : String :=
   "Usage: hey compile [options] <input.llzk> <output>\n" ++
   "       hey help\n" ++
@@ -101,6 +115,7 @@ def usage : String :=
     " supported: bn128, bn254 (default), babybear, goldilocks, mersenne31, and koalabear\n" ++
   "  --output <path>    alternative way to specify output path\n"
 
+/-- Interpret parsed option structure as a top-level CLI command. -/
 def parseArgs (args : List String) : Except String Command :=
   match CLIArgs.parse args with
   | .error e => .error e
@@ -119,6 +134,7 @@ def parseArgs (args : List String) : Except String Command :=
       .error s!"unknown command: {opts.cmd}. Try 'hey help'."
 
 
+/-- Compile one LLZK input file under a chosen field and write requested outputs. -/
 def compileAndSave
     (F : Type) [Field F] [DecidableEq F] [IntCast F] [Repr F] [FieldBytes F]
     (fieldName : String)
@@ -189,6 +205,7 @@ def compileAndSave
           WitnessBinary.saveWitnessBinary (F:=F) r1csSystem wr witnessPath
           IO.println s!"Wrote witness binary to {witnessPath}"
 
+/-- Resolve a parsed command to its executable `IO` action. -/
 def runCommand : Command → Except String (IO Unit)
   | .help => .ok (IO.println usage)
   | .compile llzk output json auto inputs field => .ok do
@@ -211,6 +228,7 @@ def runCommand : Command → Except String (IO Unit)
         throw (.userError s!"unsupported prime field: {field}. \
           Supported: bn128, bn254 (default), babybear, goldilocks, mersenne31, and koalabear")
 
+/-- Process command-line arguments and run `hey`. -/
 def main (args : List String) : IO Unit := do
   match parseArgs args with
   | .ok cmd =>

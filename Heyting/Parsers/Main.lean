@@ -22,6 +22,7 @@ namespace LLZK
 
 /-! ## Pretty-printing -/
 
+/-- Produce two-space indentation used by pretty-printers in this file. -/
 private def indent (n : Nat) : String :=
   String.ofList (List.replicate (n * 2) ' ')
 
@@ -84,7 +85,7 @@ def ppModule (m : Module) : String :=
 
 /-! ## Summary statistics -/
 
-/-- Count statements by type in a module. -/
+/-- Count broad statement categories in a parsed module for debugging summaries. -/
 def countStmts (m : Module) : String :=
   let allStmts : List Stmt :=
     m.structs.flatMap fun sd => sd.funcs.flatMap fun f => f.body

@@ -7,32 +7,22 @@ import Heyting.Languages.StructIRSubst
 import Heyting.Passes.StructIRToFlatIRDirect
 import Heyting.Passes.StructIRToFlatIRDirectSim
 
+/-!
+# StructIR -> FlatIR Direct Correctness
+
+Main preservation/reflection lemmas for the direct executable lowering from
+`StructIR` to `FlatIR`.
+
+This file bridges source semantics, compiled FlatIR satisfaction, and the
+checked-semantics simulation lemmas proved elsewhere.
+-/
+
 open StructIR
 open FlatIR
 
 namespace StructIRToFlatIRDirect
 
 variable {F : Type} [Field F] {n : Nat}
-
-private lemma get_map_lemma (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ → F) (n : ℕ) :
-    (match Option.map ρ (args[n]?) with | some a => env a | none => 0) =
-    (match args[n]? with | some a => (env ∘ ρ) a | none => 0) := by
-  induction args generalizing n with
-  | nil => simp
-  | cons a args ih =>
-    cases n with
-    | zero => simp
-    | succ n => simp [ih n]
-
-private lemma get_map_lemma_obj (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ → List ℕ) (n : ℕ) :
-    (match Option.map ρ (args[n]?) with | some a => env a | none => []) =
-    (match args[n]? with | some a => (env ∘ ρ) a | none => []) := by
-  induction args generalizing n with
-  | nil => simp
-  | cons a args ih =>
-    cases n with
-    | zero => simp
-    | succ n => simp [ih n]
 
 /-- The natural FlatIR witness derived from a StructIR witness via `decode`. -/
 noncomputable def wt' (w : StructIR.Witness F) : FlatIR.Witness F :=
@@ -73,104 +63,6 @@ lemma localEnv_update_self (env : LocalEnv F) (x : Nat) (v : F) (h : env x = v) 
     simp only [beq_self_eq_true, if_true, h]
   · have : (k == x) = false := by simp [hk]
     rw [this]; simp
-
-/-- When env update at ρ(dest) is post-composed with ρ, it equals composition with
-    update at dest.  Requires ρ injective. -/
-lemma env_update_rename_comm (env : LocalEnv F) (dest : LocalVar) (val : F)
-    (ρ : Nat → Nat) (hρ_inj : Function.Injective ρ) :
-    (env.update (ρ dest) val) ∘ ρ = LocalEnv.update (env ∘ ρ) dest val := by
-  funext x
-  simp only [Function.comp_apply, LocalEnv.update]
-  by_cases hx : x = dest
-  · subst x; simp
-  · have hne : ρ x ≠ ρ dest := by
-      intro hEq
-      exact hx (hρ_inj hEq)
-    simp [hx, hne]
-
-/-- Same for ObjEnv updates. -/
-lemma objEnv_update_rename_comm (objEnv : ObjEnv) (dest : LocalVar) (path : InstancePath)
-    (ρ : Nat → Nat) (hρ_inj : Function.Injective ρ) :
-    (objEnv.update (ρ dest) path) ∘ ρ = ObjEnv.update (objEnv ∘ ρ) dest path := by
-  funext x
-  simp only [Function.comp_apply, ObjEnv.update]
-  by_cases hx : x = dest
-  · subst x; simp
-  · have hne : ρ x ≠ ρ dest := by
-      intro hEq
-      exact hx (hρ_inj hEq)
-    simp [hx, hne]
-
-/-- Renaming all variables in a body by an injective ρ commutes with evaluation,
-    provided the env and objEnv are also adjusted by ρ on the right (original-index)
-    side.  That is:
-
-    `eval(env, objEnv)[renameBody ρ body] ↔ eval(env ∘ ρ, objEnv ∘ ρ)[body]`. -/
-lemma evalConstrainBody_rename (m : Module n F) (w : StructIR.Witness F) (i : Fin n)
-    (env : LocalEnv F) (objEnv : ObjEnv) (ρ : Nat → Nat) (hρ_inj : Function.Injective ρ)
-    (body : List (ConstrainStmt n i F (m.structs i).members.length)) :
-    evalConstrainBody m w i env objEnv (StructIRSubst.renameBody ρ body) ↔
-    evalConstrainBody m w i (env ∘ ρ) (objEnv ∘ ρ) body := by
-  induction body generalizing env objEnv with
-  | nil =>
-    simp [evalConstrainBody, StructIRSubst.renameBody]
-  | cons stmt body ih =>
-    rename_i ih
-    cases stmt with
-    | feltAdd dest src1 src2 =>
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      simpa [env_update_rename_comm env dest (env (ρ src1) + env (ρ src2)) ρ hρ_inj] using
-        (ih (env.update (ρ dest) (env (ρ src1) + env (ρ src2))) objEnv)
-    | feltSub dest src1 src2 =>
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      simpa [env_update_rename_comm env dest (env (ρ src1) - env (ρ src2)) ρ hρ_inj] using
-        (ih (env.update (ρ dest) (env (ρ src1) - env (ρ src2))) objEnv)
-    | feltMul dest src1 src2 =>
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      simpa [env_update_rename_comm env dest (env (ρ src1) * env (ρ src2)) ρ hρ_inj] using
-        (ih (env.update (ρ dest) (env (ρ src1) * env (ρ src2))) objEnv)
-    | feltDiv dest src1 src2 =>
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      intro hnz
-      simpa [env_update_rename_comm env dest (env (ρ src1) * (env (ρ src2))⁻¹) ρ hρ_inj] using
-        (ih (env.update (ρ dest) (env (ρ src1) * (env (ρ src2))⁻¹)) objEnv)
-    | feltNeg dest src =>
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      simpa [env_update_rename_comm env dest (-(env (ρ src))) ρ hρ_inj] using
-        (ih (env.update (ρ dest) (-(env (ρ src)))) objEnv)
-    | feltConst dest c =>
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      simpa [env_update_rename_comm env dest c ρ hρ_inj] using
-        (ih (env.update (ρ dest) c) objEnv)
-    | readMember dest self member =>
-      let path := objEnv (ρ self)
-      let val := w (path, member.val)
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      simpa [
-          env_update_rename_comm env dest val ρ hρ_inj,
-          objEnv_update_rename_comm objEnv dest (path ++ [member.val]) ρ hρ_inj,
-          Function.comp_apply
-        ] using
-        (ih (env.update (ρ dest) val) (objEnv.update (ρ dest) (path ++ [member.val])))
-    | constrainEq src1 src2 =>
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      intro h_eq
-      simpa [StructIRSubst.renameBody] using (ih env objEnv)
-    | call target args =>
-      simp [evalConstrainBody, StructIRSubst.renameBody, StructIRSubst.renameStmt]
-      have h_callee_env_eq :
-        (fun param : Nat => match Option.map ρ args[param]? with | some a => env a | none => 0) =
-        (fun param : Nat => match args[param]? with | some a => (env ∘ ρ) a | none => 0) := by
-        apply funext; intro n; apply get_map_lemma ρ args env n
-      have h_callee_objEnv_eq :
-        (fun param : Nat => match Option.map ρ args[param]? with | some a => objEnv a | none => []) =
-        (fun param : Nat => match args[param]? with | some a => (objEnv ∘ ρ) a | none => []) := by
-        apply funext; intro n; apply get_map_lemma_obj ρ args objEnv n
-      constructor
-      · rintro ⟨hcall, h⟩
-        refine ⟨h_callee_objEnv_eq ▸ h_callee_env_eq ▸ hcall, (ih env objEnv).mp h⟩
-      · rintro ⟨hcall, h⟩
-        refine ⟨h_callee_objEnv_eq.symm ▸ h_callee_env_eq.symm ▸ hcall, (ih env objEnv).mpr h⟩
 
 /-- If two local-variable environments agree on all parameter variables (those
     below `numParams`), and the body is in SSA form, then evaluation with

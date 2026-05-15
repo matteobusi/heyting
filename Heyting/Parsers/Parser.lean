@@ -25,24 +25,31 @@ structure ParseState where
 
 namespace ParseState
 
+/-- Create initial parser state from token list. -/
 def init (tokens : List PosToken) : ParseState :=
   { tokens := tokens.toArray, cursor := 0, warnings := [] }
 
+/-- Test whether parser cursor has reached end of token array. -/
 def atEnd (s : ParseState) : Bool :=
   s.cursor >= s.tokens.size
 
+/-- Peek current token-position pair, defaulting to synthetic EOF when exhausted. -/
 def peek (s : ParseState) : PosToken :=
   if h : s.cursor < s.tokens.size then
     s.tokens[s.cursor]
   else
     { tok := .eof, pos := { line := 0, col := 0 } }
 
+/-- Peek current token kind. -/
 def peekTok (s : ParseState) : Token := s.peek.tok
+/-- Peek current source position. -/
 def peekPos (s : ParseState) : Pos := s.peek.pos
 
+/-- Advance parser cursor by one token. -/
 def advance (s : ParseState) : ParseState :=
   { s with cursor := s.cursor + 1 }
 
+/-- Append warning message to parser state. -/
 def addWarning (s : ParseState) (msg : String) : ParseState :=
   { s with warnings := s.warnings ++ [msg] }
 
@@ -53,20 +60,25 @@ abbrev Parser := StateT ParseState (Except String)
 
 /-! ## Parser primitives -/
 
+/-- Current source position at parser cursor. -/
 def getPos : Parser Pos := do
   let s ← get
   return s.peekPos
 
+/-- Current token at parser cursor. -/
 def getPeek : Parser Token := do
   let s ← get
   return s.peekTok
 
+/-- Advance parser by one token. -/
 def advance : Parser Unit :=
   modify ParseState.advance
 
+/-- Record non-fatal parser warning. -/
 def warn (msg : String) : Parser Unit :=
   modify fun s => s.addWarning msg
 
+/-- Consume exact token or throw parse error with current position. -/
 def expect (tok : Token) (msg : String := "") : Parser Unit := do
   let s ← get
   if s.peekTok == tok then
@@ -75,6 +87,7 @@ def expect (tok : Token) (msg : String := "") : Parser Unit := do
     let m := if msg.isEmpty then s!"expected {tok}, got {s.peekTok}" else msg
     throw s!"{s.peekPos}: {m}"
 
+/-- Consume exact keyword token or throw positioned parse error. -/
 def expectKeyword (kw : String) : Parser Unit := do
   let s ← get
   match s.peekTok with
@@ -83,30 +96,35 @@ def expectKeyword (kw : String) : Parser Unit := do
     else throw s!"{s.peekPos}: expected keyword '{kw}', got '{k}'"
   | other => throw s!"{s.peekPos}: expected keyword '{kw}', got {other}"
 
+/-- Consume SSA name token `%name`. -/
 def expectSSAName : Parser SSAName := do
   let s ← get
   match s.peekTok with
   | .ssaName n => do modify ParseState.advance; return n
   | other => throw s!"{s.peekPos}: expected SSA name (%name), got {other}"
 
+/-- Consume symbol name token `@name`. -/
 def expectSymName : Parser SymName := do
   let s ← get
   match s.peekTok with
   | .symName n => do modify ParseState.advance; return n
   | other => throw s!"{s.peekPos}: expected symbol name (@name), got {other}"
 
+/-- Consume integer literal token. -/
 def expectIntLit : Parser Int := do
   let s ← get
   match s.peekTok with
   | .intLit v => do modify ParseState.advance; return v
   | other => throw s!"{s.peekPos}: expected integer literal, got {other}"
 
+/-- Test whether current token is keyword `kw`. -/
 def isKeyword (kw : String) : Parser Bool := do
   let s ← get
   match s.peekTok with
   | .keyword k => return k == kw
   | _ => return false
 
+/-- Test whether current token is exactly `tok`. -/
 def isToken (tok : Token) : Parser Bool := do
   let s ← get
   return s.peekTok == tok

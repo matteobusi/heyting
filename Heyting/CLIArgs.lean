@@ -13,6 +13,7 @@ invalid input so the caller can print a friendly error message.
 
 namespace Heyting.CLIArgs
 
+/-- Parsed CLI options before command dispatch. -/
 structure Options where
   cmd : String := ""
   llzk? : Option String := none
@@ -24,8 +25,7 @@ structure Options where
   prime? : Option String := none
   deriving Repr
 
-/- Parse a single option that expects a value. Returns (value, rest).
-   If the value is missing returns an error. -/
+/-- Parse one option payload, returning the value together with the remaining args. -/
 def parseOptionWithValue (args : List String) : Except String (String × List String) :=
   match args with
   | [] => .error "expected value after option"

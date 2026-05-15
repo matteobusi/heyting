@@ -101,6 +101,32 @@ theorem interp_bindO_ne (ρo : SubstSemantics.LocalVar → SubstSemantics.Instan
     PTerm.interp ρo (bindO σo x t y) = PTerm.interp ρo (σo y) := by
   simp [bindO_ne, h]
 
+private lemma bindV_interp_update
+    (w : StructIR.Witness F) (σv : ValSubst F) (env : StructIR.LocalEnv F)
+    (hInv : ∀ v, VTerm.interp w defaultValuation defaultPathValuation (σv v) = env v)
+    (dest : Nat) (t : VTerm F) (val : F)
+    (ht : VTerm.interp w defaultValuation defaultPathValuation t = val) :
+    ∀ v, VTerm.interp w defaultValuation defaultPathValuation (bindV σv dest t v) =
+      (StructIR.LocalEnv.update env dest val) v := by
+  intro v
+  by_cases hv : v = dest
+  · subst v
+    simp [bindV, StructIR.LocalEnv.update, ht]
+  · simp [bindV, StructIR.LocalEnv.update, hv, hInv v]
+
+private lemma bindO_interp_update
+    (σo : PathSubst) (objEnv : StructIR.ObjEnv)
+    (hInvO : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v)
+    (dest : Nat) (t : PTerm) (path : StructIR.InstancePath)
+    (ht : PTerm.interp defaultPathValuation t = path) :
+    ∀ v, PTerm.interp defaultPathValuation (bindO σo dest t v) =
+      (StructIR.ObjEnv.update objEnv dest path) v := by
+  intro v
+  by_cases hv : v = dest
+  · subst v
+    simp [bindO, StructIR.ObjEnv.update, ht]
+  · simp [bindO, StructIR.ObjEnv.update, hv, hInvO v]
+
 /-- Prefix a checked atom when the downstream result is successful. -/
 def prependIfSuccess (a : Atom F) : Result (Atom F) → Result (Atom F)
   | Result.success trace => Result.success (a :: trace)
@@ -627,14 +653,16 @@ private theorem appendPrefix_isSuccess {α : Type} (pre : List (Atom α))
     (r : Result (Atom α)) : Result.isSuccess (Result.appendPrefix pre r) ↔ Result.isSuccess r := by
   cases r <;> simp only [Result.appendPrefix, Result.isSuccess]
 
-private lemma get_map_lemma (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ → F) (n : ℕ) :
+/-- Reindexing a call-argument lookup commutes with post-composition by `ρ`. -/
+lemma get_map_lemma (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ → F) (n : ℕ) :
     (match Option.map ρ (args[n]?) with | some a => env a | none => 0) =
     (match args[n]? with | some a => (env ∘ ρ) a | none => 0) := by
   induction args generalizing n with
   | nil => simp
   | cons a args ih => cases n with | zero => simp | succ n => simp [ih n]
 
-private lemma get_map_lemma_obj (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ → List ℕ) (n : ℕ) :
+/-- Object-environment version of `get_map_lemma`. -/
+lemma get_map_lemma_obj (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ → List ℕ) (n : ℕ) :
     (match Option.map ρ (args[n]?) with | some a => env a | none => []) =
     (match args[n]? with | some a => (env ∘ ρ) a | none => []) := by
   induction args generalizing n with
@@ -642,7 +670,8 @@ private lemma get_map_lemma_obj (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ 
   | cons a args ih => cases n with | zero => simp | succ n => simp [ih n]
 
 set_option linter.unusedSectionVars false in
-private lemma env_update_rename_comm (env : LocalEnv F) (dest : LocalVar) (val : F)
+/-- Post-composing an updated local environment with an injective renaming. -/
+lemma env_update_rename_comm (env : LocalEnv F) (dest : LocalVar) (val : F)
     (ρ : Nat → Nat) (hρ_inj : Function.Injective ρ) :
     (env.update (ρ dest) val) ∘ ρ = LocalEnv.update (env ∘ ρ) dest val := by
   funext x; simp only [Function.comp_apply, LocalEnv.update]
@@ -651,7 +680,8 @@ private lemma env_update_rename_comm (env : LocalEnv F) (dest : LocalVar) (val :
   · have hne : ρ x ≠ ρ dest := by intro hEq; exact hx (hρ_inj hEq)
     simp [hx, hne]
 
-private lemma objEnv_update_rename_comm (objEnv : ObjEnv) (dest : LocalVar) (path : InstancePath)
+/-- Object-environment version of `env_update_rename_comm`. -/
+lemma objEnv_update_rename_comm (objEnv : ObjEnv) (dest : LocalVar) (path : InstancePath)
     (ρ : Nat → Nat) (hρ_inj : Function.Injective ρ) :
     (objEnv.update (ρ dest) path) ∘ ρ = ObjEnv.update (objEnv ∘ ρ) dest path := by
   funext x; simp only [Function.comp_apply, ObjEnv.update]
@@ -661,7 +691,11 @@ private lemma objEnv_update_rename_comm (objEnv : ObjEnv) (dest : LocalVar) (pat
     simp [hx, hne]
 
 set_option linter.flexible false in
-private lemma evalConstrainBody_rename (m : Module n F) (w : Witness F) (i : Fin n)
+/--
+Renaming a constrain body by an injective map `ρ` commutes with evaluation,
+provided both environments are post-composed with `ρ` on the unrenamed side.
+-/
+lemma evalConstrainBody_rename (m : Module n F) (w : Witness F) (i : Fin n)
     (env : LocalEnv F) (objEnv : ObjEnv) (ρ : Nat → Nat) (hρ_inj : Function.Injective ρ)
     (body : List (ConstrainStmt n i F (m.structs i).members.length)) :
     evalConstrainBody m w i env objEnv (renameBody ρ body) ↔
@@ -814,14 +848,14 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
         simpa using hInv src1
       have hsrc2 : VTerm.interp w defaultValuation defaultPathValuation (σv src2) = env src2 := by
         simpa using hInv src2
+      have hadd : VTerm.interp w defaultValuation defaultPathValuation (.add (σv src1) (σv src2)) =
+          env src1 + env src2 := by
+        simp [VTerm.interp, hsrc1, hsrc2]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
           (bindV σv dest (.add (σv src1) (σv src2)) v) =
-          (env.update dest (env src1 + env src2)) v := by
-        intro v
-        simp only [bindV, LocalEnv.update]
-        split <;> try exact hInv v
-        simp only [VTerm.interp]
-        simp_all only
+          (env.update dest (env src1 + env src2)) v :=
+        bindV_interp_update w σv env hInv dest (.add (σv src1) (σv src2))
+          (env src1 + env src2) hadd
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
       simp only [true_and]
       exact ih_rest (bindV σv dest (.add (σv src1) (σv src2))) σo
@@ -832,14 +866,14 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
         simpa using hInv src1
       have hsrc2 : VTerm.interp w defaultValuation defaultPathValuation (σv src2) = env src2 := by
         simpa using hInv src2
+      have hsub : VTerm.interp w defaultValuation defaultPathValuation (.sub (σv src1) (σv src2)) =
+          env src1 - env src2 := by
+        simp [VTerm.interp, hsrc1, hsrc2]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
           (bindV σv dest (.sub (σv src1) (σv src2)) v) =
-          (env.update dest (env src1 - env src2)) v := by
-        intro v
-        simp only [bindV, LocalEnv.update]
-        split <;> try exact hInv v
-        simp only [VTerm.interp]
-        simp_all only
+          (env.update dest (env src1 - env src2)) v :=
+        bindV_interp_update w σv env hInv dest (.sub (σv src1) (σv src2))
+          (env src1 - env src2) hsub
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
       simp only [true_and]
       exact ih_rest (bindV σv dest (.sub (σv src1) (σv src2))) σo
@@ -850,14 +884,14 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
         simpa using hInv src1
       have hsrc2 : VTerm.interp w defaultValuation defaultPathValuation (σv src2) = env src2 := by
         simpa using hInv src2
+      have hmul : VTerm.interp w defaultValuation defaultPathValuation (.mul (σv src1) (σv src2)) =
+          env src1 * env src2 := by
+        simp [VTerm.interp, hsrc1, hsrc2]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
           (bindV σv dest (.mul (σv src1) (σv src2)) v) =
-          (env.update dest (env src1 * env src2)) v := by
-        intro v
-        simp only [bindV, LocalEnv.update]
-        split <;> try exact hInv v
-        simp only [VTerm.interp]
-        simp_all only
+          (env.update dest (env src1 * env src2)) v :=
+        bindV_interp_update w σv env hInv dest (.mul (σv src1) (σv src2))
+          (env src1 * env src2) hmul
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
       simp only [true_and]
       exact ih_rest (bindV σv dest (.mul (σv src1) (σv src2))) σo
@@ -868,14 +902,14 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
       set nz : Atom F := CAtom.neZero (σv src2) with hnzDef
       have hcheck_iff : checkAtom w nz = true ↔ env src2 ≠ 0 := by
         rw [checkAtom_true_iff, hnzDef, CAtom.interp]; simp [hsrc2]
+      have hdiv : VTerm.interp w defaultValuation defaultPathValuation (.div (σv src1) (σv src2)) =
+          env src1 * (env src2)⁻¹ := by
+        simp [VTerm.interp, hInv src1, hsrc2]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
           (bindV σv dest (.div (σv src1) (σv src2)) v) =
-          (env.update dest (env src1 * (env src2)⁻¹)) v := by
-        intro v
-        simp only [bindV, LocalEnv.update]
-        split <;> try exact hInv v
-        simp only [VTerm.interp]
-        simp_all only
+          (env.update dest (env src1 * (env src2)⁻¹)) v :=
+        bindV_interp_update w σv env hInv dest (.div (σv src1) (σv src2))
+          (env src1 * (env src2)⁻¹) hdiv
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
       simp only [evalConstrainBodyChecked, evalConstrainBody]
       by_cases hcheck : checkAtom w nz = true
@@ -901,13 +935,12 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
       simp only [evalConstrainBodyChecked, evalConstrainBody, Result.isSuccess]
       have hsrc : VTerm.interp w defaultValuation defaultPathValuation (σv src) = env src := by
         simpa using hInv src
+      have hneg : VTerm.interp w defaultValuation defaultPathValuation
+          (.neg (σv src)) = -(env src) := by
+        simp [VTerm.interp, hsrc]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
-          (bindV σv dest (.neg (σv src)) v) = (env.update dest (-(env src))) v := by
-        intro v
-        simp only [bindV, LocalEnv.update]
-        split <;> try exact hInv v
-        simp only [VTerm.interp]
-        simp_all only
+          (bindV σv dest (.neg (σv src)) v) = (env.update dest (-(env src))) v :=
+        bindV_interp_update w σv env hInv dest (.neg (σv src)) (-(env src)) hneg
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
       simp only [true_and]
       exact ih_rest (bindV σv dest (.neg (σv src))) σo
@@ -915,11 +948,8 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
     | feltConst dest c =>
       simp only [evalConstrainBodyChecked, evalConstrainBody, Result.isSuccess]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
-          (bindV σv dest (.const c) v) = (env.update dest c) v := by
-        intro v
-        simp only [bindV, LocalEnv.update]
-        split <;> try exact hInv v
-        simp only [VTerm.interp]
+          (bindV σv dest (.const c) v) = (env.update dest c) v :=
+        bindV_interp_update w σv env hInv dest (.const c) c (by simp [VTerm.interp])
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
       simp only [true_and]
       exact ih_rest (bindV σv dest (.const c)) σo (env.update dest c) objEnv nextFresh hInv' hInvO'
@@ -933,20 +963,14 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
         simp [VTerm.interp, hbase]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
           (bindV σv dest (.witnessAt (σo self) member.val) v) =
-          (env.update dest (w (objEnv self, member.val))) v := by
-        intro v
-        simp only [bindV, LocalEnv.update]
-        split <;> try exact hInv v
-        simp only [VTerm.interp]
-        simp_all only
+          (env.update dest (w (objEnv self, member.val))) v :=
+        bindV_interp_update w σv env hInv dest (.witnessAt (σo self) member.val)
+          (w (objEnv self, member.val)) hpath_val
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation
           (bindO σo dest (.append (σo self) member.val) v) =
-          (objEnv.update dest (objEnv self ++ [member.val])) v := by
-        intro v
-        simp only [bindO, ObjEnv.update]
-        split <;> try exact hInvO v
-        simp only [PTerm.interp]
-        simp_all only
+          (objEnv.update dest (objEnv self ++ [member.val])) v :=
+        bindO_interp_update σo objEnv hInvO dest (.append (σo self) member.val)
+          (objEnv self ++ [member.val]) (by simp [PTerm.interp, hbase])
       simp only [true_and]
       exact ih_rest (bindV σv dest (.witnessAt (σo self) member.val))
         (bindO σo dest (.append (σo self) member.val))

@@ -351,3 +351,26 @@ index numRegVars+1 .. total-1   → aux 0 .. aux (numAuxVars-1)
 - `StructInlineIRToMemberlessIR.reflection` — `buildReadMap` injectivity via `m.noDupReads`.
 
 **Next:** complete 4 proofs. All mechanical structural inductions (~200 lines each). No design questions blocking.
+
+---
+
+## Session 24 — 2026-05-16
+
+**Goals:** Safe refactor/doc pass on active direct pipeline code. Remove duplicate helper proofs, clean docs, keep build and smoke green without touching proof statements.
+
+**Done:**
+1. **Linter/smoke stabilization** — cleaned remaining non-`sorry` warnings and fixed `scripts/smoke_cli.sh` to use `INPUT="$ROOT/scripts/multiply.llzk"` instead of a cwd-sensitive path. Smoke now runs reliably from repo root.
+2. **`StructIRSubst` proof dedup** — added helper lemmas `bindV_interp_update`, `bindO_interp_update`, plus reusable rename/substitution lemmas (`get_map_lemma`, `get_map_lemma_obj`, `env_update_rename_comm`, `objEnv_update_rename_comm`, `evalConstrainBody_rename`). Reused them to shrink repetitive success-proof branches without changing theorem statements.
+3. **Direct-pass cleanup** — removed duplicate rename/substitution lemmas from `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean` in favor of shared `StructIRSubst` lemmas. In `StructIRToFlatIRDirectSim.lean`, factored `checkAtom_concretize_eq` through shared core lemma `checkAtom_concretize_eq_with`.
+4. **`FlatIRToR1CS` safety rollback** — attempted helper extraction for preservation/reflection, hit elaboration issues, reverted to original inline proof bodies. Final state preserves behavior and compiles cleanly.
+5. **Whole-project doc pass (no proof edits)** — added or normalized module headers and public API docstrings across core interfaces, active languages, parser/backend entry points, CLI, and direct-pipeline files. Focus: `Language`, `Pass`, checked-semantics infrastructure, `TrinitaryCC`, `VarIdEncoding`, `FlatIR`, `R1CS`, `FlatIRChecked`, parser AST/tokenizer/main/parser, `R1CSJSON`, `WitnessJSON`, `WireAssignment`, `CLI`, `CLIArgs`, `Pipeline`, and direct-pass correctness file.
+
+**Verification:**
+- `lake build` passes.
+- `./scripts/smoke_cli.sh` passes.
+- Only remaining warnings are 2 existing `sorry` warnings in `Heyting/Languages/StructIRSubst.lean`.
+
+**Notes:**
+- No theorem/definition signatures changed.
+- No proof bodies were edited during final doc-only sweep.
+- Previous warning/smoke cleanup was committed separately as `c1f4a3a`.
