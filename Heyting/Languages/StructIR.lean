@@ -1,5 +1,7 @@
 import Heyting.Core.Language
 import Heyting.Core.ComputingLanguage
+import Mathlib.Data.Nat.Pairing
+import Mathlib.Logic.Equiv.List
 
 /-!
 # StructIR — Structured Intermediate Representation
@@ -54,6 +56,36 @@ inductive ConstrainStmt (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
   | call (target : Fin i) (args : List LocalVar)
   deriving Repr
 
+def ConstrainStmt.dest {n i F numMembers} : ConstrainStmt n i F numMembers → Option LocalVar
+  | .feltAdd d _ _ => some d
+  | .feltSub d _ _ => some d
+  | .feltMul d _ _ => some d
+  | .feltDiv d _ _ => some d
+  | .feltNeg d _ => some d
+  | .feltConst d _ => some d
+  | .readMember d _ _ => some d
+  | .constrainEq _ _ => none
+  | .call _ _ => none
+
+def ConstrainStmt.reads {n i F numMembers} : ConstrainStmt n i F numMembers → List LocalVar
+  | .feltAdd _ s1 s2 => [s1, s2]
+  | .feltSub _ s1 s2 => [s1, s2]
+  | .feltMul _ s1 s2 => [s1, s2]
+  | .feltDiv _ s1 s2 => [s1, s2]
+  | .feltNeg _ s => [s]
+  | .feltConst _ _ => []
+  | .readMember _ self _ => [self]
+  | .constrainEq s1 s2 => [s1, s2]
+  | .call _ args => args
+
+def isSSA {n i F numMembers} : (LocalVar → Bool) → List (ConstrainStmt n i F numMembers) → Bool
+  | _, [] => true
+  | init, s :: sl =>
+    s.reads.all init &&
+    match s.dest with
+    | some d => !init d && isSSA (fun x => init x || x == d) sl
+    | none => isSSA init sl
+
 -- Statements in @compute (witness-generating function)
 inductive ComputeStmt (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
     where
@@ -96,6 +128,69 @@ structure StructDef (n : Nat) (i : Fin n) (F : Type) where
   compute : ComputeFunc n i F members.length
   constrain : ConstrainFunc n i F members.length
   deriving Repr
+
+def dropVar (v : LocalVar) (vars : List LocalVar) : List LocalVar :=
+  vars.filter fun x => x != v
+
+def collectNeededArgs (args neededParams : List LocalVar) : List LocalVar :=
+  neededParams.filterMap fun p => args[p]?
+
+def neededArgsAvailable (args neededParams : List LocalVar) : Bool :=
+  neededParams.all fun p => (args[p]?).isSome
+
+/--
+Backward object-channel safety analysis.
+
+Returns `(safe, needs)` where:
+- `safe = true` means no object-path use flows through a value-only write, and
+  every object-needed callee parameter is supplied by call site.
+- `needs` lists locals whose `objEnv` must already be meaningful on entry.
+-/
+def objectInfo {F : Type} (structs : (i : Fin n) → StructDef n i F)
+    (i : Fin n) (stmts : List (ConstrainStmt n i F (structs i).members.length)) :
+    Bool × List LocalVar :=
+  match stmts with
+  | [] => (true, [])
+  | stmt :: rest =>
+    let restInfo := objectInfo structs i rest
+    let safeRest := restInfo.1
+    let needsRest := restInfo.2
+    match stmt with
+    | .feltAdd dest _ _ =>
+      (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
+    | .feltSub dest _ _ =>
+      (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
+    | .feltMul dest _ _ =>
+      (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
+    | .feltDiv dest _ _ =>
+      (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
+    | .feltNeg dest _ =>
+      (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
+    | .feltConst dest _ =>
+      (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
+    | .readMember dest self _ =>
+      (safeRest, self :: dropVar dest needsRest)
+    | .constrainEq _ _ =>
+      (safeRest, needsRest)
+    | .call target args =>
+      let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
+      let calleeInfo := objectInfo structs j (structs j).constrain.body
+      let safeCallee := calleeInfo.1
+      let calleeNeeds := calleeInfo.2
+      (safeRest && safeCallee && neededArgsAvailable args calleeNeeds,
+        collectNeededArgs args calleeNeeds ++ needsRest)
+termination_by (i, stmts.length)
+decreasing_by
+  all_goals first
+  | apply Prod.Lex.left; simpa using target.isLt
+  | apply Prod.Lex.right; simp
+
+/-- Object-channel safety for constrain body with entry object-ready set `init`. -/
+def objectSafe {F : Type} (structs : (i : Fin n) → StructDef n i F)
+    (i : Fin n) (init : LocalVar → Bool)
+    (stmts : List (ConstrainStmt n i F (structs i).members.length)) : Bool :=
+  let info := objectInfo structs i stmts
+  info.1 && info.2.all init
 
 /-! ## Paths, environments, and module structure -/
 
@@ -144,6 +239,10 @@ def readPositions {F : Type} (structs : (i : Fin n) → StructDef n i F)
         readPositions structs i objEnv rest
     | _ => readPositions structs i objEnv rest
   termination_by (i, stmts.length)
+  decreasing_by
+    all_goals first
+    | apply Prod.Lex.left; simpa using target.isLt
+    | apply Prod.Lex.right; simp
 
 /-!
 ### Module
@@ -169,6 +268,10 @@ structure Module (n : Nat) (F : Type) where
     let initObjEnv : ObjEnv := ObjEnv.update (fun _ => []) 0 []
     (readPositions structs mainIdx initObjEnv
       (structs mainIdx).constrain.body).Nodup
+  all_ssa : ∀ (i : Fin n),
+    isSSA (fun v => v < (structs i).constrain.numParams) (structs i).constrain.body = true
+  all_objSafe : ∀ (i : Fin n),
+    objectSafe structs i (fun v => v < (structs i).constrain.numParams) (structs i).constrain.body = true
 
 -- The main struct is the last one (highest index = root of DAG)
 def Module.main {n : Nat} (m : Module (n + 1) F) :
@@ -244,18 +347,28 @@ def evalConstrainBody (m : Module n F) (w : Witness F)
         (env, objEnv, callProp)
     prop ∧ evalConstrainBody m w i env' objEnv' rest
 termination_by (i, stmts.length)
+decreasing_by
+  all_goals first
+  | apply Prod.Lex.left; simpa using target.isLt
+  | apply Prod.Lex.right; simp
 
 -- Top-level: evaluate @Main::@constrain (main = last struct).
--- The initial local environment is seeded from the witness at the root path:
---   `env k = w ([], k)` for all `k`.
--- This makes `satisfies` non-vacuous for circuits with felt inputs:
--- the parameters `%0, %1, ...` are visible in the constraint evaluation
--- with the values that `computeWitness` wrote into `acc` at `([], k)`.
+-- The initial local environment is seeded via VarIdEncoding.decode:
+--   `env k = w (VarIdEncoding.decode k)` for all `k`.
+-- This aligns with the direct compiler's witness encoding:
+--   FlatIR var k encodes StructIR witness position `decode k`.
+-- For k = 0, 1: decode k = ([], k), so env k = w ([], k) as before.
+-- For k ≥ 2: decode k gives a non-root path; SSA ensures non-param
+-- vars are written before read, so the initial value is irrelevant.
 def satisfies (w : Witness F) {n : Nat} (m : Module (n + 1) F) : Prop :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
   let mainDef := m.structs mainIdx
-  -- Seed the env from the witness at the root path: env k = w ([], k)
-  let env : LocalEnv F := fun k => w ([], k)
+  -- Seed env via decode: env k = w (decode k)
+  -- decode k = (Equiv.listNatEquivNat.symm (Nat.unpair k).1, (Nat.unpair k).2)
+  -- For k = 0, 1: decode k = ([], k). For k ≥ 2: non-root path (SSA irrelevant).
+  let env : LocalEnv F := fun k =>
+    let p := Nat.unpair k
+    w (Equiv.listNatEquivNat.symm p.1, p.2)
   let objEnv : ObjEnv := ObjEnv.update (fun _ => []) 0 []
   evalConstrainBody m w mainIdx env objEnv mainDef.constrain.body
 
@@ -373,6 +486,10 @@ def evalComputeBody (m : Module n F)
     | none => none
     | some state' => evalComputeBody m i state' rest
 termination_by (i, stmts.length)
+decreasing_by
+  all_goals first
+  | apply Prod.Lex.left; simpa using target.isLt
+  | apply Prod.Lex.right; simp
 
 /-- Build the initial `ComputeState` from a list of public inputs.
     Inputs are placed into local variables `0 .. inputs.length - 1`.

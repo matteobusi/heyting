@@ -1,22 +1,22 @@
 # Session Diary
 
-Chronological summaries of working sessions on Heyting.
+Working session summaries for Heyting.
 
 ---
 
 ## Sessions 1–12 — 2026-04-03 to 2026-04-08 (archived)
 
-Brief summary of what was established:
+Brief summary:
 
-- **S1–2:** FlatIR extended (add/sub/mul/div/neg/const), FlatIR→R1CS pass fully verified (0 sorry, standard axioms). `assignDiv` two-constraint encoding (forces src2 invertible).
-- **S3:** StructIR defined with intrinsic well-formedness (dependent types, no fuel). Structs indexed topologically; `call` restricted to `Fin i`.
-- **S4–5:** StructIR→FlatIR pass implemented and preservation proved. Reflection 80% done.
-- **S6:** Correctness framework redesigned following Abate et al. (CC~). 0 sorries across full pipeline.
+- **S1–2:** FlatIR extended (add/sub/mul/div/neg/const), FlatIR→R1CS fully verified (0 sorry, standard axioms). `assignDiv` two-constraint encoding (forces src2 invertible).
+- **S3:** StructIR with intrinsic well-formedness (dependent types, no fuel). Structs topologically indexed; `call` restricted to `Fin i`.
+- **S4–5:** StructIR→FlatIR pass, preservation proved. Reflection 80%.
+- **S6:** Correctness framework redesigned per Abate et al. (CC~). 0 sorries across pipeline.
 - **S7–8:** Meaningful `witnessRel` (`∀ vid, varAlloc vid ≠ 0 → ws vid = wt (varAlloc vid)`). Added `readPositions`/`noDupReads`. `reflection_direct` proved. Moved to `PresReflPass`. 0 warnings.
-- **S9:** Fixed `readMember`/`objEnv` semantic bug for nested structs. Updated 4 functions + ~8 proof lemmas. Added Wrapper+Component1A example.
-- **S10:** Docs updated. Created `Heyting/Passes/Tactics.lean` (`r1cs_arith`, `r1cs_unfold_sat`, generic coherence helpers). Created `docs/ROADMAP.md`.
+- **S9:** Fixed `readMember`/`objEnv` semantic bug for nested structs. 4 functions + ~8 proof lemmas updated. Wrapper+Component1A example added.
+- **S10:** Docs update. `Heyting/Passes/Tactics.lean` created (`r1cs_arith`, `r1cs_unfold_sat`, coherence helpers). `docs/ROADMAP.md` created.
 - **S11:** Optimized Mathlib imports. LLZK parser (`Parser/AST`, `Tokenizer`, `Parser`, `Main`) on `feature/llzk-parser`. Tested on 5 real LLZK files.
-- **S12:** AST → StructIR lowering (`Passes/Lowering.lean`): topo sort, SSA map, `noDupReads` check. Full pipeline LLZK→StructIR→FlatIR→R1CS working. `LoweringExamples.lean` added.
+- **S12:** AST → StructIR lowering (`Passes/Lowering.lean`): topo sort, SSA map, `noDupReads` check. Full LLZK→StructIR→FlatIR→R1CS pipeline working. `LoweringExamples.lean` added.
 
 ---
 
@@ -24,28 +24,28 @@ Brief summary of what was established:
 
 **Goals:** Phase 2b — JSON output backend + CLI entry point.
 
-**What we did:**
-1. Created `Heyting/Backends/R1CSJSON.lean` — `varIdToJson`, `linCombToJson`, `constraintToJson`, `systemToJson`, `saveR1CSJson`, `SystemSummary`, `summarize`.
-2. Created `Heyting/CLI.lean` — `compileToJson` (full pipeline), `parseArgs`, `runCommand`, `main`. Initially used `ZMod 1993` as default field.
-3. Created `Heyting/Examples/OutputExamples.lean` — two `#eval` examples (emit_pass.llzk → 4 constraints, circom_isZero.llzk → 10 constraints).
-4. Created `Heyting/Test/R1CSJSONTest.lean` — unit tests for `summarize` and `systemToJson`.
-5. Full `lake build` passes: 0 errors, 0 warnings.
+**Done:**
+1. `Heyting/Backends/R1CSJSON.lean` — `varIdToJson`, `linCombToJson`, `constraintToJson`, `systemToJson`, `saveR1CSJson`, `SystemSummary`, `summarize`.
+2. `Heyting/CLI.lean` — `compileToJson` (full pipeline), `parseArgs`, `runCommand`, `main`. Default `ZMod 1993`.
+3. `Heyting/Examples/OutputExamples.lean` — 2 `#eval` examples (emit_pass.llzk → 4 constraints, circom_isZero.llzk → 10).
+4. `Heyting/Test/R1CSJSONTest.lean` — unit tests for `summarize` and `systemToJson`.
+5. `lake build`: 0 errors, 0 warnings.
 
-**Design decisions:** `SystemSummary F` without typeclass constraints in structure header. `set_option linter.style.nativeDecide false` for `Nat.Prime 1993`.
+**Decisions:** `SystemSummary F` without typeclass constraints in structure header. `set_option linter.style.nativeDecide false` for `Nat.Prime 1993`.
 
 ---
 
 ## Session 14 — 2026-04-13
 
-**Goals:** Multi-field CLI support matching `llzk-lib/lib/Util/Field.cpp`; documentation update.
+**Goals:** Multi-field CLI support matching `llzk-lib/lib/Util/Field.cpp`; docs update.
 
-**What we did:**
-1. Refactored `Heyting/CLI.lean` — `compileToJson` now generic: `(F : Type) [Field F] [DecidableEq F] [IntCast F] [Repr F] (fieldName : String)`. Added `--prime-field` dispatch for 6 fields: bn254 (default)/bn128, babybear, goldilocks, mersenne31, koalabear. `private axiom` for bn254/bn128/goldilocks primality.
-2. Added `prime? : Option String` to `Heyting/CLIArgs.lean`.
-3. Fixed `Heyting/Examples/OutputExamples.lean` — replaced nonexistent `compileToJsonZ1993` with `compileToJson (F := ZMod p) "F1993"`.
-4. Rewrote `AGENTS.md` — updated layout, field parameterization section, `private axiom` policy.
+**Done:**
+1. Refactored `Heyting/CLI.lean` — `compileToJson` generic: `(F : Type) [Field F] [DecidableEq F] [IntCast F] [Repr F] (fieldName : String)`. `--prime-field` dispatch for 6 fields: bn254 (default)/bn128, babybear, goldilocks, mersenne31, koalabear. `private axiom` for bn254/bn128/goldilocks primality.
+2. `prime? : Option String` to `Heyting/CLIArgs.lean`.
+3. Fixed `Heyting/Examples/OutputExamples.lean` — replace nonexistent `compileToJsonZ1993` with `compileToJson (F := ZMod p) "F1993"`.
+4. Rewrote `AGENTS.md` — updated layout, field parameterization, `private axiom` policy.
 5. Updated all docs: `README.md`, `docs/cli.md`, `docs/WARNING.md` (§7), `docs/GUARANTEES.md`, `docs/languages.md`, `docs/ROADMAP.md`.
-6. Full `lake build`: 1182 jobs, 0 errors, 0 warnings.
+6. `lake build`: 1182 jobs, 0 errors, 0 warnings.
 
 **Axiom policy:** All 6 CLI fields use `private axiom` in `CLI.lean` only. Pass proofs unaffected.
 
@@ -55,284 +55,193 @@ Brief summary of what was established:
 
 **Goals:** Witness generation — interpret `@compute` bodies to produce StructIR witnesses.
 
-**What we did:**
-1. Created `Heyting/Core/ComputingLanguage.lean` — `ComputingLanguage` typeclass extending `Language` with `Input : Type` and `computeWitness : Program → Input → Option (Witness V F)`. Returns `Option` to handle division-by-zero.
+**Done:**
+1. `Heyting/Core/ComputingLanguage.lean` — `ComputingLanguage` typeclass extending `Language` with `Input : Type` and `computeWitness : Program → Input → Option (Witness V F)`. Returns `Option` for div-by-zero.
 2. Added to `Heyting/Languages/StructIR.lean`:
    - `ComputeState F` — interpreter state: `env`, `objEnv`, `acc` (witness accumulator), `nextPath` (for `newStruct`).
-   - `evalComputeBody` — definitional interpreter for `ComputeStmt` lists. Termination by `(i, stmts.length)`, matching `evalConstrainBody`. `feltDiv` returns `none` on zero divisor; `writeMember` updates the witness accumulator; `newStruct` allocates fresh `InstancePath`s; `call` recurses and merges callee state.
-   - `initComputeState` — builds initial state from a `List F` of public inputs.
-   - `computeWitness` — top-level: runs `evalComputeBody` on the main struct, returns `some acc` or `none`.
-   - `computeWitnessCorrect` — correctness stub (`sorry`): `computeWitness m inputs = some w → satisfies w m`. Open obligation.
+   - `evalComputeBody` — definitional interpreter for `ComputeStmt` lists. Termination by `(i, stmts.length)`, matching `evalConstrainBody`. `feltDiv` returns `none` on zero divisor; `writeMember` updates witness accumulator; `newStruct` allocates fresh `InstancePath`s; `call` recurses and merges callee state.
+   - `initComputeState` — initial state from `List F` of public inputs.
+   - `computeWitness` — top-level: runs `evalComputeBody` on main struct, returns `some acc` or `none`.
+   - `computeWitnessCorrect` — correctness stub (`sorry`): `computeWitness m inputs = some w → satisfies w m`. Open.
    - `ComputingLanguage` instance for StructIR (`Input := List F`, requires `[DecidableEq F]`).
-3. Updated `Heyting/CLI.lean` — `--auto` flag now implemented: calls `computeWitness` and writes `<output>.witness.json`. Full witness serialization (threading through `compileWitness`/`compileWitness`) is left as a follow-up.
-4. Fixed `Heyting/Examples/OutputExamples.lean` — updated `compileToJson` call to pass `false` for `autoWitness`.
-5. Updated `docs/GUARANTEES.md` — added §Witness generation documenting `ComputingLanguage`, `evalComputeBody`, `computeWitnessCorrect`, and how the interpreter composes with the existing `PresReflPass` chain.
-6. Full `lake build`: 1183 jobs, 0 errors, 0 warnings (1 expected sorry warning on `computeWitnessCorrect`).
+3. Updated `Heyting/CLI.lean` — `--auto` flag implemented: calls `computeWitness`, writes `<output>.witness.json`. Full witness serialization (through `compileWitness`) left as follow-up.
+4. Fixed `Heyting/Examples/OutputExamples.lean` — `compileToJson` call passes `false` for `autoWitness`.
+5. Updated `docs/GUARANTEES.md` — §Witness generation documenting `ComputingLanguage`, `evalComputeBody`, `computeWitnessCorrect`, interpreter composition with `PresReflPass` chain.
+6. `lake build`: 1183 jobs, 0 errors, 0 warnings (1 expected sorry warning on `computeWitnessCorrect`).
 
-**Design decisions:**
-- `ComputingLanguage` is a separate typeclass (not merged into `Language`) to keep `Language` minimal. Only StructIR needs to implement it initially.
-- `newStruct` uses a `nextPath : Nat` counter in `ComputeState` to allocate fresh `InstancePath`s (`[nextPath]`). Counter starts at 1 (0 is reserved for the root instance `self` at path `[]`).
-- `call` in compute merges the callee's `acc` and `nextPath` into the caller's state (callee writes are visible to the caller, matching LLZK semantics).
-- `computeWitnessCorrect` is the only `sorry` in the codebase. It is structurally analogous to `preservation_body` in `StructIRToFlatIR` but for the compute→constrain direction. The proof strategy is an induction on statement lists maintaining a coherence invariant between `ComputeState.acc` and `evalConstrainBody`'s witness access pattern.
+**Decisions:**
+- `ComputingLanguage` separate typeclass (not merged into `Language`) to keep `Language` minimal. Only StructIR implements.
+- `newStruct` uses `nextPath : Nat` counter in `ComputeState` for fresh `InstancePath`s (`[nextPath]`). Counter starts at 1 (0 reserved for root `self` at path `[]`).
+- `call` in compute merges callee's `acc` and `nextPath` into caller's state (callee writes visible to caller, matching LLZK).
+- `computeWitnessCorrect` is only `sorry` in codebase. Structurally analogous to `preservation_body` in `StructIRToFlatIR` but compute→constrain direction. Proof strategy: induction on statement lists maintaining coherence invariant between `ComputeState.acc` and `evalConstrainBody` witness access.
 
 ---
 
 ## Session 16 — 2026-04-13
 
-**Goals:** Create `Heyting/Passes/Pipeline.lean` — a composed `PresReflPass` and
-end-to-end witness chain from StructIR to R1CS.
+**Goals:** `Heyting/Passes/Pipeline.lean` — composed `PresReflPass` and end-to-end witness chain StructIR→R1CS.
 
-**What we did:**
+**Done:**
 1. Created `Heyting/Passes/Pipeline.lean`:
-   - `compileProgram` — composes `StructIRToFlatIR.compileProgram` and `FlatIRToR1CS.compileProgram`.
-   - `compileWitnessFlat` — top-level wrapper around `StructIRToFlatIR.compileWitness` with the canonical initial state (same state used in `preservation`). Returns `FlatIR.Witness F`.
-   - `compileWitness` — chains `compileWitnessFlat` and `FlatIRToR1CS.compileWitness` to produce `R1CS.Witness F` from `StructIR.Witness F`.
-   - `extractWitness` — backward chain: `R1CS.Witness F → StructIR.Witness F`.
-   - `witnessRel` — composed witness relation: ∃ intermediate FlatIR witness related by both sub-pass relations.
-   - `CorrectPass` — `PresReflPass (StructIR.Language n F) (R1CS.Language F)` instance. Preservation and reflection proved by two-step composition of the sub-pass instances. Standard axioms only.
-   - `pipelineWitness` — chains `StructIR.computeWitness` with `compileWitness` to produce `Option (R1CS.Witness F)` from public inputs.
-   - `pipelineWitnessCorrect` — correctness theorem for `pipelineWitness` (sorry, directly derived from `StructIR.computeWitnessCorrect` which is the only open obligation).
+   - `compileProgram` — composes `StructIRToFlatIR.compileProgram` + `FlatIRToR1CS.compileProgram`.
+   - `compileWitnessFlat` — wrapper around `StructIRToFlatIR.compileWitness` with canonical initial state (same as `preservation`). Returns `FlatIR.Witness F`.
+   - `compileWitness` — chains `compileWitnessFlat` + `FlatIRToR1CS.compileWitness` → `R1CS.Witness F` from `StructIR.Witness F`.
+   - `extractWitness` — backward: `R1CS.Witness F → StructIR.Witness F`.
+   - `witnessRel` — composed: ∃ intermediate FlatIR witness related by both sub-pass relations.
+   - `CorrectPass` — `PresReflPass (StructIR.Language n F) (R1CS.Language F)` instance. Preservation + reflection by 2-step composition. Standard axioms only.
+   - `pipelineWitness` — chains `StructIR.computeWitness` + `compileWitness` → `Option (R1CS.Witness F)` from public inputs.
+   - `pipelineWitnessCorrect` — correctness theorem (sorry, from `StructIR.computeWitnessCorrect`).
 2. Updated `Heyting/CLI.lean`:
-   - Added `import Heyting.Passes.Pipeline`.
-   - `compileToJson` now calls `Pipeline.compileProgram` (single step) instead of the manual `StructIRToFlatIR.compileProgram` + `FlatIRToR1CS.compileProgram` chain.
-   - `--auto` now calls `Pipeline.pipelineWitness`, obtaining an `R1CS.Witness F` (not just a StructIR witness). Placeholder JSON updated to reflect this.
-3. Full `lake build`: 1184 jobs, 0 errors, 0 warnings. Sorry count: 2 (intentional: `StructIR.computeWitnessCorrect` and `Pipeline.pipelineWitnessCorrect`, the latter derived from the former).
-4. `lean_verify Pipeline.CorrectPass` → standard axioms only (`propext`, `Classical.choice`, `Quot.sound`).
+   - `import Heyting.Passes.Pipeline`.
+   - `compileToJson` calls `Pipeline.compileProgram` (single step) instead of manual chain.
+   - `--auto` calls `Pipeline.pipelineWitness`, obtains `R1CS.Witness F`. Placeholder JSON updated.
+3. `lake build`: 1184 jobs, 0 errors, 0 warnings. Sorries: 2 (`StructIR.computeWitnessCorrect`, `Pipeline.pipelineWitnessCorrect`).
+4. `lean_verify Pipeline.CorrectPass` → standard axioms only.
 
-**Design decisions:**
-- `pipelineWitnessCorrect` is kept as a sorry rather than attempting an indirect proof through the existential `preservation`. The correct proof requires `compileWitnessFlat m ws` to satisfy FlatIR, which is exactly what `preservation` gives when applied to `ws` — but equating the existentially-produced witness with `compileWitnessFlat m ws` requires unfolding the preservation proof's specific construction. This will become trivial once `computeWitnessCorrect` is filled, enabling a direct chain without existential detours.
-- `compileWitnessFlat` uses the same let-bindings (same `initVarMap`, `initNext`, `initObjEnv`) as the `preservation` proof in `StructIRToFlatIR` to ensure definitional equality with the witness produced there.
+**Decisions:**
+- `pipelineWitnessCorrect` kept as sorry instead of indirect proof through existential `preservation`. Requires unfolding preservation proof construction to equate existentially-produced witness with `compileWitnessFlat m ws`. Trivial once `computeWitnessCorrect` filled.
+- `compileWitnessFlat` uses same let-bindings (`initVarMap`, `initNext`, `initObjEnv`) as `preservation` proof in `StructIRToFlatIR` for definitional equality.
 
 ---
 
 ## Session 17 — 2026-04-13
 
-**Goals:** Close the remaining sorries — add `Pipeline.compileWitnessCorrect` and remove the stale
-sorry stubs (`pipelineWitnessCorrect`, `computeWitnessCorrect`).
+**Goals:** Close sorries — add `Pipeline.compileWitnessCorrect`, remove stale `pipelineWitnessCorrect`/`computeWitnessCorrect`.
 
-**What we did:**
-
+**Done:**
 1. Added `Pipeline.compileWitnessCorrect` to `Heyting/Passes/Pipeline.lean`:
    - Statement: `StructIR.satisfies ws m → R1CS.satisfies (compileWitness m ws) (compileProgram m)`
-   - Proof: two-step, no sorries, standard axioms only.
-     - **Step 1** (StructIR → FlatIR): replicate the `StructIRToFlatIR.preservation` argument
-       using the public lemmas `preservation_body` and `compileWitness_preserves_below`.
-       This names the concrete witness `compileWitnessFlat m ws` rather than an existential,
-       bypassing the need to unify with the existentially-produced witness.
-     - **Step 2** (FlatIR → R1CS): inline the `FlatIRToR1CS.preservation` proof body —
-       per-instruction case split plus `r1cs_arith` — applied to `compileWitness m ws`
-       directly. Again avoids the existential.
-   - Axioms verified: `propext`, `Classical.choice`, `Quot.sound` only.
+   - Proof: 2-step, no sorries, standard axioms.
+     - **Step 1** (StructIR→FlatIR): replicate `StructIRToFlatIR.preservation` argument using `preservation_body` + `compileWitness_preserves_below`. Names concrete witness `compileWitnessFlat m ws`.
+     - **Step 2** (FlatIR→R1CS): inline `FlatIRToR1CS.preservation` — per-instruction case split + `r1cs_arith` — applied to `compileWitness m ws` directly.
+   - Axioms: `propext`, `Classical.choice`, `Quot.sound`.
+2. Removed `pipelineWitnessCorrect` from `Pipeline.lean`. Module docstring updated.
+3. Removed `computeWitnessCorrect` and `### Soundness stub` from `Heyting/Languages/StructIR.lean`. Note: `computeWitnessCorrect` is semantic property about specific interpreter — not provable from types alone. Correct statement is `Pipeline.compileWitnessCorrect` (compilation direction, provable from existing lemmas).
+4. Updated `Heyting/Core/ComputingLanguage.lean` docstring — references to `computeWitnessCorrect` replaced with `Pipeline.compileWitnessCorrect`.
+5. Fixed line-length lint warning (>100 chars) in `ComputingLanguage` docstring.
+6. `lake build`: 1184 jobs, 0 errors, 0 warnings. Zero sorries.
 
-2. Removed `pipelineWitnessCorrect` (the sorry theorem that had been awaiting `computeWitnessCorrect`)
-   from `Pipeline.lean`. The module-level docstring was updated to remove references to it.
-
-3. Removed `computeWitnessCorrect` (the sorry stub) and its `### Soundness stub` section header
-   from `Heyting/Languages/StructIR.lean`. Note: `computeWitnessCorrect` is a semantic property
-   about a specific interpreter implementation — it is not provable from types alone. The correct
-   end-to-end correctness statement is `Pipeline.compileWitnessCorrect`, which is about the
-   _compilation_ direction and is fully provable from existing preservation lemmas.
-
-4. Updated `Heyting/Core/ComputingLanguage.lean` docstring — replaced the reference to
-   `computeWitnessCorrect` as a "key correctness property" with a pointer to
-   `Pipeline.compileWitnessCorrect`.
-
-5. Fixed a line-length lint warning (>100 chars) introduced in the `ComputingLanguage` docstring.
-
-6. Full `lake build`: 1184 jobs, 0 errors, 0 warnings. Zero sorries in entire codebase.
-
-**Invariants maintained:**
-- Zero sorries: `grep -r "sorry" Heyting/` → empty (only a comment in `Lowering.lean`).
-- Standard axioms: `Pipeline.compileWitnessCorrect` verified via `lean_verify`.
-- `pipelineWitness` (the runtime function) is kept in `Pipeline.lean` and used by `CLI.lean --auto`.
-  Only the proof theorem was removed.
+**Invariants:**
+- Zero sorries: `grep -r "sorry" Heyting/` → empty (only comment in `Lowering.lean`).
+- `Pipeline.compileWitnessCorrect` verified `lean_verify`.
+- `pipelineWitness` (runtime) kept in `Pipeline.lean`, used by `CLI.lean --auto`.
 
 ---
 
 ## Session 18 — 2026-04-13
 
-**Goals:** Thread public I/O wire distinction (`{llzk.pub}`) through the full pipeline:
-Parser → AST → StructIR → R1CS → JSON.
+**Goals:** Thread `{llzk.pub}` I/O wire distinction through full pipeline: Parser→AST→StructIR→R1CS→JSON.
 
-**What we did:**
-
-1. **`Parser/AST.lean`** — Added `isPublic : Bool` field to `LLZK.MemberDecl`. Docstring updated.
-
+**Done:**
+1. **`Parser/AST.lean`** — `isPublic : Bool` field on `LLZK.MemberDecl`. Docstring updated.
 2. **`Parser/Parser.lean`** — Replaced silent `skipAttributes` in `parseMemberDecl` with:
-   - `scanBracesForPub` (private partial): scans tokens inside `{ ... }` for `.keyword "llzk.pub"`.
-   - `parseIsPub : Parser Bool`: returns `true` iff `{llzk.pub}` attribute block was present.
-   - `skipAttributes` redefined as a thin wrapper over `parseIsPub` (for other call sites).
-   - `parseMemberDecl` now sets `isPublic ← parseIsPub` and stores it in the AST node.
-
-3. **`Languages/StructIR.lean`** — Added `isPublic : Bool` to `StructIR.MemberDecl`.
-   No theorem changes needed (no existing proof destructs `MemberDecl` by field).
-
-4. **`Languages/R1CS.lean`** — Added `numPublicInputs : Nat` to `R1CS.System`.
-   `R1CS.satisfies` untouched; all existing proofs remain valid.
-
+   - `scanBracesForPub` (private, partial): scans tokens inside `{ ... }` for `.keyword "llzk.pub"`.
+   - `parseIsPub : Parser Bool`: `true` iff `{llzk.pub}` attribute block present.
+   - `skipAttributes` redefined as thin wrapper over `parseIsPub`.
+   - `parseMemberDecl` sets `isPublic ← parseIsPub`, stores in AST node.
+3. **`Languages/StructIR.lean`** — `isPublic : Bool` on `StructIR.MemberDecl`. No theorem changes (no proof destructs `MemberDecl`).
+4. **`Languages/R1CS.lean`** — `numPublicInputs : Nat` on `R1CS.System`. `R1CS.satisfies` untouched.
 5. **`Passes/Lowering.lean`** — `lowerMembers` threads `m.isPublic` into `StructIR.MemberDecl`.
-
-6. **`Passes/FlatIRToR1CS.lean`** — `compileProgram` gains an optional `numPublicInputs : Nat := 0`
-   parameter (default 0). The `PresReflPass` instance uses the default, proofs unaffected.
-
-7. **`Passes/Pipeline.lean`** — `compileProgram` computes `numPub` from the main struct's
-   `isPublic` members using `List.countP`, then uses struct-update syntax
-   `{ (FlatIRToR1CS.compileProgram ...) with numPublicInputs := numPub }`.
-   All existing proofs compile without change (`R1CS.satisfies` never inspects `numPublicInputs`).
-
-8. **`Backends/R1CSJSON.lean`** — `SystemSummary` and `summarize` now include `numPublicInputs`.
-   `summaryToJson` emits `"numPublicInputs"` key. `ppSystem` header updated to show public inputs.
-
-9. **`Examples/StructIRExamples.lean`** — All `StructIR.MemberDecl` constructions updated to
-   `isPublic := false` (all example circuits have no `{llzk.pub}` members).
-
+6. **`Passes/FlatIRToR1CS.lean`** — `compileProgram` gets optional `numPublicInputs : Nat := 0` (default 0). `PresReflPass` instance uses default, proofs unaffected.
+7. **`Passes/Pipeline.lean`** — `compileProgram` computes `numPub` from main struct's `isPublic` members via `List.countP`, struct-update syntax `{ (FlatIRToR1CS.compileProgram ...) with numPublicInputs := numPub }`. All proofs compile unchanged (`R1CS.satisfies` never inspects `numPublicInputs`).
+8. **`Backends/R1CSJSON.lean`** — `SystemSummary` and `summarize` include `numPublicInputs`. `summaryToJson` emits `"numPublicInputs"`. `ppSystem` header shows public inputs.
+9. **`Examples/StructIRExamples.lean`** — All `StructIR.MemberDecl` constructions updated to `isPublic := false`.
 10. **`Test/R1CSJSONTest.lean`** — `dummySys` updated with `numPublicInputs := 0`.
 
-**Invariants maintained:**
-- Zero sorries: `grep -r "sorry" Heyting/` → empty (only a comment in `Lowering.lean`).
-- Standard axioms: `Pipeline.compileWitnessCorrect` verified → `propext`, `Classical.choice`, `Quot.sound`.
-- `lake build`: 1186 jobs, 0 errors, 0 new warnings.
+**Invariants:** Zero sorries. Standard axioms only. `lake build`: 1186 jobs, 0 errors, 0 new warnings.
 
 ---
 
 ## Session 20 — 2026-04-14
 
-**Goals:** Separate tests from `lake build` — tests should only run via `lake exe tests`.
+**Goals:** Separate tests from `lake build` — tests run only via `lake exe tests`.
 
-**What we did:**
-
-1. **`Heyting.lean`** — Removed `Heyting.Examples.*` and `Heyting.Test.*` imports.
-   The barrel file now covers only the verified library (languages, passes, backends, CLI).
-
-2. **`Heyting/Test/Main.lean`** (new) — Entry point for the `tests` executable.
-   Imports all test and example modules; `main` is `pure ()`. The `#eval` blocks in
-   those modules fire at elaboration time, so no explicit test runner logic is needed.
-
-3. **`lakefile.toml`** — Added `[[lean_exe]] name = "tests" root = "Heyting.Test.Main"`.
-   `defaultTargets` remains `["Heyting"]`, so `lake build` never touches the test code.
+**Done:**
+1. **`Heyting.lean`** — Removed `Heyting.Examples.*` and `Heyting.Test.*` imports. Barrel covers only verified library (languages, passes, backends, CLI).
+2. **`Heyting/Test/Main.lean`** (new) — Entry point for `tests` executable. Imports all test/example modules; `main = pure ()`. `#eval` blocks in those modules fire at elaboration time.
+3. **`lakefile.toml`** — Added `[[lean_exe]] name = "tests" root = "Heyting.Test.Main"`. `defaultTargets` remains `["Heyting"]` — `lake build` never touches tests.
 
 **Verification:**
-- `lake build` → 1183 jobs, 0 errors, 0 new warnings (pre-existing `longLine` warning in
-  `StructIRToFlatIR.lean` unchanged).
-- `lake exe tests` → all `#eval` blocks pass: 3 R1CS JSON checks, 13 InputJSON checks,
-  4 StructIR example outputs, 5 parser examples, 3 lowering examples, 2 output examples.
+- `lake build` → 1183 jobs, 0 errors, 0 new warnings (pre-existing `longLine` warning in `StructIRToFlatIR.lean` unchanged).
+- `lake exe tests` → all `#eval` blocks pass: 3 R1CS JSON, 13 InputJSON, 4 StructIR examples, 5 parser, 3 lowering, 2 output.
 
-**Invariants maintained:**
-- Zero sorries, standard axioms only — unchanged.
-- `lake build` is now strictly library+CLI only; tests are opt-in.
+**Invariants:** Zero sorries, standard axioms. `lake build` = library+CLI only; tests opt-in.
 
 ---
 
 ## Session 21 — 2026-05-05
 
-**Goals:** Introduce an additive deterministic checked-execution semantics layer, prove equivalence
-to existing `satisfies` for at least one language, and stage Pass 3 stuttering-simulation
-scaffolding.
+**Goals:** Additive deterministic checked-execution semantics layer, equivalence to `satisfies` for 1 language, Pass 3 stuttering-simulation scaffolding.
 
-**What we did:**
-
-1. **Added core checked semantics** in `Heyting/Core/CheckedSemantics.lean`:
+**Done:**
+1. **Core checked semantics** `Heyting/Core/CheckedSemantics.lean`:
    - `Result Step := success trace | failure checkedPrefix failed`
-   - utility combinators (`Result.prepend`, `Result.appendPrefix`, `Result.seq`)
-   - simulation relations `TraceStutter`, `BiTraceStutter`, and `ResultRel`.
-
-2. **Added FlatIR checked executor** in `Heyting/Languages/FlatIRChecked.lean`:
-   - `checkStep` checks one instruction deterministically.
-   - `evalChecked` executes left-to-right, returning full success trace or first failure with
-     checked prefix.
-   - `checkedSuccess` predicate (`evalChecked w prog = .success prog`).
-
-3. **Proved equivalence bridge for FlatIR**:
+   - `Result.prepend`, `Result.appendPrefix`, `Result.seq`
+   - simulation: `TraceStutter`, `BiTraceStutter`, `ResultRel`.
+2. **FlatIR checked executor** `Heyting/Languages/FlatIRChecked.lean`:
+   - `checkStep` checks 1 instruction deterministically.
+   - `evalChecked` left-to-right, returns success trace or first failure with checked prefix.
+   - `checkedSuccess` (`evalChecked w prog = .success prog`).
+3. **Equivalence bridge for FlatIR**:
    - `evalChecked_success_iff_satisfies`
    - `checkedSuccess_iff_satisfies`
-   - corollaries `checkedSuccess_of_satisfies` and `satisfies_of_checkedSuccess`.
-
-4. **Added Pass 3 checked-simulation scaffold** in
-   `Heyting/Passes/MemberlessIRToFlatIRChecked.lean`:
-   - source/target checked-step and trace aliases,
-   - coarse step relation shape for statement/instruction classes,
-   - `checkedTraceRel`, `forwardSimulationStatement`, `backwardSimulationStatement` signatures,
+   - corollaries `checkedSuccess_of_satisfies`, `satisfies_of_checkedSuccess`.
+4. **Pass 3 checked-simulation scaffold** `Heyting/Passes/MemberlessIRToFlatIRChecked.lean`:
+   - source/target checked-step/trace aliases
+   - step relation shape for statement/instruction classes
+   - `checkedTraceRel`, `forwardSimulationStatement`, `backwardSimulationStatement` signatures
    - base lemmas: `checkedTraceRel_nil`, `stepRel_feltAdd_assignAdd`.
-
-5. **Integrated modules into barrel** (`Heyting.lean`) with additive imports only; no existing
-   pass or pipeline proof interfaces changed.
+5. **Integrated into barrel** (`Heyting.lean`) with additive imports; no existing pass/pipeline proof interfaces changed.
 
 **Verification:**
-- Targeted builds run during edits:
-  - `lake build Heyting.Core.Pass`
-  - `lake build Heyting.Languages.FlatIR`
-  - `lake build Heyting.Passes.MemberlessIRToFlatIR`
-  - `lake build Heyting.Languages.FlatIRChecked`
-  - `lake build Heyting.Passes.MemberlessIRToFlatIRChecked`
-- Final gate: `lake build` passed.
+- Targeted builds: `lake build Heyting.Core.Pass`, `Heyting.Languages.FlatIR`, `Heyting.Passes.MemberlessIRToFlatIR`, `Heyting.Languages.FlatIRChecked`, `Heyting.Passes.MemberlessIRToFlatIRChecked`.
+- Final: `lake build` passed.
 
-**State impact:**
-- Existing pass sorries unchanged (Pass 1: 2, Pass 2: 4, Pass 3: 3).
-- No new axioms introduced.
-- No theorem statement changes in existing files.
+**Impact:** Pass sorries unchanged (1: 2, 2: 4, 3: 3). No new axioms. No theorem changes in existing files.
 
-**Follow-up update (same day):** Simplified `MemberlessIR` by removing the
-`call` constructor from `MemberlessIR.Stmt`. Updated `MemberlessIR` semantics,
-`MemberlessIRToFlatIR` compilation/witness helpers, and docs (`README.md`,
-`AGENTS.md`, `docs/languages.md`, `docs/GUARANTEES.md`,
-`docs/PASS3_PRESERVATION_ROADMAP.md`) to reflect that MemberlessIR is now
-intrinsically call-free.
+**Follow-up (same day):** Removed `call` from `MemberlessIR.Stmt`. Updated `MemberlessIR` semantics, `MemberlessIRToFlatIR` compilation/witness helpers, docs (`README.md`, `AGENTS.md`, `docs/languages.md`, `docs/GUARANTEES.md`, `docs/PASS3_PRESERVATION_ROADMAP.md`). MemberlessIR now intrinsically call-free.
 
 ---
 
 ## Session 19 — 2026-04-14
 
-**Goals:** Implement R1CS witness JSON output — close the placeholder gap in `CLI.lean`.
-Planning session preceded this: designed the wire-index layout, agreed on `var`/`aux` namespace
-separation, chose JSON witness array as first format, deferred `.wtns` binary.
+**Goals:** R1CS witness JSON output — close placeholder gap in `CLI.lean`. Planning: wire-index layout, `var`/`aux` namespace separation, JSON witness array first format, `.wtns` binary deferred.
 
-**What we did:**
-
-1. **`Backends/R1CSJSON.lean`** — Fixed the `var`/`aux` namespace conflation in `countVars`:
-   - Added `countRegVars` (counts only `.var n` indices) and kept `countAuxVars` unchanged.
-   - Redefined `countVars` as `1 + countRegVars + countAuxVars` (total wires including `varOne`).
-   - `SystemSummary` now has `numRegVars` and `numAuxVars` as separate fields (dropped the
-     ambiguous `numVars`).
+**Done:**
+1. **`Backends/R1CSJSON.lean`** — Fixed `var`/`aux` namespace conflation in `countVars`:
+   - `countRegVars` (`.var n` only), kept `countAuxVars`.
+   - `countVars` = `1 + countRegVars + countAuxVars` (total wires including `varOne`).
+   - `SystemSummary`: `numRegVars` and `numAuxVars` separate (dropped ambiguous `numVars`).
    - `summaryToJson` emits `"numWires"`, `"numRegVars"`, `"numAuxVars"`, `"numPublicInputs"`.
-   - `ppSystem` header updated to show `N wires (R regular, A aux)`.
-
-2. **`Backends/WireAssignment.lean`** (new) — Pure wire-index assignment module:
-   - `WireAssignment.Sizes` — carries `numRegVars` and `numAuxVars`.
-   - `Sizes.numWires` — total wires = `1 + numRegVars + numAuxVars`.
-   - `fromConstraints` / `fromSystem` — build `Sizes` by scanning a constraint list.
+   - `ppSystem` shows `N wires (R regular, A aux)`.
+2. **`Backends/WireAssignment.lean`** (new):
+   - `WireAssignment.Sizes` — `numRegVars`, `numAuxVars`.
+   - `Sizes.numWires` = `1 + numRegVars + numAuxVars`.
+   - `fromConstraints` / `fromSystem` — build `Sizes` by scanning constraints.
    - `encode : Sizes → VarId → Nat` — `varOne ↦ 0`, `var n ↦ n+1`, `aux n ↦ numRegVars+1+n`.
-   - `decode : Sizes → Nat → Option VarId` — inverse of `encode` within range.
-   - Future theorem comments: `encode_injective`, `decode_encode`.
-
-3. **`Backends/WitnessJSON.lean`** (new) — Witness serializer:
+   - `decode : Sizes → Nat → Option VarId` — inverse within range.
+   - Future: `encode_injective`, `decode_encode`.
+3. **`Backends/WitnessJSON.lean`** (new):
    - `witnessToArray wa w` — maps wire index `i` to `w (decode wa i)` for `i` in `0..numWires-1`.
    - `witnessToJson wa w` — JSON `{ "numWires": n, "witness": ["f0", "f1", ...] }`.
-   - `systemWitnessToJson sys w` — derives wire assignment from `sys` automatically.
-   - `saveWitnessJson sys w path` — writes JSON to file.
+   - `systemWitnessToJson sys w` — derives wire assignment from `sys`.
+   - `saveWitnessJson sys w path` — writes file.
+4. **`CLI.lean`** — `import Heyting.Backends.WitnessJSON`. Replaced placeholder stub with `WitnessJSON.saveWitnessJson r1csSystem wr witnessPath`.
+5. **`Test/R1CSJSONTest.lean`** — Updated to match new `SystemSummary` fields.
 
-4. **`CLI.lean`** — Added `import Heyting.Backends.WitnessJSON`. Replaced the placeholder
-   stub with `WitnessJSON.saveWitnessJson r1csSystem wr witnessPath`. The witness JSON is now
-   a real serialization of the R1CS witness, not a placeholder.
-
-5. **`Test/R1CSJSONTest.lean`** — Updated to match new `SystemSummary` fields: checks
-   `numRegVars`, `numWires` in JSON instead of the old conflated `numVars`.
-
-**Wire index layout (documented in `WireAssignment.lean`):**
+**Wire layout (documented in `WireAssignment.lean`):**
 ```
 index 0                         → varOne
 index 1 .. numRegVars           → var 0 .. var (numRegVars-1)
 index numRegVars+1 .. total-1   → aux 0 .. aux (numAuxVars-1)
 ```
 
-**Verifiability notes (from planning):**
-- The verified chain is: `StructIR.satisfies ws m → R1CS.satisfies (compileWitness m ws) (compileProgram m)` [proved, Session 17]. The new serializer adds an unverified IO layer on top.
-- The `encode`/`decode` injectivity theorems are marked as future targets in `WireAssignment.lean`.
-- The `lowering` gap (LLZK → StructIR) is the genuine unverified interface; `evalComputeBody` acts as ground truth for `@compute` semantics by design.
+**Verifiability notes:**
+- Verified chain: `StructIR.satisfies ws m → R1CS.satisfies (compileWitness m ws) (compileProgram m)` [proved, S17]. New serializer adds unverified IO layer.
+- `encode`/`decode` injectivity theorems future targets in `WireAssignment.lean`.
+- `lowering` gap (LLZK→StructIR) is genuine unverified interface; `evalComputeBody` is ground truth for `@compute` semantics.
 
-**Invariants maintained:**
-- Zero sorries: `grep -r "sorry" Heyting/` → empty (only a comment in `Lowering.lean`).
-- Standard axioms: unchanged from Session 18.
-- `lake build`: 1188 jobs, 0 errors, 0 warnings.
+**Invariants:** Zero sorries. Standard axioms. `lake build`: 1188 jobs, 0 errors, 0 warnings.
 
 ---
 
@@ -340,101 +249,63 @@ index numRegVars+1 .. total-1   → aux 0 .. aux (numAuxVars-1)
 
 **Goals:** Circom binary output — `.r1cs` and `.wtns` formats.
 
-**What we did:**
-
-1. **`Backends/FieldBytes.lean`** — `FieldBytes` typeclass (already written in prior partial session):
-   - `fieldSize : Nat`, `toLeBytes : F → ByteArray`, `primeLeBytes : ByteArray`.
-   - LE writer helpers: `u32LE`, `u64LE`, `natLeBytes`, `sectionHeader`, `fileHeader`.
-   - Fixed dupNamespace warning with `set_option linter.dupNamespace false in`.
-
-2. **`Backends/R1CSBinary.lean`** (new) — Circom `.r1cs` serializer:
-   - `linCombBytes` — sort terms by wire index, write `[nTerms][wireId || coeff]` per term.
+**Done:**
+1. **`Backends/FieldBytes.lean`** — `FieldBytes` typeclass: `fieldSize : Nat`, `toLeBytes : F → ByteArray`, `primeLeBytes : ByteArray`. LE helpers: `u32LE`, `u64LE`, `natLeBytes`, `sectionHeader`, `fileHeader`. `set_option linter.dupNamespace false in`.
+2. **`Backends/R1CSBinary.lean`** (new) — Circom `.r1cs`:
+   - `linCombBytes` — sort by wire index, write `[nTerms][wireId || coeff]` per term.
    - `constraintBytes` — A, B, C in sequence.
    - `headerSectionBody` — fieldSize, prime, nWires, nPubOut=0, nPubIn, nPrvIn, nLabels, mConstraints.
    - `constraintsSectionBody`, `wire2LabelSectionBody` (identity map).
-   - `systemToBinary` — assembles 3 sections with framing; `saveR1CSBinary` writes file.
-
-3. **`Backends/WitnessBinary.lean`** (new) — Circom `.wtns` serializer:
+   - `systemToBinary` — 3 sections with framing; `saveR1CSBinary` writes file.
+3. **`Backends/WitnessBinary.lean`** (new) — Circom `.wtns`:
    - `headerSectionBody` — n8, prime, nWitness.
    - `dataSectionBody` — dense array via `WitnessJSON.witnessToArray`, each element LE-encoded.
    - `witnessToBinary` — 2 sections; `saveWitnessBinary` writes file.
+4. **`CLI.lean`** — `import Heyting.Backends.R1CSBinary`, `WitnessBinary`. `private instance : FieldBytes (ZMod P)` for all 6 fields. Renamed `compileToJson` → `compileAndSave`, `useJson : Bool`. Default: `.r1cs` binary (+ `.wtns` if witness requested). `--json` flag writes JSON.
+5. **`Examples/OutputExamples.lean`** — Updated to `compileAndSave` with `useJson := true`; `FieldBytes (ZMod 1993)` instance (2-byte elements).
+6. **`Test/BinaryTest.lean`** (new) — 7 `#eval` checks: `.r1cs` magic/version/nSections, `.r1cs` 145 bytes (1-constraint, 3-var, fieldSize=1), `.wtns` magic/version/nSections, `.wtns` 49 bytes, `natLeBytes`/`u32LE`/`u64LE` correctness.
+7. **`Test/Main.lean`** — `import Heyting.Test.BinaryTest`.
+8. **`Heyting.lean`** — `FieldBytes`, `R1CSBinary`, `WitnessBinary` added to barrel.
 
-4. **`CLI.lean`** — Updated:
-   - Added `import Heyting.Backends.R1CSBinary` and `import Heyting.Backends.WitnessBinary`.
-   - Added `private instance : FieldBytes (ZMod P)` for all 6 supported fields (alongside the existing `private axiom` primality witnesses).
-   - Renamed `compileToJson` → `compileAndSave`; added `useJson : Bool` parameter.
-   - Default: writes `.r1cs` binary (+ `.wtns` if witness requested). `--json` flag writes JSON as before.
-
-5. **`Examples/OutputExamples.lean`** — Updated `compileToJson` call to `compileAndSave` with `useJson := true`; added local `FieldBytes (ZMod 1993)` instance (2-byte elements).
-
-6. **`Test/BinaryTest.lean`** (new) — 7 `#eval` checks:
-   - `.r1cs` magic bytes, version, nSections.
-   - `.r1cs` total byte count (145 bytes for a 1-constraint, 3-var, fieldSize=1 system).
-   - `.wtns` magic bytes, version, nSections.
-   - `.wtns` total byte count (49 bytes).
-   - `natLeBytes`, `u32LE`, `u64LE` correctness.
-
-7. **`Test/Main.lean`** — Added `import Heyting.Test.BinaryTest`.
-
-8. **`Heyting.lean`** — Added `FieldBytes`, `R1CSBinary`, `WitnessBinary` to barrel imports.
-
-**Verification:**
-- `lake build`: 1186 jobs, 0 errors, 0 warnings.
-- `lake exe tests`: all 23 `#eval` checks pass (16 existing + 7 new binary tests).
-- Zero sorries. Standard axioms only.
+**Verification:** `lake build`: 1186 jobs, 0 errors, 0 warnings. `lake exe tests`: 23 checks pass (16 existing + 7 binary). Zero sorries. Standard axioms.
 
 ---
 
 ## Session 17 — 2026-04-15
 
-**Goals:** Continue the 3-pass pipeline refactor begun in Sessions 15–16 (StructIR → MemberlessIR → FlatIR → R1CS). Fix the wrong-witness bug (`[1,0,0,0,6,6]`).
+**Goals:** Continue 3-pass pipeline refactor (StructIR → MemberlessIR → FlatIR → R1CS). Fix wrong-witness bug (`[1,0,0,0,6,6]`).
 
-**What we did:**
-
-1. **Fixed `LoweringExamples.lean`** — replaced stale `StructIRToFlatIR.compileProgram` call with `Pipeline.compileProgram (F := F)`. Removed now-unused `import Heyting.Passes.FlatIRToR1CS`.
-
-2. **Cleaned up `CLI.lean`** — removed the stale `import Heyting.Passes.StructIRToFlatIR` and `import Heyting.Passes.FlatIRToR1CS` imports (CLI already used `Pipeline` correctly).
-
-3. **Deleted `Heyting/Passes/StructIRToFlatIR.lean`** (1863 lines) — the old monolithic pass is gone; replaced by `StructIRToMemberlessIR` + `MemberlessIRToFlatIR`. Updated `Heyting.lean` barrel to remove the import and add `Heyting.Passes.Pipeline`.
-
-4. **`lake build` passes** — 0 errors, only 5 expected `sorry` warnings (4 in the two new passes, 1 in Pipeline's `reflection` sorry-chain).
-
-5. **Diagnosed the wrong-witness root cause** — two bugs:
-   - **Bug A**: `initComputeState` seeded `acc([], k) = inputs[k]` at compute-param positions, but `satisfies` reads via constrain-param indices. `@constrain(%self, %a, %b)` expects `a` at `w([], 1)` and `b` at `w([], 2)`, while `@compute(%a, %b)` stored them at `([], 0)` and `([], 1)`. The offset `constrain.numParams − compute.numParams` = 1 was missing.
-   - **Bug B**: `StructIRToMemberlessIR.compileModuleWitness` initialized the accumulator as `fun _ => 0`, so param slots (which are never explicitly written by a statement) appeared as 0 in the MemberlessIR witness.
-
-6. **Fixed `StructIR.initComputeState`** — now takes `paramOffset : Nat` and seeds `acc([], slot)` only when `slot ≥ paramOffset`, using `inputs[slot - paramOffset]`. `computeWitness` computes `offset = constrain.numParams - compute.numParams` and passes it.
-
-7. **Fixed `StructIRToMemberlessIR.compileModuleWitness`** — initial accumulator now pre-seeded: `initAcc k = if k < constrain.numParams then ws([], k) else 0`.
-
-8. **Verified the fix** — `hey compile --json --input input.json multiply.llzk out/multiply` now produces witness `["1", "6", "2", "3", "6"]` (out=6, a=2, b=3, ab=6), which satisfies both R1CS constraints:
+**Done:**
+1. Fixed `LoweringExamples.lean` — stale `StructIRToFlatIR.compileProgram` → `Pipeline.compileProgram (F := F)`. Removed unused `import Heyting.Passes.FlatIRToR1CS`.
+2. Cleaned `CLI.lean` — removed stale `import Heyting.Passes.StructIRToFlatIR` and `FlatIRToR1CS` (CLI already used `Pipeline`).
+3. Deleted `Heyting/Passes/StructIRToFlatIR.lean` (1863 lines). Updated `Heyting.lean` barrel — remove import, add `Heyting.Passes.Pipeline`.
+4. `lake build`: 0 errors, 5 expected sorry warnings (4 in new passes, 1 in Pipeline's reflection sorry-chain).
+5. **Diagnosed wrong-witness root cause** — 2 bugs:
+   - **Bug A**: `initComputeState` seeded `acc([], k) = inputs[k]` at compute-param positions, but `satisfies` reads via constrain-param indices. `@constrain(%self, %a, %b)` expects `a` at `w([], 1)`, `b` at `w([], 2)`, while `@compute(%a, %b)` stored at `([], 0)`, `([], 1)`. Offset `constrain.numParams − compute.numParams` = 1 missing.
+   - **Bug B**: `StructIRToMemberlessIR.compileModuleWitness` initialized accumulator `fun _ => 0` — param slots never explicitly written, appeared as 0 in MemberlessIR witness.
+6. Fixed `StructIR.initComputeState` — now takes `paramOffset : Nat`, seeds `acc([], slot)` only when `slot ≥ paramOffset`, using `inputs[slot - paramOffset]`. `computeWitness` computes `offset = constrain.numParams - compute.numParams`.
+7. Fixed `StructIRToMemberlessIR.compileModuleWitness` — initial accumulator pre-seeded: `initAcc k = if k < constrain.numParams then ws([], k) else 0`.
+8. **Verified fix** — `hey compile --json --input input.json multiply.llzk out/multiply` produces `["1", "6", "2", "3", "6"]` (out=6, a=2, b=3, ab=6), satisfies both R1CS constraints:
    - `(a=2) * (b=3) = (ab=6)` ✓
    - `(out=6) * 1 = (ab=6)` ✓
 
-**Remaining:** 4 sorries in `StructIRToMemberlessIR.lean` and `MemberlessIRToFlatIR.lean` (preservation + reflection for passes 1 and 2).
-
+**Remaining:** 4 sorries in `StructIRToMemberlessIR.lean` and `MemberlessIRToFlatIR.lean` (preservation + reflection passes 1 and 2).
 
 ---
 
 ## Session 22 — 2026-04-29
 
-**Goals:** Fill remaining sorries across the project. Consolidate WIP held in `.worktrees/`.
+**Goals:** Fill sorries. Consolidate WIP from `.worktrees/`.
 
-**What we did:**
-
-1. **Worktree consolidation.** Two feature worktrees existed — `.worktrees/struct-inline-pipeline-refactor` (uncommitted WIP, 1 remaining sorry) and `.worktrees/inline-first-pipeline` (committed earlier iteration, more sorries). Selected the former as the canonical WIP, copied its untracked + modified files back into the main repo, removed both worktrees with `git worktree remove --force`, and deleted the stale branches.
-
-2. **Pipeline refactor adopted.** The worktree introduces a 4-stage pipeline with a new intermediate IR:
-   `StructIR → StructInlineIR → MemberlessIR → FlatIR → R1CS`.
-   `StructInlineIR` (`Heyting/Languages/StructInlineIR.lean`, 216 lines) is a flat-member IR without the `call` statement — every cross-struct call is already inlined. New passes: `StructIRToStructInlineIR.lean` (~1260 lines, handles inlining + alpha-renaming) and `StructInlineIRToMemberlessIR.lean` (82 lines, uses `Nat.pair`/`Equiv.listNatEquivNat` encoding from the new `Heyting/Core/VarIdEncoding.lean`).
-
-3. **Filled the last sorry** — `StructIRToStructInlineIR.expandBody_correct` in the `call` case (the top-level expansion of a call statement produces `feltConst zv 0 :: inlinedCallee ++ expandedRest`). Introduced a reusable helper `StructIR.evalConstrainBody_agree`: if two source environments/objEnvs agree at all positions `< bound` and the body references only variables `< bound`, the constrain-body evaluations are equivalent. The `call` case proof strategy: (a) split the target with `StructInlineIR.evalConstrainBody_append`; (b) match the callee evaluation to the inlined block via `inlineBody_correct` + `evalConstrainBody_irrel`; (c) apply the inductive hypothesis on the tail with `next := na` (the fresh boundary after callee inlining) at the post-ic state, bridged to the original state via the agreement lemma and `inlineBody_frame`.
-
-4. **Verification checklist.**
-   - `grep -r "sorry" Heyting/ --include="*.lean"` → empty (the only hit is a literal string in a comment in `Passes/Lowering.lean`).
-   - `lake build` → 1191 jobs, 0 errors. Only pre-existing stylistic warnings (`show` vs `change`, unused simp args).
+**Done:**
+1. **Worktree consolidation.** Two feature worktrees — `.worktrees/struct-inline-pipeline-refactor` (uncommitted, 1 sorry left) and `.worktrees/inline-first-pipeline` (older, more sorries). Selected former as canonical WIP, copied untracked+modified files back, removed both worktrees (`git worktree remove --force`), deleted stale branches.
+2. **Pipeline refactor adopted.** 4-stage pipeline with new intermediate IR: `StructIR → StructInlineIR → MemberlessIR → FlatIR → R1CS`. `StructInlineIR` (`Heyting/Languages/StructInlineIR.lean`, 216 lines) — flat-member IR without `call`. New passes: `StructIRToStructInlineIR.lean` (~1260 lines, inlining + alpha-renaming), `StructInlineIRToMemberlessIR.lean` (82 lines, `Nat.pair`/`Equiv.listNatEquivNat` encoding from `Heyting/Core/VarIdEncoding.lean`).
+3. **Filled last sorry** — `StructIRToStructInlineIR.expandBody_correct` call case. Helper `StructIR.evalConstrainBody_agree`: if 2 envs/objEnvs agree at positions `< bound` and body references only vars `< bound`, constrain-body evaluations equivalent. Call case: (a) split target with `StructInlineIR.evalConstrainBody_append`; (b) match callee to inlined block via `inlineBody_correct` + `evalConstrainBody_irrel`; (c) apply IH on tail with `next := na` at post-ic state, bridged via agreement lemma + `inlineBody_frame`.
+4. **Verification:**
+   - `grep -r "sorry" Heyting/ --include="*.lean"` → empty (only literal string in comment in `Passes/Lowering.lean`).
+   - `lake build` → 1191 jobs, 0 errors. Pre-existing stylistic warnings only.
    - `lake build hey` → success.
-   - `lean_verify` on `expandBody_correct`, `preservation`, `reflection`, and the new `evalConstrainBody_agree` → standard axioms only (`propext`, `Classical.choice`, `Quot.sound`).
+   - `lean_verify` on `expandBody_correct`, `preservation`, `reflection`, `evalConstrainBody_agree` → standard axioms only.
 
 **Layout added:**
 - `Heyting/Core/VarIdEncoding.lean`
@@ -442,48 +313,41 @@ index numRegVars+1 .. total-1   → aux 0 .. aux (numAuxVars-1)
 - `Heyting/Passes/StructIRToStructInlineIR.lean`
 - `Heyting/Passes/StructInlineIRToMemberlessIR.lean`
 - `Heyting/Test/StructInlineIRTest.lean`, `Heyting/Test/VarIdEncodingTest.lean`
-- `docs/superpowers/plans/`, `docs/superpowers/specs/` (plan + design doc for the refactor)
+- `docs/superpowers/plans/`, `docs/superpowers/specs/`
 
 **Not yet done:**
-- The new `StructIRToStructInlineIR` / `StructInlineIRToMemberlessIR` passes have `Pass` typeclass instances but their `PresReflPass` instances remain phase-2 work — `Pipeline.lean` currently only declares a `Pass` instance, not a full `PresReflPass`. (Equisatisfiability for the entire 4-pass pipeline still requires composing the sub-pass `PresReflPass` instances; only pass 1 is fully done here.)
-- Fixing the pre-existing style warnings in `StructIRToStructInlineIR.lean` (4 `show` vs `change`, a handful of unused simp args).
-
+- New `StructIRToStructInlineIR` / `StructInlineIRToMemberlessIR` passes have `Pass` instances but `PresReflPass` remains phase-2 work — `Pipeline.lean` only declares `Pass`, not full `PresReflPass`. (Equisatisfiability for 4-pass pipeline requires composing sub-pass `PresReflPass` instances; only pass 1 fully done.)
+- Pre-existing style warnings in `StructIRToStructInlineIR.lean` (4 `show` vs `change`, unused simp args).
 
 ---
 
 ## Session 23 — 2026-04-29 (afternoon)
 
-**Goals:** Redesign Pass 2 (`StructInlineIRToMemberlessIR`) under Option 2 (drop `readMember`; pre-populate `mw` via witness replay) with the goal of proving `PresReflPass`. Reach a stable WIP checkpoint.
+**Goals:** Redesign Pass 2 (`StructInlineIRToMemberlessIR`) under Option 2 (drop `readMember`; pre-populate `mw` via witness replay) — prove `PresReflPass`. Reach stable WIP checkpoint.
 
-**What we did:**
-
-1. **MemberlessIR semantics change.** `evalBody` for felt operations is now an **assertion** (`env dest = env src1 + env src2`) rather than an **update** (`env.update dest (env src1 + env src2)`). This aligns with R1CS semantics (felt ops are constraints, not assignments) and — more importantly — makes the Option 2 preservation proof tractable: under the new semantics, MemberlessIR's `menv` is fixed (= `mw`) throughout the body, and we need only to show that `mw` satisfies all the asserted equations.
-
-2. **StructInlineIR.Module extended.** Added `isSSA : ∀ i, (constrainDests (structs i).constrain.body).Nodup` alongside the existing `noDupReads`. Both are needed for Pass 2 correctness: `isSSA` for preservation (single-assignment ⇒ intermediate env values match final witness), `noDupReads` for reflection (unique-read ⇒ `buildReadMap` injective).
-
-3. **Pass 2 rewritten.** New design:
-   - `compileStmt`: drops `readMember` entirely (previously emitted a spurious `constrainEq dest (Nat.pair self member)` — semantically incorrect).
-   - `compileWitnessBody`: threads env+ObjEnv through the body as StructInlineIR's `evalConstrainBody` would, updating `acc` at each written slot (felt ops compute values; `readMember dest self member` stores `ws(objEnv self, member)`).
-   - `compileWitness`: seeds `initAcc = fun k => ws([], k)` pointwise matching `initEnv` so the `acc = env` invariant starts true.
-   - `buildReadMap` + `extractWitness`: backward mapping from MemberlessIR → StructInlineIR witness via ObjEnv replay.
+**Done:**
+1. **MemberlessIR semantics change.** `evalBody` for felt ops now **assertion** (`env dest = env src1 + env src2`) not **update** (`env.update dest`). Aligns with R1CS (felt ops = constraints, not assignments) and makes Option 2 preservation tractable: `menv` fixed (= `mw`) throughout, need only show `mw` satisfies all asserted equations.
+2. **StructInlineIR.Module extended.** `isSSA : ∀ i, (constrainDests (structs i).constrain.body).Nodup` alongside existing `noDupReads`. Both needed for Pass 2: `isSSA` for preservation (single-assignment ⇒ intermediate env = final witness), `noDupReads` for reflection (unique-read ⇒ `buildReadMap` injective).
+3. **Pass 2 rewritten:**
+   - `compileStmt`: drops `readMember` entirely (previously spurious `constrainEq dest (Nat.pair self member)` — semantically incorrect).
+   - `compileWitnessBody`: threads env+ObjEnv through body like `evalConstrainBody`, updates `acc` at each written slot (felt ops compute; `readMember dest self member` stores `ws(objEnv self, member)`).
+   - `compileWitness`: seeds `initAcc = fun k => ws([], k)` matching `initEnv` so `acc = env` invariant starts true.
+   - `buildReadMap` + `extractWitness`: backward MemberlessIR→StructInlineIR via ObjEnv replay.
    - `witnessRel m ws mw := mw = compileWitness m ws`.
+4. **Key invariant proved:** `compileWitnessBody_agrees` — if `∀ k, acc k = env k` initially, then `compileWitnessBody ws env objEnv stmts acc k = (runState ws env objEnv stmts).1 k` for all k. `mw` equals final StructInlineIR env at every slot. Standard axioms only.
+5. **Pass 1 compile updated.** `StructIRToStructInlineIR.compile` produces `Module` with 2 well-formedness proofs. `compile_noDupReads`, `compile_isSSA` left as `sorry` — structural induction over `expandBody`/`inlineBody` not completed.
+6. **Pass 2 `preservation`/`reflection`: sorry.** Proofs need connecting step-local env values to final witness — depends on SSA + def-before-use. Mechanical but needs infrastructure.
 
-4. **Key invariant proved:** `compileWitnessBody_agrees` — if `∀ k, acc k = env k` initially, then `compileWitnessBody ws env objEnv stmts acc k = (runState ws env objEnv stmts).1 k` for all k. Establishes that `mw` equals the final StructInlineIR env at every slot. No axioms beyond the standard three.
-
-5. **Pass 1 compile updated.** `StructIRToStructInlineIR.compile` now produces a `Module` structure carrying the two well-formedness proofs. The two proofs (`compile_noDupReads`, `compile_isSSA`) are left as `sorry` — they require a structural induction over `expandBody`/`inlineBody` that I did not complete this session.
-
-6. **Pass 2 `preservation`/`reflection`: sorry.** The proofs require connecting step-local env values to the final witness, which depends on SSA + def-before-use. The full proof is mechanical but requires additional infrastructure.
-
-**Verification state:**
+**Verification:**
 - `lake build` → 0 errors, 4 sorry warnings (compile_noDupReads, compile_isSSA, preservation, reflection).
-- `lake build hey` → CLI binary builds.
+- `lake build hey` → CLI builds.
 - `lake exe tests` → all pass (examples use `#eval!` to bypass sorry-dependent evaluation).
-- `multiply.llzk` → 2 R1CS constraints (simple `a*b = out` circuit).
+- `multiply.llzk` → 2 R1CS constraints (`a*b = out`).
 
-**Open obligations (4 sorries):**
-- `StructIRToStructInlineIR.compile_noDupReads` — needs `readPositions_inlineBody_eq` / `readPositions_expandBody_eq`.
-- `StructIRToStructInlineIR.compile_isSSA` — needs induction showing `inlineBody`/`expandBody` preserve dest-uniqueness.
-- `StructInlineIRToMemberlessIR.preservation` — needs SSA + DBU machinery linking step-local and final env values.
-- `StructInlineIRToMemberlessIR.reflection` — needs `buildReadMap` injectivity via `m.noDupReads`.
+**Sorries (4):**
+- `StructIRToStructInlineIR.compile_noDupReads` — needs `readPositions_inlineBody_eq`/`readPositions_expandBody_eq`.
+- `StructIRToStructInlineIR.compile_isSSA` — induction showing `inlineBody`/`expandBody` preserve dest-uniqueness.
+- `StructInlineIRToMemberlessIR.preservation` — SSA + DBU machinery linking step-local and final env.
+- `StructInlineIRToMemberlessIR.reflection` — `buildReadMap` injectivity via `m.noDupReads`.
 
-**Next step:** complete the four proofs. None are blocked on design questions; all are mechanical structural inductions of moderate size (~200 lines each).
+**Next:** complete 4 proofs. All mechanical structural inductions (~200 lines each). No design questions blocking.

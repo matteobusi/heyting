@@ -4,7 +4,8 @@ title: Hey CLI
 
 ## Overview
 
-The Heyting compiler provides a small command-line interface via the `hey` executable. The CLI is deliberately minimal while the project evolves. The main command is `compile`, which emits an R1CS JSON file from an LLZK input.
+The Heyting compiler provides `hey`, a small CLI for compiling LLZK to R1CS and,
+optionally, generating a witness by running StructIR `@compute` bodies.
 
 ## Usage
 
@@ -16,7 +17,8 @@ hey help
 ## Options
 
 - `--json`
-  Produce a human-readable R1CS JSON file (default behavior of `compile`).
+  Produce human-readable JSON output.
+  Without this flag, `compile` writes Circom-compatible binary `.r1cs` output.
 
 - `--prime-field <name>`
   Select the prime field for arithmetic. Supported values:
@@ -34,13 +36,12 @@ hey help
 
 - `--input <path>`
   JSON file of public circuit inputs (field elements) to pass to the circuit's `@compute`
-  bodies. Not yet implemented — passing this option raises an informative error. The planned
-  format is a JSON array of field element values (as decimal strings), one per positional
-  parameter of the top-level `@compute` function.
+  bodies. Parsed by signal name and reordered to match top-level `@compute` parameters.
 
 - `--auto`
-  Automatically run compute bodies to produce a witness, using empty public inputs.
-  Writes `<output>.witness.json` alongside the R1CS file.
+  Automatically run compute bodies to produce a witness, using empty public inputs unless
+  `--input` is also provided.
+  Writes `<output>.witness.json` with `--json`, or `<output>.wtns` otherwise.
 
 - `--output <path>`
   Alternative way to specify the output path (useful when paths contain spaces or when scripting).
@@ -48,13 +49,19 @@ hey help
 ## Examples
 
 ```bash
-# Default field (bn254, matches circom)
-lake exe hey compile emit_pass.llzk out/system.json
+# Default field (bn254, matches circom), binary output
+lake exe hey compile circuit.llzk out/system
+
+# JSON R1CS
+lake exe hey compile --json circuit.llzk out/system
+
+# JSON R1CS + auto witness
+lake exe hey compile --json --auto circuit.llzk out/system
 
 # Explicit field
-lake exe hey compile --prime-field babybear circuit.llzk out/system.json
-lake exe hey compile --prime-field goldilocks circuit.llzk out/system.json
-lake exe hey compile --prime-field mersenne31 circuit.llzk out/system.json
+lake exe hey compile --prime-field babybear circuit.llzk out/system
+lake exe hey compile --prime-field goldilocks circuit.llzk out/system
+lake exe hey compile --prime-field mersenne31 circuit.llzk out/system
 ```
 
 ## Field selection and correctness
@@ -69,10 +76,6 @@ are too large / not Mersenne-form for norm_num). These axioms are CLI-only and n
 in any `PresReflPass` proof. See `docs/WARNING.md` §7 for the full axiom policy.
 
 ## Notes on features not yet implemented
-
-- `--input <path>` will load public circuit inputs from a JSON array of decimal field element
-  strings and pass them to `StructIR.computeWitness`. Until then, `--auto` runs with an empty
-  input list (works for circuits with no public parameters).
 
 - User-supplied witness loading (i.e. providing a pre-computed witness directly, bypassing
   `@compute` bodies) is not currently exposed via any flag.

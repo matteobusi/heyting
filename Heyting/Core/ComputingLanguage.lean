@@ -17,15 +17,13 @@ then `w` satisfies `m`) is not bundled into the typeclass. It is stated as a
 separate theorem for each instance, allowing instances to carry proof stubs
 during development.
 
-## Usage in the pipeline
+## Usage in the executable pipeline
 
 If `computeWitness m inputs = some w`, then `w` is a candidate StructIR witness.
-The full pipeline correctness (`Pipeline.compileWitnessCorrect`) then gives:
-  `StructIR.satisfies w m →
-   R1CS.satisfies (Pipeline.compileWitness m w) (Pipeline.compileProgram m)`
+Current executable path lifts that witness to FlatIR via `VarIdEncoding.decode`,
+then to R1CS via `FlatIRToR1CS.compileWitness`.
 
-No new pass proofs are required — the witness generator is an entry point
-into the existing `PresReflPass` chain, not a new pass.
+Proof-carrying end-to-end witness correctness is not currently bundled here.
 -/
 
 class ComputingLanguage (V : Type) (F : Type) [Field F] extends Language V F where

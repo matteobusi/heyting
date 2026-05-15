@@ -490,6 +490,66 @@ private def buildStructsFn {F : Type} [Field F] [IntCast F]
   let f ← lowerStructsRec n sorted structIndex n le_rfl
   return fun j => f j j.isLt
 
+/-- Check that all structs satisfy SSA, returning a proof or throwing an error. -/
+private def checkAllSSA {F : Type} [Field F]
+    (n : Nat) (structsFn : (j : Fin n) → StructIR.StructDef n j F) :
+    Except String (PLift (∀ (i : Fin n),
+      StructIR.isSSA (fun v => v < (structsFn i).constrain.numParams)
+        (structsFn i).constrain.body = true)) := do
+  let rec go (k : Nat) (hk : k ≤ n)
+      (acc : ∀ (i : Fin n), i.val < k →
+        StructIR.isSSA (fun v => v < (structsFn i).constrain.numParams)
+          (structsFn i).constrain.body = true) :
+      Except String (PLift (∀ (i : Fin n),
+        StructIR.isSSA (fun v => v < (structsFn i).constrain.numParams)
+          (structsFn i).constrain.body = true)) :=
+    if hkn : k = n then
+      .ok ⟨fun i => acc i (hkn ▸ i.isLt)⟩
+    else
+      have hk' : k < n := Nat.lt_of_le_of_ne hk hkn
+      let idx : Fin n := ⟨k, hk'⟩
+      if hssa : StructIR.isSSA (fun v => v < (structsFn idx).constrain.numParams)
+          (structsFn idx).constrain.body = true then
+        go (k + 1) hk' (fun i hi =>
+          if hikk : i.val < k then acc i hikk
+          else
+            have : i.val = k := by omega
+            have : i = idx := Fin.ext this
+            this ▸ hssa)
+      else
+        .error s!"struct {k} fails SSA check in constrain body"
+  go 0 (Nat.zero_le n) (fun _ h => absurd h (Nat.not_lt_zero _))
+
+/-- Check that all structs satisfy object-channel safety. -/
+private def checkAllObjectSafe {F : Type} [Field F]
+    (n : Nat) (structsFn : (j : Fin n) → StructIR.StructDef n j F) :
+    Except String (PLift (∀ (i : Fin n),
+      StructIR.objectSafe structsFn i (fun v => v < (structsFn i).constrain.numParams)
+        (structsFn i).constrain.body = true)) := do
+  let rec go (k : Nat) (hk : k ≤ n)
+      (acc : ∀ (i : Fin n), i.val < k →
+        StructIR.objectSafe structsFn i (fun v => v < (structsFn i).constrain.numParams)
+          (structsFn i).constrain.body = true) :
+      Except String (PLift (∀ (i : Fin n),
+        StructIR.objectSafe structsFn i (fun v => v < (structsFn i).constrain.numParams)
+          (structsFn i).constrain.body = true)) :=
+    if hkn : k = n then
+      .ok ⟨fun i => acc i (hkn ▸ i.isLt)⟩
+    else
+      have hk' : k < n := Nat.lt_of_le_of_ne hk hkn
+      let idx : Fin n := ⟨k, hk'⟩
+      if hobj : StructIR.objectSafe structsFn idx (fun v => v < (structsFn idx).constrain.numParams)
+          (structsFn idx).constrain.body = true then
+        go (k + 1) hk' (fun i hi =>
+          if hikk : i.val < k then acc i hikk
+          else
+            have : i.val = k := by omega
+            have : i = idx := Fin.ext this
+            this ▸ hobj)
+      else
+        .error s!"struct {k} fails object safety check in constrain body"
+  go 0 (Nat.zero_le n) (fun _ h => absurd h (Nat.not_lt_zero _))
+
 /-! ## Top-level lowering entry point -/
 
 /-- Top-level lowering: LLZK.Module → StructIR.Module.
@@ -523,11 +583,16 @@ def LLZK.lower {F : Type} [Field F] [DecidableEq F] [IntCast F]
   let positions :=
     StructIR.readPositions structsFn mainIdx initObjEnv (structsFn mainIdx).constrain.body
   if hnodup : positions.Nodup then
-    -- 5. Assemble the Module
+    -- 5. Check SSA for all structs
+    let ⟨hssa⟩ ← LLZK.Lowering.checkAllSSA n structsFn
+    let ⟨hobj⟩ ← LLZK.Lowering.checkAllObjectSafe n structsFn
+    -- 6. Assemble the Module
     let module : StructIR.Module n F := {
       structs := structsFn
       -- proof irrelevance: both hn and hn' prove 0 < n, so mainIdx is the same Fin value
       noDupReads := fun _ => hnodup
+      all_ssa := hssa
+      all_objSafe := hobj
     }
     -- Package as Σ m, Module (m+1) F where m = n-1
     have hn1 : n - 1 + 1 = n := Nat.succ_pred_eq_of_pos hn

@@ -1,21 +1,15 @@
 import Heyting.Core.Language
 import Heyting.Core.Pass
-import Heyting.Core.CheckedSemantics
 import Heyting.Core.VarIdEncoding
 
 import Heyting.Languages.FlatIR
-import Heyting.Languages.FlatIRChecked
 import Heyting.Languages.R1CS
 import Heyting.Languages.StructIR
-import Heyting.Languages.StructInlineIR
 
 import Heyting.Core.TrinitaryCC
 
 import Heyting.Passes.FlatIRToR1CS
-import Heyting.Passes.StructIRToStructInlineIR
-import Heyting.Passes.StructInlineIRToMemberlessIR
-import Heyting.Passes.MemberlessIRToFlatIR
-import Heyting.Passes.MemberlessIRToFlatIRChecked
+import Heyting.Passes.StructIRToFlatIRDirect
 import Heyting.Passes.Pipeline
 import Heyting.Passes.Tactics
 import Heyting.Passes.Lowering
