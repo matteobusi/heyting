@@ -1,213 +1,115 @@
 # Languages in Heyting
 
-Heyting models ZKP compilation as a chain of **languages** connected by **correct passes**. Each language defines a program syntax and a satisfaction relation (`w |= p`), and each pass proves that compilation preserves and reflects that relation.
+Current active pipeline:
 
-The current pipeline is:
-
-```
-StructIR  --->  StructInlineIR  --->  MemberlessIR  --->  FlatIR  --->  R1CS
-(structs,       (call-free;            (no readMember;      (flat          (A * B = C
- calls,          readMember             calls still          felt ops,      constraint
- readMember)     preserved)             present)             assertions)    system)
+```text
+StructIR  --->  FlatIR  --->  R1CS
 ```
 
----
+## Core abstractions
 
-## Core Abstractions
+All languages and passes are generic over `F : Type [Field F]`.
 
-All languages and passes are **generic over the field `F : Type [Field F]`**. Examples and
-tests instantiate `F := ZMod 1993` (a small prime, fast `native_decide`). The CLI selects
-a concrete field at the boundary via `--prime-field`; no proof-bearing code is
-parameterized on a specific prime.
+### `Language`
 
-### Language (`Heyting/Core/Language.lean`)
+`Language` pairs:
 
-```lean
-class Language (V : Type) (F : Type) [Field F] where
-  Program : Type
-  satisfies : Witness V F -> Program -> Prop
-```
+- program syntax
+- witness type
+- satisfaction relation `w |= p`
 
-A language is parameterized by:
-- `V`: the type of variable identifiers (how witnesses are indexed)
-- `F`: the field type (e.g., a prime field)
+### `Pass` / `PresReflPass`
 
-`satisfies w p` means witness `w` satisfies the constraints of program `p`.
+`Pass` gives `compile` and `witnessRel`.
 
-### Pass and PresReflPass (`Heyting/Core/Pass.lean`)
+`PresReflPass` adds:
 
-```lean
-class Pass (S : Language Vs Fs) (T : Language Vt Ft) where
-  compile : S.Program → T.Program
-  witnessRel : S.Program → Witness Vs Fs → Witness Vt Ft → Prop
+- preservation: source sat -> related target sat
+- reflection: target sat -> related source sat
 
-class PreservingPass extends Pass where
-  preservation : ∀ ws p, S.satisfies ws p →
-    ∃ wt, witnessRel p ws wt ∧ T.satisfies wt (compile p)
+## StructIR
 
-class ReflectingPass extends Pass where
-  reflection : ∀ wt p, T.satisfies wt (compile p) →
-    ∃ ws, witnessRel p ws wt ∧ S.satisfies ws p
+File: `Heyting/Languages/StructIR.lean`
 
-class PresReflPass extends PreservingPass, ReflectingPass
-```
+Highest-level IR.
 
-A `PresReflPass` establishes **equisatisfiability**: source and compiled programs accept
-the same (related) witnesses. Reflection (= CC~) is soundness; preservation is completeness.
+- hierarchical structs
+- `readMember`
+- cross-struct `call`
+- intrinsic well-formedness via dependent types
+- witness indexed by `VarId = InstancePath × Nat`
 
-This formulation follows the trace-relating compiler correctness framework of Abate et al.
-("Trace-Relating Compiler Correctness and Secure Compilation", ESOP 2020). The trinitarian
-equivalence (TPσ ↔ CC~ ↔ TPτ) is proved in `Heyting/Core/TrinitaryCC.lean`.
+Key semantic channels:
 
----
+- value channel: local arithmetic environment
+- object-path channel: `ObjEnv` for nested member reads and calls
 
-## R1CS (`Heyting/Languages/R1CS.lean`)
+## FlatIR
 
-**Variable type**: `R1CS.VarId` — tagged union of `varOne` (constant 1), `var n` (program variables), and `aux n` (auxiliary variables introduced by `assignDiv`).
+File: `Heyting/Languages/FlatIR.lean`
 
-**Program**: A list of constraints, each of the form `A * B = C` where `A`, `B`, `C` are linear combinations over variables.
+Flat instruction list over `Nat` variable IDs.
 
-**Satisfaction**: A witness `w` satisfies an R1CS system if `w varOne = 1` and every constraint `A * B = C` holds under `w`.
+Instructions:
 
-R1CS is the standard arithmetization target for ZKP backends (Groth16, Plonk, etc.).
+- `assignAdd`
+- `assignSub`
+- `assignMul`
+- `assignDiv`
+- `assignNeg`
+- `assignConst`
+- `assertEq`
 
----
+No calls, no struct hierarchy.
 
-## FlatIR (`Heyting/Languages/FlatIR.lean`)
+## R1CS
 
-**Variable type**: `Nat` — simple integer identifiers.
+File: `Heyting/Languages/R1CS.lean`
 
-**Program**: A flat list of instructions over a field `F`:
+Rank-1 Constraint Systems.
 
-| Instruction | Semantics |
-|-------------|-----------|
-| `assignAdd dest src1 src2` | `w[dest] = w[src1] + w[src2]` |
-| `assignSub dest src1 src2` | `w[dest] = w[src1] - w[src2]` |
-| `assignMul dest src1 src2` | `w[dest] = w[src1] * w[src2]` |
-| `assignDiv dest src1 src2` | `w[src2] ≠ 0` and `w[dest] = w[src1] * w[src2]⁻¹` |
-| `assignNeg dest src` | `w[dest] = -w[src]` |
-| `assignConst dest c` | `w[dest] = c` |
-| `assertEq src1 src2` | `w[src1] = w[src2]` |
+- constraints have shape `A * B = C`
+- variable IDs are `varOne | var n | aux n`
+- target of fully verified `FlatIR -> R1CS` pass
 
-**Satisfaction**: A witness satisfies a FlatIR program if it satisfies every instruction.
+## Helper semantic layers
 
-FlatIR has no `call` statement and no struct hierarchy. It is the output of
-`MemberlessIRToFlatIR` (Pass 3) and the input to `FlatIRToR1CS` (Pass 4).
+These are proof-support files, not separate user-facing IRs in active compiler pipeline.
 
----
+### StructIR substitution semantics
 
-## MemberlessIR (`Heyting/Languages/MemberlessIR.lean`)
+Files:
 
-**Variable type**: `Nat` — flat natural number slots.
+- `Heyting/Core/SubstSemantics.lean`
+- `Heyting/Languages/StructIRSubst.lean`
 
-**Program**: A `Module (n+1) F` — a collection of `Func` definitions indexed topologically.
-Each `Func` has `numParams : Nat` and `body : List (Stmt n i F)`.
+Purpose:
 
-**Statements**:
+- symbolic / substitution-style account of StructIR evaluation
+- bridge between executable semantics and direct reflection proof
 
-| Statement | Effect on `evalBody` |
-|-----------|----------------------|
-| Felt ops (add/sub/mul/div/neg/const) | Update `env[dest]` |
-| `constrainEq src1 src2` | Assert `env[src1] = env[src2]` |
+### FlatIR substitution semantics
 
-There is no `readMember` and no `call` — struct member access and calls have
-already been erased/inlined. There is no `ObjEnv` threading. The witness is
-`Nat → F`.
+File:
 
-**Satisfaction**: `evalBody m mainIdx initEnv (m mainIdx).body` where
-`initEnv k = w k` (the witness seeds the initial environment).
+- `Heyting/Languages/FlatIRSubst.lean`
 
-MemberlessIR sits between StructInlineIR and FlatIR. Pass 2
-(`StructInlineIRToMemberlessIR`) eliminates struct-member access while keeping
-the language call-free. Pass 3 (`MemberlessIRToFlatIR`) lowers statements to a
-flat instruction list.
+Purpose:
 
----
+- atom-level checked semantics used by direct simulation / reflection scaffolding
 
-## StructInlineIR (`Heyting/Languages/StructInlineIR.lean`)
+### Direct proof scaffold
 
-**Variable type**: `VarId = InstancePath × Nat` — same as StructIR.
+Files:
 
-**Program**: A `Module (n+1) F` — a collection of `StructDef` definitions, each with a
-`ConstrainFunc` body. Call-free by construction: the `ConstrainStmt` type has no `call`
-constructor.
+- `Heyting/Passes/StructIRToFlatIRDirectSim.lean`
+- `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean`
 
-**Statements**:
+Purpose:
 
-| Statement | Effect on `evalConstrainBody` |
-|-----------|-------------------------------|
-| Felt ops (add/sub/mul/div/neg/const) | Update `env[dest]` |
-| `readMember dest self member` | `env[dest] = w(objEnv self, member)`; update `objEnv[dest]` |
-| `constrainEq src1 src2` | Assert `env[src1] = env[src2]` |
+- checked-semantics simulation lemmas
+- direct `ReflectingPass` scaffold for `StructIR -> FlatIR`
 
-No `call` statement. Every cross-struct dependency has been inlined into the caller's body
-by Pass 1 (`StructIRToStructInlineIR`).
+## Historical note
 
-**Evaluation** uses the same `ObjEnv` threading as StructIR: `readMember` reads from the
-witness `w` using the current instance path and updates `objEnv[dest]` to
-`objEnv self ++ [member]` for subsequent nested accesses.
-
-**Satisfaction**: same seeding as StructIR — `env k = w([], k)` for the main struct.
-
-**Witness**: `VarId → F`, same as StructIR. The witness space does not change at Pass 1.
-
-StructInlineIR sits between StructIR and MemberlessIR. It cleanly separates two concerns:
-- Pass 1 handles **call inlining** (StructIR → StructInlineIR), leaving `readMember` intact.
-- Pass 2 handles **readMember elimination** (StructInlineIR → MemberlessIR), changing the witness space.
-
----
-
-## StructIR (`Heyting/Languages/StructIR.lean`)
-
-StructIR is the highest-level language in the pipeline. It captures LLZK's `struct`,
-`function`, `felt`, and `constrain` dialects.
-
-**Variable type**: `VarId = InstancePath × Nat` where `InstancePath = List Nat`. This tracks
-struct nesting: a member at path `[2, 0]` with index `1` means "the second member of the
-first sub-struct of the third sub-struct of the root".
-
-**Program**: A `Module (n+1) F` — a collection of `n+1` struct definitions indexed in
-topological order (leaves first, main last at index `n`).
-
-### Design: intrinsic well-formedness
-
-StructIR uses **dependent types** to make ill-formed programs unrepresentable:
-
-1. **No cyclic calls**: `call (target : Fin i)` — callees have smaller index.
-2. **No missing struct references**: `MemberType n` uses `substruct : Fin n`.
-3. **No missing member references**: `readMember` takes `Fin numMembers`.
-4. **Automatic termination**: `evalConstrainBody` recurses on `(i, stmts.length)`.
-5. **No duplicate reads**: `Module` carries `noDupReads` — each `(path, member)` read
-   at most once across the constrain traversal tree.
-6. **SSA (isSSA)**: each destination variable written at most once per constrain body.
-7. **Def-before-use (isDefBeforeUse)**: every source variable is either a parameter or
-   the destination of an earlier statement.
-
-### Statements
-
-| Statement | Effect on `evalConstrainBody` |
-|-----------|-------------------------------|
-| Felt ops | Update `env[dest]` |
-| `readMember dest self member` | `env[dest] = w(objEnv self, member)`; update `objEnv[dest]` |
-| `constrainEq src1 src2` | Assert `env[src1] = env[src2]` |
-| `call target args` | Recurse into callee's `@constrain` body with args-seeded envs |
-
-### Satisfaction
-
-`evalConstrainBody m w mainIdx (fun k => w([], k)) initObjEnv m.main.constrain.body`
-
-The main struct's initial env is seeded from the witness at the root path: `env k = w([], k)`.
-
-### Compute interpreter
-
-`evalComputeBody` interprets `@compute` bodies to produce witnesses, threading
-`ComputeState {env, objEnv, acc, nextPath}`. Used by `computeWitness` (entry point for
-public inputs). Not a compiler pass — an interpreter.
-
-### Examples
-
-See `Heyting/Examples/StructIRExamples.lean` for 4 validated examples:
-- **Component1A**: two felt members with equality constraints
-- **Adder**: felt addition with constraint
-- **Divider**: felt division with non-zero and result constraints
-- **Wrapper + Component1A**: nested structs with `readMember` + `call`
+Older docs may mention `StructInlineIR` and `MemberlessIR`. Those intermediate languages are not part of current active executable pipeline.

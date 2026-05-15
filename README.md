@@ -2,129 +2,90 @@
 
 A formally verified ZKP compiler, written in [Lean 4](https://lean-lang.org/) with [Mathlib](https://leanprover-community.github.io/mathlib4_docs/).
 
-Heyting compiles constraint languages (currently a core fragment of [LLZK](https://github.com/nicboul3/llzk-lib)) down to [R1CS](https://www.rareskills.io/post/r1cs) arithmetizations, and proves that the compilation is **correct** — meaning no constraints are added or lost in translation.
+Heyting compiles constraint languages (currently a core fragment of [LLZK](https://github.com/nicboul3/llzk-lib)) down to [R1CS](https://www.rareskills.io/post/r1cs) arithmetizations, and proves that compilation is correct: no constraints added, no constraints lost.
 
 ## Why formal verification?
 
-A bug in a ZKP compiler can silently break **soundness** (accepting invalid proofs) or **completeness** (rejecting valid ones). Unlike conventional compilers where bugs cause crashes or wrong outputs, ZKP compiler bugs undermine the cryptographic guarantees that the entire system relies on. Formal verification gives mathematical certainty that the compiler preserves the meaning of constraints.
+A bug in a ZKP compiler can silently break soundness (accepting invalid proofs) or completeness (rejecting valid ones). Formal verification gives mathematical certainty that compiler preserves meaning of constraints.
 
 ## Architecture
 
-The compiler is structured around two core abstractions:
+Compiler organized around 2 core abstractions:
 
-- **Language**: a typeclass pairing a program syntax with a satisfaction relation over witnesses (`w |= p`)
-- **PresReflPass**: a compiler pass equipped with a witness relation and two proofs:
-  - *Reflection* (= CC~): if a witness satisfies the target, there exists a related witness satisfying the source — the compiler doesn't lose constraints (soundness)
-  - *Preservation*: if a witness satisfies the source, there exists a related witness satisfying the target — the compiler doesn't add spurious constraints (completeness)
+- **Language**: typeclass pairing program syntax with satisfaction relation over witnesses (`w |= p`)
+- **PresReflPass**: compiler pass with witness relation and 2 proofs:
+  - *Reflection* (= CC~): target sat implies related source sat
+  - *Preservation*: source sat implies related target sat
 
-Together, these give equisatisfiability: the source and compiled programs accept the same (related) witnesses. Reflection alone is CC~ (trace-relating compiler correctness) from Abate et al. (ESOP 2020); preservation is an additional guarantee beyond CC~.
+Together, these give equisatisfiability for passes with full proofs.
 
-### Languages
+### Active pipeline
 
-| Language | Description | File |
-|----------|-------------|------|
-| **StructIR** | Structured IR with structs, functions, nesting, cross-struct calls | `Heyting/Languages/StructIR.lean` |
-| **StructInlineIR** | Call-free IR (all calls inlined; readMember preserved) | `Heyting/Languages/StructInlineIR.lean` |
-| **MemberlessIR** | Flat-variable IR (no struct hierarchy; call-free) | `Heyting/Languages/MemberlessIR.lean` |
-| **FlatIR** | Flat instruction language: felt arithmetic + equality assertions | `Heyting/Languages/FlatIR.lean` |
-| **R1CS** | Rank-1 Constraint Systems (`A * B = C` over linear combinations) | `Heyting/Languages/R1CS.lean` |
+Current executable compiler path is:
 
-See [`docs/languages.md`](docs/languages.md) for detailed descriptions of each language, their semantics, and design decisions.
+```text
+StructIR  --->  FlatIR  --->  R1CS
+```
+
+| Stage | Status | File |
+|------|--------|------|
+| **StructIR** | hierarchical source IR | `Heyting/Languages/StructIR.lean` |
+| **StructIR -> FlatIR** | active executable lowering; reflection scaffold restored, proof incomplete | `Heyting/Passes/StructIRToFlatIRDirect.lean` |
+| **FlatIR** | flat instruction IR | `Heyting/Languages/FlatIR.lean` |
+| **FlatIR -> R1CS** | fully verified `PresReflPass` | `Heyting/Passes/FlatIRToR1CS.lean` |
+| **R1CS** | backend constraint system | `Heyting/Languages/R1CS.lean` |
+| **Pipeline** | active executable composition | `Heyting/Passes/Pipeline.lean` |
+
+### Current proof status
+
+- `FlatIR -> R1CS` is fully verified.
+- Direct `StructIR -> FlatIR` executable lowering is active.
+- Direct reflection scaffold lives in:
+  - `Heyting/Passes/StructIRToFlatIRDirectSim.lean`
+  - `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean`
+- Remaining live proof gaps are currently in:
+  - `Heyting/Languages/StructIRSubst.lean`
+  - `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean`
+
+See `docs/GUARANTEES.md` and `docs/SORRY_STATUS.md` for current status.
 
 ### Parser
 
-The LLZK parser reads real circuit files in MLIR textual IR format and
-produces an untyped AST (`LLZK.Module`).
+LLZK parser reads MLIR textual IR and produces untyped AST.
 
 | Component | File |
 |-----------|------|
-| **AST** | `Heyting/Parser/AST.lean` |
-| **Tokenizer** | `Heyting/Parser/Tokenizer.lean` |
-| **Parser** | `Heyting/Parser/Parser.lean` |
-| **Entry point** | `Heyting/Parser/Main.lean` |
+| **AST** | `Heyting/Parsers/AST.lean` |
+| **Tokenizer** | `Heyting/Parsers/Tokenizer.lean` |
+| **Parser** | `Heyting/Parsers/Parser.lean` |
+| **Entry point** | `Heyting/Parsers/Main.lean` |
 
-Supported constructs: felt ops (`add`, `sub`, `mul`, `div`, `neg`, `inv`, `const`), struct ops (`new`, `readm`, `writem`), `constrain.eq`, function calls (including qualified names like `@Mod::@func`), `llzk.nondet`, and function returns. Unsupported ops are skipped with warnings.
-
-```lean
-#eval do
-  let (mod, warnings) ← LLZK.parseFile "path/to/circuit.llzk"
-  IO.println (LLZK.ppModule mod)
-```
-
-See `Heyting/Examples/ParserExamples.lean` for usage on 5 real LLZK test files.
-
-### Passes
-
-The compiler consists of a 4-pass pipeline. All passes implement the `PresReflPass` framework.
-
-| Pass | Status | File |
-|------|--------|------|
-| **StructIR → StructInlineIR** | ✅ PresReflPass (2 sorries in module WF) | `Heyting/Passes/StructIRToStructInlineIR.lean` |
-| **StructInlineIR → MemberlessIR** | ✅ PresReflPass (preservation proven; 4 sorries in reflection/WF) | `Heyting/Passes/StructInlineIRToMemberlessIR.lean` |
-| **MemberlessIR → FlatIR** | ✅ PresReflPass (3 sorries in theorems) | `Heyting/Passes/MemberlessIRToFlatIR.lean` |
-| **FlatIR → R1CS** | ✅ Fully verified (0 `sorry`, standard axioms only) | `Heyting/Passes/FlatIRToR1CS.lean` |
-| **Pipeline (StructIR → R1CS)** | ✅ PresReflPass (proven by composition; 0 sorries) | `Heyting/Passes/Pipeline.lean` |
-
-**Total: 9 sorries** in pass theorems. See [`docs/SORRY_STATUS.md`](docs/SORRY_STATUS.md) for detailed breakdown.
-
-**Pipeline proven by composition**: The end-to-end pipeline correctness (preservation and reflection) 
-is proven automatically using the generic `PresReflPass.compose` operator from `Heyting/Core/Pass.lean`. 
-The utility function `pipelineWitness` is fully implemented by chaining individual pass witness compilation 
-functions. When individual passes are proven, the pipeline correctness follows immediately. 
-See [`docs/COMPOSITION_COMPLETE.md`](docs/COMPOSITION_COMPLETE.md) for details.
-
-**Pass 2 preservation fully proven**: The StructInlineIR → MemberlessIR preservation direction was 
-completed using [Harmonic's Aristotle](https://www.harmonic.ai/) AI proof assistant, proving 14+ lemmas 
-with the `WellFormedForCompile` predicate.
-
-### Examples
-
-4 validated StructIR examples in `Heyting/Examples/StructIRExamples.lean`:
-- Single struct with equality constraints (Component1A)
-- Felt addition (Adder)
-- Felt division with non-zero constraint (Divider)
-- Nested structs with cross-struct calls (Wrapper → Component1A)
-
-Each includes `noDupReads` proofs, positive/negative satisfaction proofs, and full pipeline compilation output.
-
-5 parser examples in `Heyting/Examples/ParserExamples.lean`:
-- Constraint emission (`emit_pass.llzk` — 5 structs)
-- Nondet + constraints (`nondet_preservation.llzk` — 1 struct)
-- Circom circuits (`circomlib.llzk` — 2 structs, qualified calls)
-- Felt arithmetic (`felt_arith_pass.llzk` — free functions, correctly skipped)
-- Struct operations (`structs_pass.llzk` — 25 structs, templates skipped)
+Supported constructs include felt ops, struct ops, `constrain.eq`, function calls, `llzk.nondet`, and returns. Unsupported ops are skipped with warnings.
 
 ## Building
 
-Requires [elan](https://github.com/leanprover/elan) (Lean version manager).
+Requires [elan](https://github.com/leanprover/elan).
 
 ```bash
-lake build          # build the library
-lake build hey       # build the compiler binary
-```
-
-> **macOS 15 (darwin 24.x) note:** `lake cache get` may fail with `Invalid platform: Unexpected characters in platform`. This is a known Lake 5.0.0 / Reservoir API incompatibility — the first `lake build` will compile from source (~30 min). See [`docs/WARNING.md`](docs/WARNING.md) §6 for details and the `hey` linker workaround if needed.
-
-## Usage
-
-Build the compiler binary:
-
-```bash
+lake build
 lake build hey
 ```
 
-Run it with `lake exe` (no need to reference the binary path directly):
+> macOS 15 note: `lake cache get` may fail with `Invalid platform: Unexpected characters in platform`. First `lake build` may compile from source. See `docs/WARNING.md`.
+
+## Usage
 
 ```bash
+lake build hey
 lake exe hey help
-lake exe hey compile [--prime-field <field>] <input.llzk> <output.json>
+lake exe hey compile [--prime-field <field>] <input.llzk> <output>
 ```
 
-Or invoke the binary directly at `.lake/build/bin/hey`.
+Or invoke binary directly at `.lake/build/bin/hey`.
 
 ### Supported prime fields
 
-The `--prime-field` flag selects the field. The default is `bn254`.
+Default field is `bn254`.
 
 | Flag | Prime | Used by |
 |------|-------|---------|
@@ -135,72 +96,39 @@ The `--prime-field` flag selects the field. The default is `bn254`.
 | `mersenne31` | 2147483647 (2³¹ − 1) | Plonky3 |
 | `koalabear` | 2130706433 (2³¹ − 2²⁴ + 1) | Plonky3 |
 
-These match the 6 fields in `llzk-lib/lib/Util/Field.cpp`.
-
 ### Example
 
 ```bash
 mkdir -p out
 
-# Default field (bn254)
-lake exe hey compile llzk-lib/test/Dialect/Constrain/emit_pass.llzk out/emit_pass.json
-# Wrote R1CS JSON to out/emit_pass.json (field: bn254)
-#   Constraints: 4
-#   Variables: 3
+# Binary R1CS
+lake exe hey compile circuit.llzk out/system
+
+# JSON R1CS
+lake exe hey compile --json circuit.llzk out/system
+
+# JSON R1CS + witness generation
+lake exe hey compile --json --auto circuit.llzk out/system
 
 # Explicit field selection
-lake exe hey compile --prime-field babybear circuit.llzk out/system.json
+lake exe hey compile --prime-field babybear circuit.llzk out/system
 ```
 
-The output JSON has this structure:
-
-```json
-{
-  "numConstraints": 4,
-  "numVars": 3,
-  "numAuxVars": 0,
-  "constraints": [
-    { "A": [...], "B": [...], "C": [...] },
-    ...
-  ]
-}
-```
-
-Each constraint is an R1CS triple `A * B = C` over linear combinations of field elements.
-Variables are tagged `varOne` (the constant 1), `var n` (input/output), or `aux n` (auxiliary).
-
-All compiler passes and verified theorems are **generic over the field** `F : Type [Field F]`
-— the correctness proofs hold for any field. The field is selected at the CLI boundary only.
-
-### Compatibility with circom's JSON format
-
-The output is **not compatible** with circom's `--json` format. Circom uses a different schema:
-
-| | Heyting | circom |
-|---|---|---|
-| Top-level shape | `{numConstraints, numVars, numAuxVars, constraints: [...]}` | `{constraints: [...]}` |
-| Constraint shape | `{"A": lc, "B": lc, "C": lc}` | `[lc_A, lc_B, lc_C]` (3-element array) |
-| Linear combination | `[{var: {tag, index}, coeff: "repr"}, ...]` | `{"signal_index": "decimal_coeff_string", ...}` |
-| Constant 1 | `{tag: "varOne"}` | signal index `"0"` |
-| Coefficients | `repr` of field element (e.g. `"1"`) | decimal string of the full field element integer |
-
-Bridging to snarkjs or other circom tooling would require a post-processing step to convert to circom's schema. This is a planned future output format.
+All pass theorems are generic over `F : Type [Field F]`; CLI field selection happens only at boundary.
 
 ## Roadmap
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed roadmap.
+See `docs/ROADMAP.md`.
 
-- [x] FlatIR → R1CS pass (fully verified)
-- [x] StructIR language (structs, functions, nesting with intrinsic well-formedness)
-- [x] StructIR → FlatIR pass (fully verified)
-- [x] Nested struct support (readMember/objEnv tracking)
-- [x] Proof engineering: custom tactics for pass proofs
-- [x] LLZK parser (read real circuit files)
-- [x] AST → StructIR lowering
-- [x] R1CS serialization output (`hey compile`)
-- [x] Multi-field support (`--prime-field`: bn254, bn128, babybear, goldilocks, mersenne31, koalabear)
+- [x] FlatIR -> R1CS proof
+- [x] StructIR language with intrinsic well-formedness
+- [x] Direct executable StructIR -> FlatIR lowering
+- [x] LLZK parser and lowering to StructIR
+- [x] JSON and binary R1CS / witness output
+- [ ] Finish direct `StructIR -> FlatIR` reflection proof
+- [ ] Upgrade direct path to full `PresReflPass`
 - [ ] Array support
-- [ ] Optimization passes (with correctness proofs)
+- [ ] Verified optimization passes
 
 ## License
 
