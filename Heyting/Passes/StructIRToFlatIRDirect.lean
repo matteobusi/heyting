@@ -94,7 +94,7 @@ def compileConstrainBody (m : StructIR.Module n F)
       -- (non-param freshened vars) the result is [] which is overwritten by
       -- subsequent readMember updates inside the callee.
       let adjustedObjEnv : StructIR.ObjEnv := fun v =>
-        if h : nextFresh ≤ v then
+        if nextFresh ≤ v then
           calleeObjEnv (v - nextFresh)
         else
           []
@@ -108,7 +108,7 @@ def compileConstrainBody (m : StructIR.Module n F)
     all_goals
       first
       | apply Prod.Lex.left
-        simpa using target.isLt
+        exact target.isLt
       | apply Prod.Lex.right
         simp
 
@@ -157,7 +157,7 @@ def compileProgram (m : StructIR.Module (n + 1) F) : FlatIR.Program F :=
 instance CorrectPass (F : Type) [Field F] (n : Nat) :
     Pass (StructIRSubst.Language n F) (FlatIRSubst.Language F) where
   compile := compileProgram (F := F)
-  witnessRel m ws wt :=
+  witnessRel _ ws wt :=
     -- Uniform bijection: FlatIR var v corresponds to StructIR position decode v.
     -- This aligns with the decode-seeded satisfies semantics.
     ∀ v, wt v = ws (VarIdEncoding.decode v)

@@ -563,7 +563,7 @@ def evalConstrainBodyChecked [DecidableEq F] (m : StructIR.Module n F) (w : Stru
   termination_by (i, stmts.length)
   decreasing_by
     all_goals first
-    | apply Prod.Lex.left; simpa using target.isLt
+    | apply Prod.Lex.left; exact target.isLt
     | apply Prod.Lex.right; simp
 
 /-- Unfolded equation for the `.call` branch of the checked evaluator. -/
@@ -619,13 +619,13 @@ private def Result.isSuccess {α : Type} : Result α → Prop
   | .success _ => True
   | .failure _ _ => False
 
-private theorem prependIfSuccess_isSuccess (a : Atom F) (r : Result (Atom F)) :
+private theorem prependIfSuccess_isSuccess {α : Type} (a : Atom α) (r : Result (Atom α)) :
     Result.isSuccess (prependIfSuccess a r) ↔ Result.isSuccess r := by
-  cases r <;> simp [prependIfSuccess, Result.isSuccess]
+  cases r <;> simp only [prependIfSuccess, Result.isSuccess]
 
-private theorem appendPrefix_isSuccess (pre : List (Atom F)) (r : Result (Atom F)) :
-    Result.isSuccess (Result.appendPrefix pre r) ↔ Result.isSuccess r := by
-  cases r <;> simp [Result.appendPrefix, Result.isSuccess]
+private theorem appendPrefix_isSuccess {α : Type} (pre : List (Atom α))
+    (r : Result (Atom α)) : Result.isSuccess (Result.appendPrefix pre r) ↔ Result.isSuccess r := by
+  cases r <;> simp only [Result.appendPrefix, Result.isSuccess]
 
 private lemma get_map_lemma (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ → F) (n : ℕ) :
     (match Option.map ρ (args[n]?) with | some a => env a | none => 0) =
@@ -641,6 +641,7 @@ private lemma get_map_lemma_obj (ρ : ℕ → ℕ) (args : List ℕ) (env : ℕ 
   | nil => simp
   | cons a args ih => cases n with | zero => simp | succ n => simp [ih n]
 
+set_option linter.unusedSectionVars false in
 private lemma env_update_rename_comm (env : LocalEnv F) (dest : LocalVar) (val : F)
     (ρ : Nat → Nat) (hρ_inj : Function.Injective ρ) :
     (env.update (ρ dest) val) ∘ ρ = LocalEnv.update (env ∘ ρ) dest val := by
@@ -659,6 +660,7 @@ private lemma objEnv_update_rename_comm (objEnv : ObjEnv) (dest : LocalVar) (pat
   · have hne : ρ x ≠ ρ dest := by intro hEq; exact hx (hρ_inj hEq)
     simp [hx, hne]
 
+set_option linter.flexible false in
 private lemma evalConstrainBody_rename (m : Module n F) (w : Witness F) (i : Fin n)
     (env : LocalEnv F) (objEnv : ObjEnv) (ρ : Nat → Nat) (hρ_inj : Function.Injective ρ)
     (body : List (ConstrainStmt n i F (m.structs i).members.length)) :
@@ -709,12 +711,20 @@ private lemma evalConstrainBody_rename (m : Module n F) (w : Witness F) (i : Fin
         (fun param : Nat => match args[param]? with | some a => (env ∘ ρ) a | none => 0) := by
         apply funext; intro n; apply get_map_lemma ρ args env n
       have h_callee_objEnv_eq :
-        (fun param : Nat => match Option.map ρ args[param]? with | some a => objEnv a | none => []) =
-        (fun param : Nat => match args[param]? with | some a => (objEnv ∘ ρ) a | none => []) := by
+        (fun param : Nat =>
+          match Option.map ρ args[param]? with
+          | some a => objEnv a
+          | none => []) =
+        (fun param : Nat =>
+          match args[param]? with
+          | some a => (objEnv ∘ ρ) a
+          | none => []) := by
         apply funext; intro n; apply get_map_lemma_obj ρ args objEnv n
       constructor
-      · rintro ⟨hcall, h⟩; refine ⟨h_callee_objEnv_eq ▸ h_callee_env_eq ▸ hcall, (ih env objEnv).mp h⟩
-      · rintro ⟨hcall, h⟩; refine ⟨h_callee_objEnv_eq.symm ▸ h_callee_env_eq.symm ▸ hcall, (ih env objEnv).mpr h⟩
+      · rintro ⟨hcall, h⟩
+        refine ⟨h_callee_objEnv_eq ▸ h_callee_env_eq ▸ hcall, (ih env objEnv).mp h⟩
+      · rintro ⟨hcall, h⟩
+        refine ⟨h_callee_objEnv_eq.symm ▸ h_callee_env_eq.symm ▸ hcall, (ih env objEnv).mpr h⟩
 
 /-- If two local-variable environments agree on all parameter variables (those
     below `numParams`), and the body is in SSA form, then evaluation with
@@ -735,7 +745,7 @@ private lemma evalConstrainBody_env_agree_on_init
     evalConstrainBody m w i env1 objEnv body ↔ evalConstrainBody m w i env2 objEnv body := by
   sorry
 
-private lemma list_all_true_of_mem {α : Type} [DecidableEq α]
+private lemma list_all_true_of_mem {α : Type}
     (xs : List α) (p : α → Bool) (x : α)
     (hall : xs.all p = true) (hx : x ∈ xs) : p x = true := by
   induction xs generalizing x with
@@ -743,7 +753,7 @@ private lemma list_all_true_of_mem {α : Type} [DecidableEq α]
   | cons y ys ih =>
     simp only [List.all, Bool.and_eq_true] at hall
     rcases hall with ⟨hy, hys⟩
-    simp at hx
+    simp only [List.mem_cons] at hx
     rcases hx with rfl | hx
     · exact hy
     · exact ih _ hys hx
@@ -758,7 +768,8 @@ private lemma mem_dropVar_of_mem_of_ne (v x : Nat) (xs : List Nat)
   exact (mem_dropVar_iff v x xs).2 ⟨hx, hneq⟩
 
 private lemma mem_collectNeededArgs_of_mem (args needed : List Nat) (p arg : Nat)
-    (hp : p ∈ needed) (harg : args[p]? = some arg) : arg ∈ StructIR.collectNeededArgs args needed := by
+    (hp : p ∈ needed) (harg : args[p]? = some arg) :
+    arg ∈ StructIR.collectNeededArgs args needed := by
   exact (List.mem_filterMap).2 ⟨p, hp, harg⟩
 
 private lemma evalConstrainBody_objEnv_agree_on_init
@@ -789,8 +800,7 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
     (∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v) →
     (Result.isSuccess ((evalConstrainBodyChecked m w i σv σo nextFresh stmts).res) ↔
     evalConstrainBody m w i env objEnv stmts))) i.val ?_ i rfl
-  intro k ih_k
-  intro i hi σv σo env objEnv nextFresh stmts hInv hInvO
+  intro k ih_k i hi σv σo env objEnv nextFresh stmts hInv hInvO
   subst hi
   induction stmts generalizing σv σo env objEnv nextFresh with
   | nil =>
@@ -805,14 +815,15 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
       have hsrc2 : VTerm.interp w defaultValuation defaultPathValuation (σv src2) = env src2 := by
         simpa using hInv src2
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
-          (bindV σv dest (.add (σv src1) (σv src2)) v) = (env.update dest (env src1 + env src2)) v := by
+          (bindV σv dest (.add (σv src1) (σv src2)) v) =
+          (env.update dest (env src1 + env src2)) v := by
         intro v
-        simp [bindV, LocalEnv.update]
+        simp only [bindV, LocalEnv.update]
         split <;> try exact hInv v
-        simp [VTerm.interp]
+        simp only [VTerm.interp]
         simp_all only
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
-      simp [true_and]
+      simp only [true_and]
       exact ih_rest (bindV σv dest (.add (σv src1) (σv src2))) σo
         (env.update dest (env src1 + env src2)) objEnv nextFresh hInv' hInvO'
     | feltSub dest src1 src2 =>
@@ -822,14 +833,15 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
       have hsrc2 : VTerm.interp w defaultValuation defaultPathValuation (σv src2) = env src2 := by
         simpa using hInv src2
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
-          (bindV σv dest (.sub (σv src1) (σv src2)) v) = (env.update dest (env src1 - env src2)) v := by
+          (bindV σv dest (.sub (σv src1) (σv src2)) v) =
+          (env.update dest (env src1 - env src2)) v := by
         intro v
-        simp [bindV, LocalEnv.update]
+        simp only [bindV, LocalEnv.update]
         split <;> try exact hInv v
-        simp [VTerm.interp]
+        simp only [VTerm.interp]
         simp_all only
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
-      simp [hsrc1, hsrc2]
+      simp only [true_and]
       exact ih_rest (bindV σv dest (.sub (σv src1) (σv src2))) σo
         (env.update dest (env src1 - env src2)) objEnv nextFresh hInv' hInvO'
     | feltMul dest src1 src2 =>
@@ -839,14 +851,15 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
       have hsrc2 : VTerm.interp w defaultValuation defaultPathValuation (σv src2) = env src2 := by
         simpa using hInv src2
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
-          (bindV σv dest (.mul (σv src1) (σv src2)) v) = (env.update dest (env src1 * env src2)) v := by
+          (bindV σv dest (.mul (σv src1) (σv src2)) v) =
+          (env.update dest (env src1 * env src2)) v := by
         intro v
-        simp [bindV, LocalEnv.update]
+        simp only [bindV, LocalEnv.update]
         split <;> try exact hInv v
-        simp [VTerm.interp]
+        simp only [VTerm.interp]
         simp_all only
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
-      simp [hsrc1, hsrc2]
+      simp only [true_and]
       exact ih_rest (bindV σv dest (.mul (σv src1) (σv src2))) σo
         (env.update dest (env src1 * env src2)) objEnv nextFresh hInv' hInvO'
     | feltDiv dest src1 src2 =>
@@ -859,9 +872,9 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
           (bindV σv dest (.div (σv src1) (σv src2)) v) =
           (env.update dest (env src1 * (env src2)⁻¹)) v := by
         intro v
-        simp [bindV, LocalEnv.update]
+        simp only [bindV, LocalEnv.update]
         split <;> try exact hInv v
-        simp [VTerm.interp]
+        simp only [VTerm.interp]
         simp_all only
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
       simp only [evalConstrainBodyChecked, evalConstrainBody]
@@ -891,47 +904,50 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
           (bindV σv dest (.neg (σv src)) v) = (env.update dest (-(env src))) v := by
         intro v
-        simp [bindV, LocalEnv.update]
+        simp only [bindV, LocalEnv.update]
         split <;> try exact hInv v
-        simp [VTerm.interp]
+        simp only [VTerm.interp]
         simp_all only
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
-      simp [hsrc]
-      exact ih_rest (bindV σv dest (.neg (σv src))) σo (env.update dest (-(env src))) objEnv nextFresh hInv' hInvO'
+      simp only [true_and]
+      exact ih_rest (bindV σv dest (.neg (σv src))) σo
+        (env.update dest (-(env src))) objEnv nextFresh hInv' hInvO'
     | feltConst dest c =>
       simp only [evalConstrainBodyChecked, evalConstrainBody, Result.isSuccess]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
           (bindV σv dest (.const c) v) = (env.update dest c) v := by
         intro v
-        simp [bindV, LocalEnv.update]
+        simp only [bindV, LocalEnv.update]
         split <;> try exact hInv v
-        simp [VTerm.interp]
+        simp only [VTerm.interp]
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
-      simp
+      simp only [true_and]
       exact ih_rest (bindV σv dest (.const c)) σo (env.update dest c) objEnv nextFresh hInv' hInvO'
     | readMember dest self member =>
       simp only [evalConstrainBodyChecked, evalConstrainBody, Result.isSuccess]
-      have hbase : PTerm.interp defaultPathValuation (σo self) = objEnv self := by simpa using hInvO self
-      have hpath_val : VTerm.interp w defaultValuation defaultPathValuation (.witnessAt (σo self) member.val)
+      have hbase : PTerm.interp defaultPathValuation (σo self) = objEnv self := by
+        simpa using hInvO self
+      have hpath_val : VTerm.interp w defaultValuation defaultPathValuation
+          (.witnessAt (σo self) member.val)
         = w (objEnv self, member.val) := by
         simp [VTerm.interp, hbase]
       have hInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation
           (bindV σv dest (.witnessAt (σo self) member.val) v) =
           (env.update dest (w (objEnv self, member.val))) v := by
         intro v
-        simp [bindV, LocalEnv.update]
+        simp only [bindV, LocalEnv.update]
         split <;> try exact hInv v
-        simp [VTerm.interp]
+        simp only [VTerm.interp]
         simp_all only
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation
           (bindO σo dest (.append (σo self) member.val) v) =
           (objEnv.update dest (objEnv self ++ [member.val])) v := by
         intro v
-        simp [bindO, ObjEnv.update]
+        simp only [bindO, ObjEnv.update]
         split <;> try exact hInvO v
-        simp [PTerm.interp]
+        simp only [PTerm.interp]
         simp_all only
-      simp [hbase, hpath_val]
+      simp only [true_and]
       exact ih_rest (bindV σv dest (.witnessAt (σo self) member.val))
         (bindO σo dest (.append (σo self) member.val))
         (env.update dest (w (objEnv self, member.val)))
@@ -943,7 +959,8 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
         simpa using hInv src2
       set eqAtom : Atom F := CAtom.eq (σv src1) (σv src2) with heqAtomDef
       have hcheck_iff : checkAtom w eqAtom = true ↔ env src1 = env src2 := by
-        rw [checkAtom_true_iff, heqAtomDef, CAtom.interp]; simp [hsrc1, hsrc2]
+        rw [checkAtom_true_iff, heqAtomDef, CAtom.interp]
+        simp only [hsrc1, hsrc2]
       have hInvO' : ∀ v, PTerm.interp defaultPathValuation (σo v) = objEnv v := hInvO
       simp only [evalConstrainBodyChecked, evalConstrainBody]
       by_cases hcheck : checkAtom w eqAtom = true
@@ -980,7 +997,6 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
       let calleeObjEnv : ObjEnv := fun param =>
         match args[param]? with | some arg => objEnv arg | none => []
       have h_freshBody_eq : freshened.1 = renameBody ρ calleeBody := by rfl
-
       have hρ_inj : Function.Injective ρ := by
         intro a b h
         exact Nat.add_left_cancel h
@@ -989,9 +1005,11 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
         VTerm.interp w defaultValuation defaultPathValuation (calleeσv v)
       let calleeObjEnv' : ObjEnv := fun v =>
         PTerm.interp defaultPathValuation (calleeσo v)
-      have hCalleeInv' : ∀ v, VTerm.interp w defaultValuation defaultPathValuation (calleeσv v) = calleeEnv' v := by
+      have hCalleeInv' : ∀ v,
+          VTerm.interp w defaultValuation defaultPathValuation (calleeσv v) = calleeEnv' v := by
         intro v; rfl
-      have hCalleeInvO' : ∀ v, PTerm.interp defaultPathValuation (calleeσo v) = calleeObjEnv' v := by
+      have hCalleeInvO' : ∀ v,
+          PTerm.interp defaultPathValuation (calleeσo v) = calleeObjEnv' v := by
         intro v; rfl
       have h_callee_iff := ih_k j.val hj_lt_i j rfl calleeσv calleeσo calleeEnv' calleeObjEnv'
         freshened.2 freshened.1 hCalleeInv' hCalleeInvO'
@@ -1025,28 +1043,33 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
           simp [calleeObjEnv, harg, PTerm.interp]
         | some arg =>
           simp [calleeObjEnv, harg, hInvO]
-      have hCalleeSSA : StructIR.isSSA (fun v => v < numParams) calleeBody = true :=
-        by simpa [numParams, calleeBody] using m.all_ssa j
-      have hCalleeObj : StructIR.objectSafe m.structs j (fun v => v < numParams) calleeBody = true := by
+      have hCalleeSSA : StructIR.isSSA (fun v => v < numParams) calleeBody = true := by
+        simpa [numParams, calleeBody] using m.all_ssa j
+      have hCalleeObj : StructIR.objectSafe m.structs j (fun v => v < numParams) calleeBody =
+          true := by
         simpa [numParams, calleeBody] using m.all_objSafe j
       have hCalleeObjSafe : (StructIR.objectInfo m.structs j calleeBody).1 = true := by
-        have h := hCalleeObj
-        simp [StructIR.objectSafe] at h
-        exact h.1
-      have hCalleeObjAll : ∀ x ∈ (StructIR.objectInfo m.structs j calleeBody).2, x < numParams := by
-        have h := hCalleeObj
-        have h' : ((StructIR.objectInfo m.structs j calleeBody).1 = true) ∧
-            (∀ x ∈ (StructIR.objectInfo m.structs j calleeBody).2, x < numParams) := by
-          simpa [StructIR.objectSafe, Bool.and_eq_true] using h
-        exact h'.2
+        have h' : (StructIR.objectInfo m.structs j calleeBody).1 = true ∧
+            (StructIR.objectInfo m.structs j calleeBody).2.all (fun v => v < numParams) = true := by
+          simpa [StructIR.objectSafe, Bool.and_eq_true] using hCalleeObj
+        exact h'.1
+      have hCalleeObjAll : ∀ x ∈ (StructIR.objectInfo m.structs j calleeBody).2,
+          x < numParams := by
+        have h' : (StructIR.objectInfo m.structs j calleeBody).1 = true ∧
+            (StructIR.objectInfo m.structs j calleeBody).2.all (fun v => v < numParams) = true := by
+          simpa [StructIR.objectSafe, Bool.and_eq_true] using hCalleeObj
+        intro x hx
+        simpa using (list_all_true_of_mem _ _ x h'.2 hx)
       have h_env_agree : evalConstrainBody m w j (calleeEnv' ∘ ρ) (calleeObjEnv' ∘ ρ) calleeBody ↔
           evalConstrainBody m w j calleeEnv (calleeObjEnv' ∘ ρ) calleeBody := by
-        apply evalConstrainBody_env_agree_on_init m w j (calleeEnv' ∘ ρ) calleeEnv (calleeObjEnv' ∘ ρ) calleeBody hCalleeSSA
+        apply evalConstrainBody_env_agree_on_init m w j
+          (calleeEnv' ∘ ρ) calleeEnv (calleeObjEnv' ∘ ρ) calleeBody hCalleeSSA
         intro v hv
         exact h_param_agree v (by simpa [numParams] using hv)
       have h_obj_agree : evalConstrainBody m w j calleeEnv (calleeObjEnv' ∘ ρ) calleeBody ↔
           evalConstrainBody m w j calleeEnv calleeObjEnv calleeBody := by
-        apply evalConstrainBody_objEnv_agree_on_init m w j calleeEnv (calleeObjEnv' ∘ ρ) calleeObjEnv
+        apply evalConstrainBody_objEnv_agree_on_init m w j
+          calleeEnv (calleeObjEnv' ∘ ρ) calleeObjEnv
           calleeBody hCalleeObjSafe
         intro v hv
         have hv' : v < numParams := hCalleeObjAll v hv
@@ -1054,7 +1077,8 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
       have h_callee_eval_iff : Result.isSuccess callOut.res ↔
           evalConstrainBody m w j calleeEnv calleeObjEnv calleeBody := by
         rw [h_callee_iff, h_rename, h_env_agree, h_obj_agree]
-      have h_rest_iff : Result.isSuccess ((evalConstrainBodyChecked m w i σv σo freshened.2 rest).res) ↔
+      have h_rest_iff : Result.isSuccess
+          ((evalConstrainBodyChecked m w i σv σo freshened.2 rest).res) ↔
           evalConstrainBody m w i env objEnv rest :=
         ih_rest σv σo env objEnv freshened.2 hInv hInvO
       rw [evalConstrainBodyChecked_call_eq]
@@ -1082,7 +1106,6 @@ private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody
           exact hCallProp' h.1
         simp only [Result.isSuccess]
         -- exact (iff_false_intro hFalse).symm
-
         simpa [Result.isSuccess] using (iff_false_intro hFalse).symm
       | success callTrace =>
         have hCallSucc : Result.isSuccess callOut.res := by
@@ -1117,8 +1140,9 @@ theorem checkedSuccess_iff_satisfies [DecidableEq F]
     simp [initPathSubst, initObjEnv, PTerm.interp, ObjEnv.update]
   constructor
   · intro ⟨trace, h⟩
-    have h_success : Result.isSuccess ((evalConstrainBodyChecked m w mainIdx initValSubst initPathSubst
-        initNextFresh mainBody).res) := by
+    have h_success : Result.isSuccess
+        ((evalConstrainBodyChecked m w mainIdx initValSubst initPathSubst
+          initNextFresh mainBody).res) := by
       have h' : (evalConstrainBodyChecked m w mainIdx initValSubst initPathSubst
         initNextFresh mainBody).res = Result.success trace := by
         simpa [evalChecked] using h
@@ -1132,10 +1156,12 @@ theorem checkedSuccess_iff_satisfies [DecidableEq F]
     exact h_satisfies
   · intro h_satisfies
     unfold StructIR.satisfies at h_satisfies
-    have h_main : evalConstrainBody m w mainIdx (fun k => w (VarIdEncoding.decode k)) initObjEnv mainBody := by
+    have h_main : evalConstrainBody m w mainIdx (fun k => w (VarIdEncoding.decode k))
+        initObjEnv mainBody := by
       simpa [initObjEnv] using h_satisfies
-    have h_success : Result.isSuccess ((evalConstrainBodyChecked m w mainIdx initValSubst initPathSubst
-        initNextFresh mainBody).res) :=
+    have h_success : Result.isSuccess
+        ((evalConstrainBodyChecked m w mainIdx initValSubst initPathSubst
+          initNextFresh mainBody).res) :=
       (evalConstrainBodyChecked_success_iff_evalConstrainBody m w mainIdx
         initValSubst initPathSubst (fun k => w (VarIdEncoding.decode k)) initObjEnv
         initNextFresh mainBody hInitInv hInitInvO).mpr h_main

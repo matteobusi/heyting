@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$ROOT/.lake/build/bin/hey"
-INPUT="./multiply.llzk"
+INPUT="$ROOT/scripts/multiply.llzk"
 OUT_BASE="${TMPDIR:-/tmp}/heyting-smoke"
 
 rm -rf "$OUT_BASE"

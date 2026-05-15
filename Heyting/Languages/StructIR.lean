@@ -182,7 +182,7 @@ def objectInfo {F : Type} (structs : (i : Fin n) → StructDef n i F)
 termination_by (i, stmts.length)
 decreasing_by
   all_goals first
-  | apply Prod.Lex.left; simpa using target.isLt
+  | apply Prod.Lex.left; exact target.isLt
   | apply Prod.Lex.right; simp
 
 /-- Object-channel safety for constrain body with entry object-ready set `init`. -/
@@ -241,7 +241,7 @@ def readPositions {F : Type} (structs : (i : Fin n) → StructDef n i F)
   termination_by (i, stmts.length)
   decreasing_by
     all_goals first
-    | apply Prod.Lex.left; simpa using target.isLt
+    | apply Prod.Lex.left; exact target.isLt
     | apply Prod.Lex.right; simp
 
 /-!
@@ -269,9 +269,12 @@ structure Module (n : Nat) (F : Type) where
     (readPositions structs mainIdx initObjEnv
       (structs mainIdx).constrain.body).Nodup
   all_ssa : ∀ (i : Fin n),
-    isSSA (fun v => v < (structs i).constrain.numParams) (structs i).constrain.body = true
+    isSSA (fun v => v < (structs i).constrain.numParams)
+      (structs i).constrain.body = true
   all_objSafe : ∀ (i : Fin n),
-    objectSafe structs i (fun v => v < (structs i).constrain.numParams) (structs i).constrain.body = true
+    objectSafe structs i
+      (fun v => v < (structs i).constrain.numParams)
+      (structs i).constrain.body = true
 
 -- The main struct is the last one (highest index = root of DAG)
 def Module.main {n : Nat} (m : Module (n + 1) F) :
@@ -349,7 +352,7 @@ def evalConstrainBody (m : Module n F) (w : Witness F)
 termination_by (i, stmts.length)
 decreasing_by
   all_goals first
-  | apply Prod.Lex.left; simpa using target.isLt
+  | apply Prod.Lex.left; exact target.isLt
   | apply Prod.Lex.right; simp
 
 -- Top-level: evaluate @Main::@constrain (main = last struct).
@@ -488,7 +491,7 @@ def evalComputeBody (m : Module n F)
 termination_by (i, stmts.length)
 decreasing_by
   all_goals first
-  | apply Prod.Lex.left; simpa using target.isLt
+  | apply Prod.Lex.left; exact target.isLt
   | apply Prod.Lex.right; simp
 
 /-- Build the initial `ComputeState` from a list of public inputs.
