@@ -67,6 +67,24 @@ class PresReflPass
   (S : Language Vs Fs) (T : Language Vt Ft)
 extends Pass S T, PreservingPass S T, ReflectingPass S T
 
+/-! ## Composition of ReflectingPass instances -/
+
+/-- Compose two ReflectingPass instances to get a ReflectingPass for composition. -/
+def ReflectingPass.compose
+  {Vs Vm Vt : Type} {Fs Fm Ft : Type}
+  [Field Fs] [Field Fm] [Field Ft]
+  {S : Language Vs Fs} {M : Language Vm Fm} {T : Language Vt Ft}
+  (pass1 : ReflectingPass S M) (pass2 : ReflectingPass M T) :
+  ReflectingPass S T where
+  compile := pass2.compile ∘ pass1.compile
+  witnessRel p ws wt :=
+    ∃ wm, pass1.witnessRel p ws wm ∧ pass2.witnessRel (pass1.compile p) wm wt
+  reflection := by
+    intro wt p hs
+    obtain ⟨wm, hwrel2, hsat2⟩ := pass2.reflection wt (pass1.compile p) hs
+    obtain ⟨ws, hwrel1, hsat1⟩ := pass1.reflection wm p hsat2
+    exact ⟨ws, ⟨wm, hwrel1, hwrel2⟩, hsat1⟩
+
 /-! ## Composition of PresReflPass instances -/
 
 /-- Compose two PresReflPass instances to get a PresReflPass for the composition.
