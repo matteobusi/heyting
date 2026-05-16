@@ -18,6 +18,7 @@ When both directions exist, source and target are equisatisfiable.
 ```text
 StructIR
   --[StructIRToFlatIR]--> FlatIR
+  --[FlatIRCompact]------> FlatIR
   --[FlatIRToR1CS]------------> R1CS
 ```
 
@@ -49,6 +50,19 @@ Status:
 - 0 sorries
 - standard axioms only (`propext`, `Classical.choice`, `Quot.sound`)
 
+### `FlatIR -> FlatIR(compact)`
+
+File:
+
+- `Heyting/Passes/FlatIRCompact.lean`
+
+Status:
+
+- full `PresReflPass`
+- densely renames all used FlatIR variables to `0..k-1`
+- used by active executable pipeline before R1CS lowering
+- shrinks sparse emitted wire spaces without changing satisfiability
+
 ## Pipeline status
 
 File:
@@ -60,6 +74,7 @@ Status:
 - executable composition of active path is active
 - CLI and smoke tests run through this path
 - proved `ReflectingPass`
+- runtime path uses FlatIR compaction before R1CS lowering
 - end-to-end `PresReflPass` is not yet available
 
 ## Witness generation

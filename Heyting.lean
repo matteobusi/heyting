@@ -9,6 +9,7 @@ import Heyting.Languages.StructIR
 import Heyting.Core.TrinitaryCC
 
 import Heyting.Passes.FlatIRToR1CS
+import Heyting.Passes.FlatIRCompact
 import Heyting.Passes.StructIRToFlatIR
 import Heyting.Passes.Pipeline
 import Heyting.Passes.Tactics

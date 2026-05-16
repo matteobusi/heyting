@@ -3,7 +3,7 @@
 Current active pipeline:
 
 ```text
-StructIR  --->  FlatIR  --->  R1CS
+StructIR  --->  FlatIR  --->  FlatIR(compact)  --->  R1CS
 ```
 
 ## Core abstractions
@@ -71,6 +71,20 @@ Rank-1 Constraint Systems.
 - constraints have shape `A * B = C`
 - variable IDs are `varOne | var n | aux n`
 - target of fully verified `FlatIR -> R1CS` pass
+
+## FlatIR compaction pass
+
+File: `Heyting/Passes/FlatIRCompact.lean`
+
+This is not a new user-facing language. It is a semantics-preserving FlatIR to
+FlatIR renaming pass that:
+
+- collects all used FlatIR variables
+- assigns them dense IDs `0 .. k - 1` in first-occurrence order
+- preserves satisfiability via a proved `PresReflPass`
+- reduces emitted R1CS wire counts when upstream FlatIR variable IDs are sparse
+
+Active pipeline uses this pass before `FlatIR -> R1CS` lowering.
 
 ## Helper semantic layers
 

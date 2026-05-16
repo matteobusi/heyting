@@ -24,7 +24,7 @@ Together, these give equisatisfiability for passes with full proofs.
 Current executable compiler path is:
 
 ```text
-StructIR  --->  FlatIR  --->  R1CS
+StructIR  --->  FlatIR  --->  FlatIR(compact)  --->  R1CS
 ```
 
 | Stage | Status | File |
@@ -32,15 +32,17 @@ StructIR  --->  FlatIR  --->  R1CS
 | **StructIR** | hierarchical source IR | `Heyting/Languages/StructIR.lean` |
 | **StructIR -> FlatIR** | active executable lowering; proved `ReflectingPass` | `Heyting/Passes/StructIRToFlatIR.lean` |
 | **FlatIR** | flat instruction IR | `Heyting/Languages/FlatIR.lean` |
+| **FlatIR -> FlatIR(compact)** | dense variable renaming; proved `PresReflPass` | `Heyting/Passes/FlatIRCompact.lean` |
 | **FlatIR -> R1CS** | fully verified `PresReflPass` | `Heyting/Passes/FlatIRToR1CS.lean` |
 | **R1CS** | backend constraint system | `Heyting/Languages/R1CS.lean` |
 | **Pipeline** | active executable composition; proved `ReflectingPass` | `Heyting/Passes/Pipeline.lean` |
 
 ### Current proof status
 
+- `FlatIR -> FlatIR(compact)` is fully verified as a `PresReflPass`.
 - `FlatIR -> R1CS` is fully verified as a `PresReflPass`.
 - `StructIR -> FlatIR` is verified as a `ReflectingPass`.
-- `StructIR -> FlatIR -> R1CS` pipeline is verified as a `ReflectingPass`.
+- `StructIR -> FlatIR -> FlatIR(compact) -> R1CS` pipeline is verified as a `ReflectingPass`.
 - Current active support file for pass-1 proofs is `Heyting/Languages/StructIRFreshen.lean`.
 
 See `docs/GUARANTEES.md` for current status.
@@ -115,6 +117,11 @@ lake exe hey compile --prime-field babybear circuit.llzk out/system
 ```
 
 All pass theorems are generic over `F : Type [Field F]`; CLI field selection happens only at boundary.
+
+Compaction matters for emitted artifacts: sparse witness-coordinate variables from
+`StructIR -> FlatIR` are now renamed densely before R1CS lowering. For example,
+`scripts/multiply.llzk` drops from `994` wires to `15` wires with identical
+constraints and a valid `snarkjs` witness check.
 
 - [x] FlatIR -> R1CS proof
 - [x] StructIR language with intrinsic well-formedness

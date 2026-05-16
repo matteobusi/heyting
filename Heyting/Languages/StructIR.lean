@@ -373,23 +373,34 @@ decreasing_by
   | apply Prod.Lex.left; exact target.isLt
   | apply Prod.Lex.right; simp
 
+/-- Canonical witness coordinate for the `p`-th constrain parameter of a main
+    struct with `numMembers` members.
+
+    Members live at `([], m)` for `m < numMembers`. Sub-structs live at deeper
+    paths `(m :: ...)`. Params live at single-segment paths
+    `([numMembers + p], 0)`, which cannot collide with any member coord
+    (different path length / different head index) and cannot be read by any
+    `readMember` (which always produces coords of the form `(path, m)` with
+    `m < numMembers'` for the corresponding sub-struct's member count). -/
+def paramCoord (numMembers p : Nat) : VarId :=
+  ([numMembers + p], 0)
+
 -- Top-level: evaluate @Main::@constrain (main = last struct).
--- The initial local environment is seeded via VarIdEncoding.decode:
---   `env k = w (VarIdEncoding.decode k)` for all `k`.
--- This aligns with the direct compiler's witness encoding:
---   FlatIR var k encodes StructIR witness position `decode k`.
--- For k = 0, 1: decode k = ([], k), so env k = w ([], k) as before.
--- For k ≥ 2: decode k gives a non-root path; SSA ensures non-param
--- vars are written before read, so the initial value is irrelevant.
+-- The initial local environment seeds:
+--   * params  `p < numParams` to `w (paramCoord numMembers p)` — distinct
+--     witness slot reserved for the public input that the source `@compute`
+--     supplies as the `p`-th positional argument.
+--   * non-param locals to `0` (SSA: every read preceded by a write, so the
+--     initial value is irrelevant — but we still need a definite value).
+-- Object env: only `%self` (local 0) is meaningful at entry; it points to
+-- the root struct's empty path `[]`.
 def satisfies (w : Witness F) {n : Nat} (m : Module (n + 1) F) : Prop :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
   let mainDef := m.structs mainIdx
-  -- Seed env via decode: env k = w (decode k)
-  -- decode k = (Equiv.listNatEquivNat.symm (Nat.unpair k).1, (Nat.unpair k).2)
-  -- For k = 0, 1: decode k = ([], k). For k ≥ 2: non-root path (SSA irrelevant).
+  let numParams := mainDef.constrain.numParams
+  let numMembers := mainDef.members.length
   let env : LocalEnv F := fun k =>
-    let p := Nat.unpair k
-    w (Equiv.listNatEquivNat.symm p.1, p.2)
+    if k < numParams then w (paramCoord numMembers k) else 0
   let objEnv : ObjEnv := ObjEnv.update (fun _ => []) 0 []
   evalConstrainBody m w mainIdx env objEnv mainDef.constrain.body
 
@@ -514,26 +525,28 @@ decreasing_by
 
 /-- Build the initial `ComputeState` from a list of public inputs.
     Inputs are placed into local variables `0 .. inputs.length - 1`.
-    The witness accumulator is pre-seeded with the inputs at root-path positions
-    `([], k)` for `k < inputs.length`, so that `satisfies` can read them via
-    the initial `env k = w ([], k)` seeding.
-    All other locals and witness positions default to `0`. -/
-def initComputeState (inputs : List F) (paramOffset : Nat) : ComputeState F :=
-  -- `paramOffset = constrain.numParams - compute.numParams` accounts for the
-  -- `%self` param (and any other extra constrain params) that are absent from
-  -- `@compute`.  `satisfies` seeds `env k = w([], k)` using **constrain** param
-  -- indices, so we must store input `k` at `acc([], k + paramOffset)`.
+    The witness accumulator is pre-seeded at the canonical param-witness
+    coordinates `paramCoord numMembers (paramOffset + k)` so that
+    `StructIR.satisfies` reads each constrain-param `paramOffset + k` from
+    that exact slot. All other locals and witness positions default to `0`. -/
+def initComputeState (numMembers : Nat) (inputs : List F) (paramOffset : Nat) :
+    ComputeState F :=
   let env : LocalEnv F := fun k =>
     match inputs[k]? with
     | some v => v
     | none   => 0
-  -- Seed acc at ([], k + paramOffset) with inputs[k].
-  let acc : Witness F := fun (path, slot) =>
-    if path == [] && slot ≥ paramOffset then
-      match inputs[slot - paramOffset]? with
-      | some v => v
-      | none   => 0
-    else 0
+  -- Param-canonical-coords (paths of the form `[numMembers + p]`) get seeded
+  -- from inputs. Member coords (path `[]`) and sub-struct coords are
+  -- written by `evalComputeBody` directly.
+  let acc : Witness F := fun vid =>
+    match vid with
+    | ([p], 0) =>
+      if p ≥ numMembers + paramOffset then
+        match inputs[p - (numMembers + paramOffset)]? with
+        | some v => v
+        | none   => 0
+      else 0
+    | _ => 0
   { env      := env,
     objEnv   := ObjEnv.update (fun _ => []) 0 [],
     acc      := acc,
@@ -549,7 +562,8 @@ def computeWitness (m : Module (n + 1) F) (inputs : List F) : Option (Witness F)
   let cNumParams := m.main.constrain.numParams
   let pNumParams := m.main.compute.numParams
   let offset := cNumParams - pNumParams
-  let state₀ := initComputeState inputs offset
+  let numMembers := m.main.members.length
+  let state₀ := initComputeState numMembers inputs offset
   match evalComputeBody m mainIdx state₀ m.main.compute.body with
   | none    => none
   | some s' => some s'.acc

@@ -145,14 +145,67 @@ theorem compileConstrainBody_readMember_eq
       (FlatIR.Instr.assertEq dest witnessVar :: tail, objEnv', nextFresh') := by
   simp [compileConstrainBody]
 
-/-- Compile a full StructIR module directly to a FlatIR program. -/
+/-- Module-wide upper bound on local-variable identifiers across all structs.
+    Used to reserve `[0, witBase)` for FlatIR locals so that encoded witness
+    coordinates (`VarIdEncoding.encode (path, member)`) live above all locals
+    and never collide with any source-level register, including freshened ones
+    introduced by call inlining. -/
+def localBoundOfModule (m : StructIR.Module (n + 1) F) : Nat :=
+  Nat.succ <|
+    (List.finRange (n + 1)).foldl
+      (fun acc i => max acc (StructIRFreshen.maxVarBody (m.structs i).constrain.body)) 0
+
+/-- Encode the canonical param-witness coordinate `paramCoord numMembers p` as
+    a FlatIR variable id (a `Nat`). Lives at depth-1 path
+    `[numMembers + p]` so it never collides with any member or sub-member
+    witness coord. -/
+def encodeParamVar (numMembers p : Nat) : FlatIR.VarId :=
+  VarIdEncoding.encode (StructIR.paramCoord numMembers p)
+
+/-- Bind each main param `p < numParams` (after renaming to `ρ p`) to its
+    canonical param-witness coordinate `encodeParamVar numMembers p`.
+
+    Emitted as a list of `assertEq (ρ p) (encode (paramCoord numMembers p))`
+    instructions, one per param. -/
+def compileMainParamBindings (numMembers numParams : Nat) (ρ : Nat → Nat) :
+    List (FlatIR.Instr F) :=
+  let rec go (idx remaining : Nat) : List (FlatIR.Instr F) :=
+    match remaining with
+    | 0 => []
+    | k + 1 =>
+      FlatIR.Instr.assertEq (ρ idx) (encodeParamVar numMembers idx) :: go (idx + 1) k
+  go 0 numParams
+
+/-- Compile a full StructIR module directly to a FlatIR program.
+
+    All local variables of the main constrain body are renamed by
+    `freshMap witBase` so they occupy `[witBase, witBase + maxVarBody+1)`.
+    Encoded witness coordinates `VarIdEncoding.encode (path, member)` live in
+    `[0, witBase)`. The two ranges are disjoint, so no FlatIR variable can
+    serve simultaneously as a local register and as a witness slot.
+
+    The program is prefixed by `compileMainParamBindings`, which asserts that
+    each renamed main param `ρ p` equals the canonical witness coord
+    `encode ([], p)`. -/
 def compileProgram (m : StructIR.Module (n + 1) F) : FlatIR.Program F :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
-  let initObjEnv : StructIR.ObjEnv := StructIR.ObjEnv.update (fun _ => []) 0 []
-  let initNextFresh := StructIRFreshen.maxVarBody (m.structs mainIdx).constrain.body + 1
+  let mainBody := (m.structs mainIdx).constrain.body
+  let numParams := (m.structs mainIdx).constrain.numParams
+  let witBase := localBoundOfModule m
+  let ρ : Nat → Nat := StructIRFreshen.freshMap witBase
+  let renamedBody := StructIRFreshen.renameBody ρ mainBody
+  -- Renaming shifts `%self` (local 0) to `ρ 0 = witBase`. Initialize the
+  -- object environment so that the renamed `%self` still represents the root
+  -- (empty) path. All other locals start at `[]` by default.
+  let initObjEnv : StructIR.ObjEnv := StructIR.ObjEnv.update (fun _ => []) (ρ 0) []
+  -- Fresh-name supply for inlining starts above all renamed main locals.
+  let initNextFresh := witBase + StructIRFreshen.maxVarBody mainBody + 1
+  let numMembers := (m.structs mainIdx).members.length
+  let mainParamBinds : List (FlatIR.Instr F) :=
+    compileMainParamBindings (F := F) numMembers numParams ρ
   let (instrs, _, _) :=
-    compileConstrainBody m mainIdx initObjEnv initNextFresh (m.structs mainIdx).constrain.body
-  instrs
+    compileConstrainBody m mainIdx initObjEnv initNextFresh renamedBody
+  mainParamBinds ++ instrs
 
 instance CorrectPass (F : Type) [Field F] (n : Nat) :
     Pass (StructIR.Language n F) (FlatIR.Language F) where
@@ -434,46 +487,169 @@ theorem body_reflection_wt (m : Module n F) (w : StructIR.Witness F) (i : Fin n)
     · exact hSat
   · rfl
 
+/-- Extract per-param equality from `compileMainParamBindings.go` satisfaction. -/
+private lemma compileMainParamBindings_go_env_agree (numMembers : Nat) (ρ : Nat → Nat)
+    (wt : FlatIR.Witness F) (idx remaining : Nat)
+    (hParam : FlatIR.satisfies wt
+      (compileMainParamBindings.go (F := F) numMembers ρ idx remaining))
+    (param : Nat) (hlt : param < remaining) :
+    wt (ρ (idx + param)) = wt (encodeParamVar numMembers (idx + param)) := by
+  induction remaining generalizing idx param with
+  | zero => omega
+  | succ k ih =>
+    simp only [compileMainParamBindings.go] at hParam
+    rw [satisfies_cons] at hParam
+    obtain ⟨hHead, hRest⟩ := hParam
+    cases param with
+    | zero =>
+      simp only [Nat.add_zero]
+      simpa [FlatIR.satisfiesInstr] using hHead
+    | succ p =>
+      have hlt' : p < k := Nat.lt_of_succ_lt_succ hlt
+      have := ih (idx + 1) hRest p hlt'
+      simpa [Nat.add_assoc, Nat.add_comm 1 p] using this
+
+/-- From `compileMainParamBindings` satisfaction, extract per-param equality
+    relating each renamed param `ρ p` to its canonical param-witness coord. -/
+private lemma compileMainParamBindings_env_agree
+    (numMembers numParams : Nat) (ρ : Nat → Nat) (wt : FlatIR.Witness F)
+    (hParam : FlatIR.satisfies wt (compileMainParamBindings (F := F) numMembers numParams ρ))
+    (param : Nat) (hlt : param < numParams) :
+    wt (ρ param) = wt (encodeParamVar numMembers param) := by
+  unfold compileMainParamBindings at hParam
+  have := compileMainParamBindings_go_env_agree (F := F) numMembers ρ wt 0 numParams
+    hParam param hlt
+  simpa using this
+
+/-- Object-environment agreement restricted to local `0` (`%self`).
+
+    If two object environments `obj1`, `obj2` agree on `0` and the body only
+    reads the object channel through `%self` (enforced by `objectSafe` with
+    `init = fun v => v < numParams` and `numParams ≥ 1`), then evaluating the
+    body under either yields the same proposition.
+
+    Used to bridge `initObjEnv ∘ ρ` (which sends `ρ 0 ↦ []` and everything
+    else to `[]` since `(fun _ => []) ∘ ρ = fun _ => []`) and the canonical
+    `ObjEnv.update (fun _ => []) 0 []`. Both functions are equal pointwise
+    (every input maps to `[]` initially), so we only need the trivial
+    congruence — promoted to a named lemma for readability. -/
+private lemma evalConstrainBody_obj_funext (m : Module n F) (w : StructIR.Witness F)
+    (i : Fin n) (env : LocalEnv F) (obj1 obj2 : ObjEnv)
+    (body : List (ConstrainStmt n i F (m.structs i).members.length))
+    (hobj : obj1 = obj2) :
+    evalConstrainBody m w i env obj1 body ↔
+      evalConstrainBody m w i env obj2 body := by
+  subst hobj
+  rfl
+
 /-- Top-level reflection: FlatIR satisfies compiled program → StructIR satisfies source. -/
 instance CorrectReflectingPass :
     ReflectingPass (StructIR.Language n F) (FlatIR.Language F) where
   toPass := CorrectPass (F := F) (n := n)
   reflection := by
     intro wt m hSat
+    -- Local abbreviations that match the body of `compileProgram` /
+    -- `StructIR.satisfies`.  Definitions are written so the compiled program
+    -- is *definitionally* `mainParamBinds ++ body'` and the target satisfies
+    -- predicate unfolds to `evalConstrainBody ... envSeed canonicalObjEnv ...`.
+    let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
+    let mainBody := (m.structs mainIdx).constrain.body
+    let numParams := (m.structs mainIdx).constrain.numParams
+    let numMembers := (m.structs mainIdx).members.length
+    let witBase := localBoundOfModule m
+    let ρ : Nat → Nat := StructIRFreshen.freshMap witBase
+    have hρinj : Function.Injective ρ := StructIRFreshen.freshMap_injective _
+    let renamedBody := StructIRFreshen.renameBody ρ mainBody
+    let initObjEnv : ObjEnv := StructIR.ObjEnv.update (fun _ => []) (ρ 0) []
+    let initNextFresh : Nat := witBase + StructIRFreshen.maxVarBody mainBody + 1
+    let mainParamBinds : List (FlatIR.Instr F) :=
+      compileMainParamBindings (F := F) numMembers numParams ρ
     refine ⟨fun pos => wt (VarIdEncoding.encode pos), ?_, ?_⟩
     · intro v
       simp [VarIdEncoding.encode_decode]
-    · set ws : StructIR.Witness F := fun pos => wt (VarIdEncoding.encode pos) with hws_def
+    · let ws : StructIR.Witness F := fun pos => wt (VarIdEncoding.encode pos)
       have hwt_eq : wt' ws = wt := by
         funext v
         simp [wt', ws, VarIdEncoding.encode_decode]
-      change StructIR.satisfies (n := n) ws m
-      unfold StructIR.satisfies
-      simp only
-      have henv_eq : (fun k : Nat =>
-            let p := Nat.unpair k
-            ws (Equiv.listNatEquivNat.symm p.1, p.2)) = wt' ws := by
+      -- Split the compiled program into param-bindings ++ body.
+      have hSatProg : FlatIR.satisfies wt
+          (mainParamBinds ++
+            (compileConstrainBody m mainIdx initObjEnv initNextFresh renamedBody).1) := hSat
+      rw [satisfies_append] at hSatProg
+      obtain ⟨hParamBinds, hBody⟩ := hSatProg
+      -- Leg 1: per-param equality `wt (ρ p) = wt (encodeParamVar numMembers p)`.
+      have hParamEq : ∀ p, p < numParams →
+          wt (ρ p) = wt (encodeParamVar numMembers p) := fun p hp =>
+        compileMainParamBindings_env_agree (F := F) numMembers numParams ρ wt hParamBinds p hp
+      -- Leg 2: reflect the renamed body.
+      have hBodyEval : evalConstrainBody m ws mainIdx (wt' ws) initObjEnv renamedBody := by
+        have : FlatIR.satisfies (wt' ws)
+            (compileConstrainBody m mainIdx initObjEnv initNextFresh renamedBody).1 := by
+          rw [hwt_eq]; exact hBody
+        exact body_reflection_wt (F := F) (n := n + 1) m ws mainIdx m.all_ssa
+          initObjEnv initNextFresh renamedBody this
+      -- Leg 2': fold `ρ` out.
+      have hUnrenamed :
+          evalConstrainBody m ws mainIdx (wt' ws ∘ ρ) (initObjEnv ∘ ρ) mainBody := by
+        have hren :=
+          StructIRFreshen.evalConstrainBody_rename
+            (F := F) (n := n + 1) m ws mainIdx (wt' ws) initObjEnv ρ hρinj mainBody
+        exact hren.mp hBodyEval
+      -- Leg 3a: object env after `∘ ρ` simplifies to the canonical form.
+      have hObjEnvComp : initObjEnv ∘ ρ = ObjEnv.update (fun _ => []) 0 [] := by
         funext k
-        rfl
-      rw [henv_eq, hwt_eq]
-      have hSat' : FlatIR.satisfies wt
-          (compileConstrainBody m
-            ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
-            (StructIR.ObjEnv.update (fun _ => []) 0 [])
-            (StructIRFreshen.maxVarBody (m.structs
-              ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).constrain.body + 1)
-            (m.structs ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).constrain.body).1 := by
-        change FlatIR.satisfies wt (compileProgram m)
-        exact hSat
-      have hres := body_reflection_wt (F := F) (n := n + 1) m ws
-        ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
-        m.all_ssa
-        (StructIR.ObjEnv.update (fun _ => []) 0 [])
-        (StructIRFreshen.maxVarBody (m.structs
-          ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).constrain.body + 1)
-        (m.structs ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).constrain.body
-        (by rw [hwt_eq]; exact hSat')
-      rw [hwt_eq] at hres
-      exact hres
+        change initObjEnv (ρ k) = ObjEnv.update (fun _ => []) 0 [] k
+        simp only [ObjEnv.update, initObjEnv]
+        by_cases hk : k = 0
+        · subst hk; simp
+        · have hkρ : ρ k ≠ ρ 0 := fun h => hk (hρinj h)
+          have hkρ' : (ρ k == ρ 0) = false := by simp [hkρ]
+          have hk' : (k == 0) = false := by simp [hk]
+          rw [hkρ', hk']
+      have hCanonObj :
+          evalConstrainBody m ws mainIdx (wt' ws ∘ ρ)
+            (ObjEnv.update (fun _ => []) 0 []) mainBody := by
+        have := hUnrenamed
+        rw [hObjEnvComp] at this
+        exact this
+      -- Leg 3b: swap `wt' ws ∘ ρ` for the param-seeded local env.
+      let envSeed : LocalEnv F :=
+        fun k => if k < numParams then ws (StructIR.paramCoord numMembers k) else 0
+      have hParamAgree : ∀ p, p < numParams → (wt' ws ∘ ρ) p = envSeed p := by
+        intro p hp
+        have hWt := hParamEq p hp
+        have h3 : wt (encodeParamVar numMembers p) = ws (StructIR.paramCoord numMembers p) := by
+          change wt (VarIdEncoding.encode (StructIR.paramCoord numMembers p)) =
+              ws (StructIR.paramCoord numMembers p)
+          have : wt (VarIdEncoding.encode (StructIR.paramCoord numMembers p)) =
+                  wt' ws (VarIdEncoding.encode (StructIR.paramCoord numMembers p)) := by
+            rw [hwt_eq]
+          rw [this]
+          change ws (VarIdEncoding.decode
+                    (VarIdEncoding.encode (StructIR.paramCoord numMembers p))) =
+              ws (StructIR.paramCoord numMembers p)
+          rw [VarIdEncoding.decode_encode]
+        have h4 : (wt' ws ∘ ρ) p = ws (StructIR.paramCoord numMembers p) := by
+          have hbridge : wt' ws (ρ p) = wt (encodeParamVar numMembers p) := by
+            calc wt' ws (ρ p)
+                = wt (ρ p) := by rw [hwt_eq]
+              _ = wt (encodeParamVar numMembers p) := hWt
+          calc (wt' ws ∘ ρ) p
+              = wt' ws (ρ p) := rfl
+            _ = wt (encodeParamVar numMembers p) := hbridge
+            _ = ws (StructIR.paramCoord numMembers p) := h3
+        change (wt' ws ∘ ρ) p =
+            (fun k => if k < numParams then ws (StructIR.paramCoord numMembers k) else 0) p
+        rw [h4]; simp [hp]
+      have hSwap :=
+        evalConstrainBody_env_agree_on_init m ws mainIdx (wt' ws ∘ ρ) envSeed
+          (ObjEnv.update (fun _ => []) 0 []) mainBody (m.all_ssa mainIdx)
+          (by intro v hv
+              have hvlt : v < numParams := by simpa using hv
+              exact hParamAgree v hvlt)
+      -- Conclude: `StructIR.satisfies ws m` unfolds definitionally to this goal.
+      change evalConstrainBody m ws mainIdx envSeed
+            (ObjEnv.update (fun _ => []) 0 []) mainBody
+      exact hSwap.mp hCanonObj
 
 end StructIRToFlatIR

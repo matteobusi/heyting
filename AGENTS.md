@@ -40,6 +40,7 @@ Heyting/
     StructIRFreshen.lean   -- Freshening/renaming support for StructIR proofs
   Passes/
     StructIRToFlatIR.lean          -- Executable lowering + reflection proof: StructIR → FlatIR
+    FlatIRCompact.lean             -- Dense FlatIR renaming; proved PresReflPass
     FlatIRToR1CS.lean              -- FlatIR → R1CS (~270 lines)
     Pipeline.lean          -- active executable pipeline; compileProgram; pipelineWitness
     Lowering.lean          -- LLZK AST → StructIR (unverified, partial)
@@ -79,6 +80,7 @@ Current executable compiler path:
 ```
 StructIR
   --[StructIRToFlatIR]--> FlatIR
+  --[FlatIRCompact]------> FlatIR
   --[FlatIRToR1CS]------------> R1CS
 ```
 
@@ -87,6 +89,7 @@ StructIR
 | Component | File | Status | Notes |
 |------|------|:---:|-------|
 | Executable lowering | `StructIRToFlatIR.lean` | ✅ | active executable lowering and proved `ReflectingPass` |
+| Compaction pass | `FlatIRCompact.lean` | ✅ | dense renaming; full `PresReflPass` |
 | Proven pass | `FlatIRToR1CS.lean` | ✅ | full `PresReflPass` (`CorrectPass`) |
 | Freshening support | `StructIRFreshen.lean` | active | renaming/freshening lemmas used by pass-1 proof |
 | Pipeline wrapper | `Pipeline.lean` | ✅ | executable composition and proved `ReflectingPass` |
