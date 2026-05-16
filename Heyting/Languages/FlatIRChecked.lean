@@ -15,7 +15,7 @@ namespace FlatIRChecked
 
 open CheckedSemantics
 
-variable {F : Type} [Field F]
+variable {F : Type} [Field F] [DecidableEq F]
 
 /-! ## Checked execution -/
 
@@ -23,9 +23,7 @@ variable {F : Type} [Field F]
 abbrev CheckedStep (F : Type) := FlatIR.Instr F
 
 /-- Boolean checker for a single FlatIR instruction under a witness. -/
-noncomputable def checkStep (w : FlatIR.Witness F) (instr : FlatIR.Instr F) : Bool := by
-  classical
-  exact
+def checkStep (w : FlatIR.Witness F) (instr : FlatIR.Instr F) : Bool :=
   match instr with
   | .assignAdd dest src1 src2 => decide (w dest = w src1 + w src2)
   | .assignSub dest src1 src2 => decide (w dest = w src1 - w src2)
@@ -39,11 +37,10 @@ noncomputable def checkStep (w : FlatIR.Witness F) (instr : FlatIR.Instr F) : Bo
 theorem checkStep_true_iff_satisfiesInstr (w : FlatIR.Witness F)
     (instr : FlatIR.Instr F) :
     checkStep w instr = true ↔ FlatIR.satisfiesInstr w instr := by
-  classical
   cases instr <;> simp [checkStep, FlatIR.satisfiesInstr]
 
 /-- Deterministic checked execution over a whole FlatIR program. -/
-noncomputable def evalChecked (w : FlatIR.Witness F) (prog : FlatIR.Program F) :
+def evalChecked (w : FlatIR.Witness F) (prog : FlatIR.Program F) :
     Result (CheckedStep F) :=
   match prog with
   | [] => .success []

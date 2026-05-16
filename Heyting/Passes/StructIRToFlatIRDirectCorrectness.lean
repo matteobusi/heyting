@@ -25,7 +25,7 @@ namespace StructIRToFlatIRDirect
 variable {F : Type} [Field F] {n : Nat}
 
 /-- The natural FlatIR witness derived from a StructIR witness via `decode`. -/
-noncomputable def wt' (w : StructIR.Witness F) : FlatIR.Witness F :=
+def wt' (w : StructIR.Witness F) : FlatIR.Witness F :=
   fun v => w (VarIdEncoding.decode v)
 
 /-- FlatIR.satisfies decomposes on cons. -/
@@ -53,6 +53,7 @@ lemma satisfies_append (w : FlatIR.Witness F) (p1 p2 : FlatIR.Program F) :
     · exact h1 j hj1
     · exact h2 j hj2
 
+omit [Field F] in
 /-- LocalEnv.update is identity when value matches existing entry. -/
 lemma localEnv_update_self (env : LocalEnv F) (x : Nat) (v : F) (h : env x = v) :
     env.update x v = env := by
@@ -70,14 +71,16 @@ lemma localEnv_update_self (env : LocalEnv F) (x : Nat) (v : F) (h : env x = v) 
 
     The `hSSA` condition is the `isSSA` Bool predicate returning `true`.  The
     `hAgree` condition takes a Bool-level `init v = true` (matching the `isSSA`
-    convention) and must return equality of the two envs at `v`. -/
+    convention) and must return equality of the two envs at `v`.
+
+    This is a thin wrapper over `StructIRSubst.evalConstrainBody_env_agree_on_init`. -/
 lemma evalConstrainBody_env_agree_on_init (m : Module n F) (w : StructIR.Witness F) (i : Fin n)
     (env1 env2 : LocalEnv F) (objEnv : ObjEnv)
     (body : List (ConstrainStmt n i F (m.structs i).members.length))
     (hSSA : StructIR.isSSA (fun v => v < (m.structs i).constrain.numParams) body = true)
     (hAgree : ∀ v, (fun v => v < (m.structs i).constrain.numParams) v = true → env1 v = env2 v) :
-    evalConstrainBody m w i env1 objEnv body ↔ evalConstrainBody m w i env2 objEnv body := by
-  sorry
+    evalConstrainBody m w i env1 objEnv body ↔ evalConstrainBody m w i env2 objEnv body :=
+  StructIRSubst.evalConstrainBody_env_agree_on_init m w i env1 env2 objEnv body hSSA hAgree
 
 /-- Extract per-param equality from `compileParamBindings` satisfaction (inner loop). -/
 private lemma compileParamBindings_go_env_agree (args : List Nat) (nextFresh : Nat)
@@ -129,7 +132,8 @@ private lemma compileParamBindings_env_agree (numParams : Nat) (args : List Nat)
 private theorem body_reflection_wt_aux (m : Module n F) (w : StructIR.Witness F)
     (i : Fin n)
     (hSSA : ∀ j : Fin n,
-      StructIR.isSSA (fun v => v < (m.structs j).constrain.numParams) (m.structs j).constrain.body = true)
+      StructIR.isSSA (fun v => v < (m.structs j).constrain.numParams)
+        (m.structs j).constrain.body = true)
     (ih_i : ∀ (j : Fin n), j.val < i.val →
       ∀ (objEnv : ObjEnv) (nextFresh : Nat)
         (stmts : List (ConstrainStmt n j F (m.structs j).members.length)),
@@ -209,7 +213,7 @@ private theorem body_reflection_wt_aux (m : Module n F) (w : StructIR.Witness F)
       rw [satisfies_cons] at hSat
       obtain ⟨hI, hRest⟩ := hSat
       simp only [FlatIR.satisfiesInstr] at hI
-      simp [evalConstrainBody, hI]
+      simp only [evalConstrainBody, hI, true_and]
       exact ih _ _ hRest
     | call target args =>
       let j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩
@@ -255,7 +259,7 @@ private theorem body_reflection_wt_aux (m : Module n F) (w : StructIR.Witness F)
       have hCalleeEval' : evalConstrainBody m w j (wt' w) adjustedObjEnv
           (StructIRSubst.renameBody ρ' calleeBody) := by
         simpa [hFreshEq] using hCalleeEval
-      have hRename := (evalConstrainBody_rename m w j (wt' w) adjustedObjEnv ρ'
+      have hRename := (StructIRSubst.evalConstrainBody_rename m w j (wt' w) adjustedObjEnv ρ'
         (StructIRSubst.freshMap_injective nextFresh) calleeBody).mp hCalleeEval'
       have hObjEnvEq : adjustedObjEnv ∘ ρ' = calleeObjEnv := by
         funext param
@@ -274,7 +278,8 @@ private theorem body_reflection_wt_aux (m : Module n F) (w : StructIR.Witness F)
 
 theorem body_reflection_wt (m : Module n F) (w : StructIR.Witness F) (i : Fin n)
     (hSSA : ∀ j : Fin n,
-      StructIR.isSSA (fun v => v < (m.structs j).constrain.numParams) (m.structs j).constrain.body = true)
+      StructIR.isSSA (fun v => v < (m.structs j).constrain.numParams)
+        (m.structs j).constrain.body = true)
     (objEnv : ObjEnv) (nextFresh : Nat)
     (stmts : List (ConstrainStmt n i F (m.structs i).members.length))
     (hSat : FlatIR.satisfies (wt' w)
@@ -316,6 +321,49 @@ instance CorrectReflectingPass :
     ReflectingPass (StructIRSubst.Language n F) (FlatIRSubst.Language F) where
   toPass := CorrectPass (F := F) (n := n)
   reflection := by
-    sorry
+    intro wt m hSat
+    -- Construct the source witness via `encode`.
+    refine ⟨fun pos => wt (VarIdEncoding.encode pos), ?_, ?_⟩
+    · -- witnessRel: ∀ v, wt v = ws (decode v) = wt (encode (decode v)) = wt v
+      intro v
+      simp [VarIdEncoding.encode_decode]
+    · -- Show StructIR.satisfies ws m, where ws := fun pos => wt (encode pos).
+      -- Key: `wt' ws v = ws (decode v) = wt (encode (decode v)) = wt v`, so `wt' ws = wt`.
+      set ws : StructIR.Witness F := fun pos => wt (VarIdEncoding.encode pos) with hws_def
+      have hwt_eq : wt' ws = wt := by
+        funext v
+        simp [wt', ws, VarIdEncoding.encode_decode]
+      -- Unfold StructIR.satisfies; it matches body_reflection_wt's conclusion modulo `wt' ws = wt`.
+      change StructIR.satisfies (n := n) ws m
+      unfold StructIR.satisfies
+      simp only
+      -- The env in `satisfies` is `fun k => ws (decode k) = wt' ws k = wt k`.
+      have henv_eq : (fun k : Nat =>
+            let p := Nat.unpair k
+            ws (Equiv.listNatEquivNat.symm p.1, p.2)) = wt' ws := by
+        funext k
+        rfl
+      rw [henv_eq, hwt_eq]
+      -- Reduce hSat to `FlatIR.satisfies wt (compileConstrainBody …).1`.
+      have hSat' : FlatIR.satisfies wt
+          (compileConstrainBody m
+            ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
+            (StructIR.ObjEnv.update (fun _ => []) 0 [])
+            (StructIRSubst.maxVarBody (m.structs
+              ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).constrain.body + 1)
+            (m.structs ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).constrain.body).1 := by
+        change FlatIR.satisfies wt (compileProgram m)
+        exact hSat
+      -- Apply body_reflection_wt.
+      have hres := body_reflection_wt (F := F) (n := n + 1) m ws
+        ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
+        m.all_ssa
+        (StructIR.ObjEnv.update (fun _ => []) 0 [])
+        (StructIRSubst.maxVarBody (m.structs
+          ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).constrain.body + 1)
+        (m.structs ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).constrain.body
+        (by rw [hwt_eq]; exact hSat')
+      rw [hwt_eq] at hres
+      exact hres
 
 end StructIRToFlatIRDirect

@@ -760,25 +760,6 @@ lemma evalConstrainBody_rename (m : Module n F) (w : Witness F) (i : Fin n)
       · rintro ⟨hcall, h⟩
         refine ⟨h_callee_objEnv_eq.symm ▸ h_callee_env_eq.symm ▸ hcall, (ih env objEnv).mpr h⟩
 
-/-- If two local-variable environments agree on all parameter variables (those
-    below `numParams`), and the body is in SSA form, then evaluation with
-    either env (and possibly differing objEnvs that agree on params) yields the
-    same result.
-
-    NOTE: This lemma is currently `sorry`'d. A full proof requires an
-    SSA-respecting joint induction that tracks env- and objEnv-agreement
-    separately, plus strong induction on the struct index to handle the
-    `call` case. See `docs/WARNING.md` §8. -/
-private lemma evalConstrainBody_env_agree_on_init
-    (m : Module n F) (w : StructIR.Witness F) (i : Fin n)
-    (env1 env2 : LocalEnv F) (objEnv : ObjEnv)
-    (body : List (ConstrainStmt n i F (m.structs i).members.length))
-    (hSSA : StructIR.isSSA (fun v => v < (m.structs i).constrain.numParams) body = true)
-    (hAgree : ∀ v,
-      (fun v => v < (m.structs i).constrain.numParams) v = true → env1 v = env2 v) :
-    evalConstrainBody m w i env1 objEnv body ↔ evalConstrainBody m w i env2 objEnv body := by
-  sorry
-
 private lemma list_all_true_of_mem {α : Type}
     (xs : List α) (p : α → Bool) (x : α)
     (hall : xs.all p = true) (hx : x ∈ xs) : p x = true := by
@@ -791,6 +772,224 @@ private lemma list_all_true_of_mem {α : Type}
     rcases hx with rfl | hx
     · exact hy
     · exact ih _ hys hx
+
+/-- Generalized form: if two local envs agree on the SSA-init set, and the
+    body type-checks under SSA with that init, then evaluation is identical.
+
+    The init set grows monotonically: each statement with a `dest` adds it.
+    Reads of each statement are always in `init`, so env1 and env2 agree there;
+    after an update at `dest` to the same value, the new envs agree on the
+    extended init. The `call` case is handled by definitional equality:
+    `calleeEnv` only reads `env` at positions in `args`, all of which are reads
+    of the call (hence in `init`), so calleeEnv1 = calleeEnv2 as functions. -/
+private lemma evalConstrainBody_env_agree_on_init_aux
+    (m : Module n F) (w : StructIR.Witness F) (i : Fin n) :
+    ∀ (body : List (ConstrainStmt n i F (m.structs i).members.length))
+      (init : LocalVar → Bool)
+      (env1 env2 : LocalEnv F) (objEnv : ObjEnv),
+      StructIR.isSSA init body = true →
+      (∀ v, init v = true → env1 v = env2 v) →
+      (evalConstrainBody m w i env1 objEnv body ↔
+        evalConstrainBody m w i env2 objEnv body) := by
+  intro body
+  induction body with
+  | nil =>
+    intro init env1 env2 objEnv _ _
+    simp [evalConstrainBody]
+  | cons stmt rest ih =>
+    intro init env1 env2 objEnv hSSA hAgree
+    simp only [StructIR.isSSA, Bool.and_eq_true] at hSSA
+    obtain ⟨hReads, hSSA'⟩ := hSSA
+    -- Agreement on every variable read by `stmt`.
+    have hReadsAgree : ∀ v ∈ stmt.reads, env1 v = env2 v := by
+      intro v hv
+      exact hAgree v (list_all_true_of_mem _ _ _ hReads hv)
+    cases stmt with
+    | feltAdd dest src1 src2 =>
+      simp only [ConstrainStmt.reads, List.mem_cons, List.not_mem_nil, or_false] at hReadsAgree
+      have hs1 : env1 src1 = env2 src1 := hReadsAgree src1 (Or.inl rfl)
+      have hs2 : env1 src2 = env2 src2 := hReadsAgree src2 (Or.inr rfl)
+      simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'
+      obtain ⟨_, hSSA''⟩ := hSSA'
+      simp only [evalConstrainBody, hs1, hs2, true_and]
+      have hext : ∀ v, (init v || v == dest) = true →
+          (env1.update dest (env2 src1 + env2 src2)) v =
+          (env2.update dest (env2 src1 + env2 src2)) v := by
+        intro v hv
+        simp only [Bool.or_eq_true, beq_iff_eq] at hv
+        simp only [LocalEnv.update]
+        rcases hv with hv | hv
+        · by_cases heq : v = dest
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
+      exact ih _ _ _ _ hSSA'' hext
+    | feltSub dest src1 src2 =>
+      simp only [ConstrainStmt.reads, List.mem_cons, List.not_mem_nil, or_false] at hReadsAgree
+      have hs1 : env1 src1 = env2 src1 := hReadsAgree src1 (Or.inl rfl)
+      have hs2 : env1 src2 = env2 src2 := hReadsAgree src2 (Or.inr rfl)
+      simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'
+      obtain ⟨_, hSSA''⟩ := hSSA'
+      simp only [evalConstrainBody, hs1, hs2, true_and]
+      have hext : ∀ v, (init v || v == dest) = true →
+          (env1.update dest (env2 src1 - env2 src2)) v =
+          (env2.update dest (env2 src1 - env2 src2)) v := by
+        intro v hv
+        simp only [Bool.or_eq_true, beq_iff_eq] at hv
+        simp only [LocalEnv.update]
+        rcases hv with hv | hv
+        · by_cases heq : v = dest
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
+      exact ih _ _ _ _ hSSA'' hext
+    | feltMul dest src1 src2 =>
+      simp only [ConstrainStmt.reads, List.mem_cons, List.not_mem_nil, or_false] at hReadsAgree
+      have hs1 : env1 src1 = env2 src1 := hReadsAgree src1 (Or.inl rfl)
+      have hs2 : env1 src2 = env2 src2 := hReadsAgree src2 (Or.inr rfl)
+      simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'
+      obtain ⟨_, hSSA''⟩ := hSSA'
+      simp only [evalConstrainBody, hs1, hs2, true_and]
+      have hext : ∀ v, (init v || v == dest) = true →
+          (env1.update dest (env2 src1 * env2 src2)) v =
+          (env2.update dest (env2 src1 * env2 src2)) v := by
+        intro v hv
+        simp only [Bool.or_eq_true, beq_iff_eq] at hv
+        simp only [LocalEnv.update]
+        rcases hv with hv | hv
+        · by_cases heq : v = dest
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
+      exact ih _ _ _ _ hSSA'' hext
+    | feltDiv dest src1 src2 =>
+      simp only [ConstrainStmt.reads, List.mem_cons, List.not_mem_nil, or_false] at hReadsAgree
+      have hs1 : env1 src1 = env2 src1 := hReadsAgree src1 (Or.inl rfl)
+      have hs2 : env1 src2 = env2 src2 := hReadsAgree src2 (Or.inr rfl)
+      simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'
+      obtain ⟨_, hSSA''⟩ := hSSA'
+      simp only [evalConstrainBody, hs1, hs2]
+      have hext : ∀ v, (init v || v == dest) = true →
+          (env1.update dest (env2 src1 * (env2 src2)⁻¹)) v =
+          (env2.update dest (env2 src1 * (env2 src2)⁻¹)) v := by
+        intro v hv
+        simp only [Bool.or_eq_true, beq_iff_eq] at hv
+        simp only [LocalEnv.update]
+        rcases hv with hv | hv
+        · by_cases heq : v = dest
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
+      constructor
+      · rintro ⟨hnz, hrest⟩
+        exact ⟨hnz, (ih _ _ _ _ hSSA'' hext).mp hrest⟩
+      · rintro ⟨hnz, hrest⟩
+        exact ⟨hnz, (ih _ _ _ _ hSSA'' hext).mpr hrest⟩
+    | feltNeg dest src =>
+      simp only [ConstrainStmt.reads, List.mem_cons, List.not_mem_nil, or_false] at hReadsAgree
+      have hs : env1 src = env2 src := hReadsAgree src rfl
+      simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'
+      obtain ⟨_, hSSA''⟩ := hSSA'
+      simp only [evalConstrainBody, hs, true_and]
+      have hext : ∀ v, (init v || v == dest) = true →
+          (env1.update dest (-(env2 src))) v =
+          (env2.update dest (-(env2 src))) v := by
+        intro v hv
+        simp only [Bool.or_eq_true, beq_iff_eq] at hv
+        simp only [LocalEnv.update]
+        rcases hv with hv | hv
+        · by_cases heq : v = dest
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
+      exact ih _ _ _ _ hSSA'' hext
+    | feltConst dest c =>
+      simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'
+      obtain ⟨_, hSSA''⟩ := hSSA'
+      have hext : ∀ v, (fun x => init x || x == dest) v = true →
+          (env1.update dest c) v = (env2.update dest c) v := by
+        intro v hv
+        simp only [Bool.or_eq_true, beq_iff_eq] at hv
+        simp only [LocalEnv.update]
+        rcases hv with hv | hv
+        · by_cases heq : v = dest
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
+      simp only [evalConstrainBody, true_and]
+      exact ih _ _ _ _ hSSA'' hext
+    | readMember dest self member =>
+      simp only [ConstrainStmt.reads, List.mem_cons, List.not_mem_nil, or_false] at hReadsAgree
+      have hself : env1 self = env2 self := hReadsAgree self rfl
+      simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'
+      obtain ⟨_, hSSA''⟩ := hSSA'
+      -- objEnv is the same for both, so the read value is identical.
+      have hval : w (objEnv self, member.val) = w (objEnv self, member.val) := rfl
+      have hext : ∀ v, (fun x => init x || x == dest) v = true →
+          (env1.update dest (w (objEnv self, member.val))) v =
+          (env2.update dest (w (objEnv self, member.val))) v := by
+        intro v hv
+        simp only [Bool.or_eq_true, beq_iff_eq] at hv
+        simp only [LocalEnv.update]
+        rcases hv with hv | hv
+        · by_cases heq : v = dest
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
+      simp only [evalConstrainBody, true_and]
+      exact ih _ _ _ _ hSSA'' hext
+    | constrainEq src1 src2 =>
+      simp only [ConstrainStmt.reads, List.mem_cons, List.not_mem_nil, or_false] at hReadsAgree
+      have hs1 : env1 src1 = env2 src1 := hReadsAgree src1 (Or.inl rfl)
+      have hs2 : env1 src2 = env2 src2 := hReadsAgree src2 (Or.inr rfl)
+      simp only [ConstrainStmt.dest] at hSSA'
+      simp only [evalConstrainBody, hs1, hs2]
+      constructor
+      · rintro ⟨heq, hrest⟩
+        exact ⟨heq, (ih _ _ _ _ hSSA' hAgree).mp hrest⟩
+      · rintro ⟨heq, hrest⟩
+        exact ⟨heq, (ih _ _ _ _ hSSA' hAgree).mpr hrest⟩
+    | call target args =>
+      -- All args are reads, so they're in `init`, so env1 and env2 agree on them.
+      have hargs : ∀ a ∈ args, env1 a = env2 a := by
+        intro a ha
+        exact hReadsAgree a (by simpa [ConstrainStmt.reads] using ha)
+      -- The callee env constructed from args is identical for env1 and env2.
+      have hCalleeEnv :
+          (fun param : Nat =>
+            match args[param]? with | some arg => env1 arg | none => (0 : F)) =
+          (fun param : Nat =>
+            match args[param]? with | some arg => env2 arg | none => (0 : F)) := by
+        funext param
+        cases h : args[param]? with
+        | none => rfl
+        | some arg =>
+          have : arg ∈ args := List.mem_of_getElem? h
+          exact hargs arg this
+      simp only [ConstrainStmt.dest] at hSSA'
+      simp only [evalConstrainBody]
+      constructor
+      · rintro ⟨hcall, hrest⟩
+        refine ⟨?_, (ih _ _ _ _ hSSA' hAgree).mp hrest⟩
+        exact hCalleeEnv ▸ hcall
+      · rintro ⟨hcall, hrest⟩
+        refine ⟨?_, (ih _ _ _ _ hSSA' hAgree).mpr hrest⟩
+        exact hCalleeEnv.symm ▸ hcall
+
+/-- If two local-variable environments agree on all parameter variables (those
+    below `numParams`), and the body is in SSA form, then evaluation with
+    either env (and the same objEnv) yields the same result. -/
+lemma evalConstrainBody_env_agree_on_init
+    (m : Module n F) (w : StructIR.Witness F) (i : Fin n)
+    (env1 env2 : LocalEnv F) (objEnv : ObjEnv)
+    (body : List (ConstrainStmt n i F (m.structs i).members.length))
+    (hSSA : StructIR.isSSA (fun v => v < (m.structs i).constrain.numParams) body = true)
+    (hAgree : ∀ v,
+      (fun v => v < (m.structs i).constrain.numParams) v = true → env1 v = env2 v) :
+    evalConstrainBody m w i env1 objEnv body ↔ evalConstrainBody m w i env2 objEnv body := by
+  refine evalConstrainBody_env_agree_on_init_aux m w i body _ env1 env2 objEnv hSSA ?_
+  intro v hv
+  exact hAgree v (by simpa using hv)
 
 private lemma mem_dropVar_iff (v x : Nat) (xs : List Nat) :
     x ∈ StructIR.dropVar v xs ↔ x ∈ xs ∧ x ≠ v := by
@@ -806,14 +1005,233 @@ private lemma mem_collectNeededArgs_of_mem (args needed : List Nat) (p arg : Nat
     arg ∈ StructIR.collectNeededArgs args needed := by
   exact (List.mem_filterMap).2 ⟨p, hp, harg⟩
 
-private lemma evalConstrainBody_objEnv_agree_on_init
-    (m : Module n F) (w : StructIR.Witness F) (i : Fin n)
-    (env : LocalEnv F) (objEnv1 objEnv2 : ObjEnv)
-    (body : List (ConstrainStmt n i F (m.structs i).members.length))
-    (hSafe : (StructIR.objectInfo m.structs i body).1 = true)
-    (hAgreeO : ∀ v, v ∈ (StructIR.objectInfo m.structs i body).2 → objEnv1 v = objEnv2 v) :
-    evalConstrainBody m w i env objEnv1 body ↔ evalConstrainBody m w i env objEnv2 body := by
-  sorry
+/-- Boolean-membership ↔ propositional membership for `List`s of `Nat`. -/
+private lemma list_contains_iff_mem (xs : List Nat) (x : Nat) :
+    xs.contains x = true ↔ x ∈ xs := by
+  simp
+
+lemma evalConstrainBody_objEnv_agree_on_init
+    (m : Module n F) (w : StructIR.Witness F) :
+    ∀ (i : Fin n) (env : LocalEnv F) (objEnv1 objEnv2 : ObjEnv)
+      (body : List (ConstrainStmt n i F (m.structs i).members.length)),
+      (StructIR.objectInfo m.structs i body).1 = true →
+      (∀ v, v ∈ (StructIR.objectInfo m.structs i body).2 → objEnv1 v = objEnv2 v) →
+      (evalConstrainBody m w i env objEnv1 body ↔
+        evalConstrainBody m w i env objEnv2 body) := by
+  -- Strong induction on `i.val`.
+  intro i
+  induction hk : i.val using Nat.strong_induction_on generalizing i with
+  | _ k ih_struct =>
+    subst hk
+    intro env objEnv1 objEnv2 body
+    -- Induction on the body itself.
+    induction body generalizing env objEnv1 objEnv2 with
+    | nil =>
+      intro _ _
+      simp [evalConstrainBody]
+    | cons stmt rest ih_rest =>
+      intro hSafe hAgreeO
+      cases stmt with
+      | feltAdd dest src1 src2 =>
+        simp only [StructIR.objectInfo, Bool.and_eq_true] at hSafe
+        obtain ⟨hSafeRest, hNotDest⟩ := hSafe
+        have hDestNotIn : dest ∉ (StructIR.objectInfo m.structs i rest).2 := by
+          intro hmem
+          simp [hmem] at hNotDest
+        have hAgreeO' : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp only [StructIR.objectInfo]
+          rcases Decidable.eq_or_ne v dest with hvd | hvd
+          · exact absurd (hvd ▸ hv) hDestNotIn
+          · exact mem_dropVar_of_mem_of_ne dest v _ hv hvd
+        simp only [evalConstrainBody, true_and]
+        exact ih_rest _ _ _ hSafeRest hAgreeO'
+      | feltSub dest src1 src2 =>
+        simp only [StructIR.objectInfo, Bool.and_eq_true] at hSafe
+        obtain ⟨hSafeRest, hNotDest⟩ := hSafe
+        have hDestNotIn : dest ∉ (StructIR.objectInfo m.structs i rest).2 := by
+          intro hmem
+          simp [hmem] at hNotDest
+        have hAgreeO' : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp only [StructIR.objectInfo]
+          rcases Decidable.eq_or_ne v dest with hvd | hvd
+          · exact absurd (hvd ▸ hv) hDestNotIn
+          · exact mem_dropVar_of_mem_of_ne dest v _ hv hvd
+        simp only [evalConstrainBody, true_and]
+        exact ih_rest _ _ _ hSafeRest hAgreeO'
+      | feltMul dest src1 src2 =>
+        simp only [StructIR.objectInfo, Bool.and_eq_true] at hSafe
+        obtain ⟨hSafeRest, hNotDest⟩ := hSafe
+        have hDestNotIn : dest ∉ (StructIR.objectInfo m.structs i rest).2 := by
+          intro hmem
+          simp [hmem] at hNotDest
+        have hAgreeO' : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp only [StructIR.objectInfo]
+          rcases Decidable.eq_or_ne v dest with hvd | hvd
+          · exact absurd (hvd ▸ hv) hDestNotIn
+          · exact mem_dropVar_of_mem_of_ne dest v _ hv hvd
+        simp only [evalConstrainBody, true_and]
+        exact ih_rest _ _ _ hSafeRest hAgreeO'
+      | feltDiv dest src1 src2 =>
+        simp only [StructIR.objectInfo, Bool.and_eq_true] at hSafe
+        obtain ⟨hSafeRest, hNotDest⟩ := hSafe
+        have hDestNotIn : dest ∉ (StructIR.objectInfo m.structs i rest).2 := by
+          intro hmem
+          simp [hmem] at hNotDest
+        have hAgreeO' : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp only [StructIR.objectInfo]
+          rcases Decidable.eq_or_ne v dest with hvd | hvd
+          · exact absurd (hvd ▸ hv) hDestNotIn
+          · exact mem_dropVar_of_mem_of_ne dest v _ hv hvd
+        simp only [evalConstrainBody]
+        constructor
+        · rintro ⟨hnz, hrest⟩
+          exact ⟨hnz, (ih_rest _ _ _ hSafeRest hAgreeO').mp hrest⟩
+        · rintro ⟨hnz, hrest⟩
+          exact ⟨hnz, (ih_rest _ _ _ hSafeRest hAgreeO').mpr hrest⟩
+      | feltNeg dest src =>
+        simp only [StructIR.objectInfo, Bool.and_eq_true] at hSafe
+        obtain ⟨hSafeRest, hNotDest⟩ := hSafe
+        have hDestNotIn : dest ∉ (StructIR.objectInfo m.structs i rest).2 := by
+          intro hmem
+          simp [hmem] at hNotDest
+        have hAgreeO' : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp only [StructIR.objectInfo]
+          rcases Decidable.eq_or_ne v dest with hvd | hvd
+          · exact absurd (hvd ▸ hv) hDestNotIn
+          · exact mem_dropVar_of_mem_of_ne dest v _ hv hvd
+        simp only [evalConstrainBody, true_and]
+        exact ih_rest _ _ _ hSafeRest hAgreeO'
+      | feltConst dest c =>
+        simp only [StructIR.objectInfo, Bool.and_eq_true] at hSafe
+        obtain ⟨hSafeRest, hNotDest⟩ := hSafe
+        have hDestNotIn : dest ∉ (StructIR.objectInfo m.structs i rest).2 := by
+          intro hmem
+          simp [hmem] at hNotDest
+        have hAgreeO' : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp only [StructIR.objectInfo]
+          rcases Decidable.eq_or_ne v dest with hvd | hvd
+          · exact absurd (hvd ▸ hv) hDestNotIn
+          · exact mem_dropVar_of_mem_of_ne dest v _ hv hvd
+        simp only [evalConstrainBody, true_and]
+        exact ih_rest _ _ _ hSafeRest hAgreeO'
+      | readMember dest self member =>
+        simp only [StructIR.objectInfo] at hSafe
+        -- needs = self :: dropVar dest needsRest
+        have hSelfMem : self ∈
+            (StructIR.objectInfo m.structs i (.readMember dest self member :: rest)).2 := by
+          simp [StructIR.objectInfo]
+        have hSelfEq : objEnv1 self = objEnv2 self := hAgreeO self hSelfMem
+        simp only [evalConstrainBody, true_and, hSelfEq]
+        have hAgreeO' : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            (objEnv1.update dest (objEnv2 self ++ [member.val])) v =
+            (objEnv2.update dest (objEnv2 self ++ [member.val])) v := by
+          intro v hv
+          simp only [ObjEnv.update]
+          by_cases hvd : v = dest
+          · subst hvd; simp
+          · simp only [beq_iff_eq, hvd, if_false]
+            apply hAgreeO
+            simp only [StructIR.objectInfo, List.mem_cons]
+            right
+            exact mem_dropVar_of_mem_of_ne dest v _ hv hvd
+        exact ih_rest _ _ _ hSafe hAgreeO'
+      | constrainEq src1 src2 =>
+        simp only [StructIR.objectInfo] at hSafe
+        have hAgreeO' : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp [StructIR.objectInfo, hv]
+        simp only [evalConstrainBody]
+        constructor
+        · rintro ⟨heq, hrest⟩
+          exact ⟨heq, (ih_rest _ _ _ hSafe hAgreeO').mp hrest⟩
+        · rintro ⟨heq, hrest⟩
+          exact ⟨heq, (ih_rest _ _ _ hSafe hAgreeO').mpr hrest⟩
+      | call target args =>
+        set j : Fin n := ⟨target.val, Nat.lt_trans target.isLt i.isLt⟩ with hj_def
+        have hj_lt : j.val < i.val := target.isLt
+        -- Extract pieces of objectInfo for the call case.
+        simp only [StructIR.objectInfo, Bool.and_eq_true] at hSafe
+        obtain ⟨⟨hSafeRest, hSafeCallee⟩, hNeededAvail⟩ := hSafe
+        -- needs(head :: rest) = collectNeededArgs args calleeNeeds ++ needsRest
+        have hAgreeO_rest : ∀ v, v ∈ (StructIR.objectInfo m.structs i rest).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp only [StructIR.objectInfo, List.mem_append]
+          exact Or.inr hv
+        have hAgreeO_args : ∀ v,
+            v ∈ StructIR.collectNeededArgs args (StructIR.objectInfo m.structs j
+              (m.structs j).constrain.body).2 →
+            objEnv1 v = objEnv2 v := by
+          intro v hv
+          apply hAgreeO
+          simp only [StructIR.objectInfo, List.mem_append]
+          exact Or.inl hv
+        -- Apply struct IH to the callee body with new agreement.
+        have ih_callee :
+            ∀ (calleeObjEnv1 calleeObjEnv2 : ObjEnv),
+              (∀ v, v ∈ (StructIR.objectInfo m.structs j (m.structs j).constrain.body).2 →
+                calleeObjEnv1 v = calleeObjEnv2 v) →
+              (evalConstrainBody m w j
+                (fun param => match args[param]? with | some arg => env arg | none => 0)
+                calleeObjEnv1 (m.structs j).constrain.body ↔
+              evalConstrainBody m w j
+                (fun param => match args[param]? with | some arg => env arg | none => 0)
+                calleeObjEnv2 (m.structs j).constrain.body) := by
+          intro coe1 coe2 hCAgree
+          exact ih_struct j.val hj_lt j rfl _ coe1 coe2
+            (m.structs j).constrain.body hSafeCallee hCAgree
+        -- Build calleeObjEnv₁ and calleeObjEnv₂ as functions of args and objEnvᵢ.
+        -- Then show they agree on calleeNeeds.
+        have hCalleeAgree :
+            ∀ param,
+              param ∈ (StructIR.objectInfo m.structs j (m.structs j).constrain.body).2 →
+              (fun param : Nat => match args[param]? with
+                | some arg => objEnv1 arg
+                | none => ([] : List Nat)) param =
+              (fun param : Nat => match args[param]? with
+                | some arg => objEnv2 arg
+                | none => ([] : List Nat)) param := by
+          intro param hparam
+          -- neededArgsAvailable says args[param]? is some
+          have hAvail : (args[param]?).isSome = true := by
+            apply list_all_true_of_mem _ _ _ hNeededAvail hparam
+          cases hap : args[param]? with
+          | none => simp [hap] at hAvail
+          | some arg =>
+            have harg_in : arg ∈ StructIR.collectNeededArgs args
+                (StructIR.objectInfo m.structs j (m.structs j).constrain.body).2 :=
+              mem_collectNeededArgs_of_mem _ _ _ _ hparam hap
+            have heq : objEnv1 arg = objEnv2 arg := hAgreeO_args arg harg_in
+            simp [hap, heq]
+        simp only [evalConstrainBody]
+        constructor
+        · rintro ⟨hcall, hrest⟩
+          refine ⟨?_, (ih_rest _ _ _ hSafeRest hAgreeO_rest).mp hrest⟩
+          exact (ih_callee _ _ hCalleeAgree).mp hcall
+        · rintro ⟨hcall, hrest⟩
+          refine ⟨?_, (ih_rest _ _ _ hSafeRest hAgreeO_rest).mpr hrest⟩
+          exact (ih_callee _ _ hCalleeAgree).mpr hcall
 
 /-- Main lemma: checked substitution success ↔ direct semantics success. -/
 private lemma evalConstrainBodyChecked_success_iff_evalConstrainBody

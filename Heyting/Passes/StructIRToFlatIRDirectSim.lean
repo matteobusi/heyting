@@ -68,12 +68,6 @@ def concretizeResult (w : StructIR.Witness F) : Result (Atom F) → Result (Atom
   | .failure checkedPrefix failed =>
       .failure (checkedPrefix.map (concretizeAtom w)) (concretizeAtom w failed)
 
-theorem checkAtom_concretize_eq [DecidableEq F]
-    (w : StructIR.Witness F) (a : Atom F) :
-    FlatIRSubst.checkAtom (F := F) (fun _ => 0) (concretizeAtom w a) =
-      StructIRSubst.checkAtom w a := by
-  simpa using checkAtom_concretize_eq_with w (fun _ => 0) a
-
 theorem checkAtom_concretize_eq_with [DecidableEq F]
     (wSrc : StructIR.Witness F) (wTgt : FlatIR.Witness F) (a : Atom F) :
     FlatIRSubst.checkAtom (F := F) wTgt (concretizeAtom wSrc a) =
@@ -85,6 +79,12 @@ theorem checkAtom_concretize_eq_with [DecidableEq F]
   | neZero t =>
     simp [FlatIRSubst.checkAtom, StructIRSubst.checkAtom, concretizeAtom, concretizeVTerm,
       VTerm.interp]
+
+theorem checkAtom_concretize_eq [DecidableEq F]
+    (w : StructIR.Witness F) (a : Atom F) :
+    FlatIRSubst.checkAtom (F := F) (fun _ => 0) (concretizeAtom w a) =
+      StructIRSubst.checkAtom w a := by
+  simpa using checkAtom_concretize_eq_with w (fun _ => 0) a
 
 theorem evalAtomsChecked_concretize_eq_with [DecidableEq F]
     (wSrc : StructIR.Witness F) (wTgt : FlatIR.Witness F) (atoms : List (Atom F)) :
@@ -382,7 +382,7 @@ theorem compileConstrainBody_call_programAtoms
       | some arg => objEnv arg
       | none => []
     let adjustedObjEnv : StructIR.ObjEnv := fun v =>
-      if h : nextFresh ≤ v then
+      if _h : nextFresh ≤ v then
         calleeObjEnv (v - nextFresh)
       else
         []
