@@ -85,12 +85,16 @@ Default field is `bn254`.
 
 | Flag | Prime | Used by |
 |------|-------|---------|
-| `bn254` *(default)* | 21888242871839275222246405745257275088696311157297823662689037894645226208583 | circom |
+| `bn254` *(default)* | 21888242871839275222246405745257275088548364400416034343698204186575808495617 | circom/snarkjs |
 | `bn128` | same as bn254 (alias) | circom |
 | `babybear` | 2013265921 (15 · 2²⁷ + 1) | zirgen |
 | `goldilocks` | 18446744069414584321 (2⁶⁴ − 2³² + 1) | plonky2 |
 | `mersenne31` | 2147483647 (2³¹ − 1) | Plonky3 |
 | `koalabear` | 2130706433 (2³¹ − 2²⁴ + 1) | Plonky3 |
+
+FIXME: external binary-compatibility smoke checks are currently validated with
+`snarkjs` for `bn254`/`bn128`. Compatibility and external witness-checking flows
+for other supported fields are still being investigated.
 
 ### Example
 

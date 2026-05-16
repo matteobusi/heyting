@@ -29,8 +29,9 @@ open CLIArgs FieldBytes
   Default supported prime fields, taken from llzk-lin/lin/Util/Field.cpp
 -/
 
--- bn128/254, default for circom (254-bit prime; primality certified via private axiom)
-private def BN128_p := 21888242871839275222246405745257275088696311157297823662689037894645226208583
+-- bn128/254, default for circom/snarkjs. Use BN128 scalar field `r`, which is
+-- the modulus expected by Circom `.r1cs` / `.wtns` tooling.
+private def BN128_p := 21888242871839275222246405745257275088548364400416034343698204186575808495617
 private axiom BN128_prime : Fact (Nat.Prime BN128_p)
 attribute [instance] BN128_prime
 
@@ -40,7 +41,7 @@ private instance : FieldBytes (ZMod BN128_p) where
   toLeBytes    := fun x => natLeBytes x.val 32
   primeLeBytes := natLeBytes BN128_p 32
 
-private def BN254_p := 21888242871839275222246405745257275088696311157297823662689037894645226208583
+private def BN254_p := 21888242871839275222246405745257275088548364400416034343698204186575808495617
 private axiom BN254_prime : Fact (Nat.Prime BN254_p)
 attribute [instance] BN254_prime
 

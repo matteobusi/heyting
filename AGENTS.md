@@ -105,11 +105,13 @@ Together: correctness framework remains `PresReflPass`-based where proofs exist.
 
 ## CLI prime fields
 
-`Heyting/CLI.lean` supports 6 fields matching `llzk-lib/lib/Util/Field.cpp`:
+`Heyting/CLI.lean` supports 6 fields. For `bn254` / `bn128`, CLI uses BN128
+scalar field modulus so emitted `.r1cs` / `.wtns` files are accepted by
+Circom/snarkjs:
 
 | Flag | Prime | Used by |
 |------|-------|---------|
-| `bn254` *(default)* / `bn128` | 2188…8583 (254-bit) | circom |
+| `bn254` *(default)* / `bn128` | 2188…95617 (254-bit) | circom/snarkjs |
 | `babybear` | 2013265921 (15·2²⁷+1) | zirgen |
 | `goldilocks` | 18446744069414584321 (2⁶⁴−2³²+1) | plonky2 |
 | `mersenne31` | 2147483647 (2³¹−1) | Plonky3 |

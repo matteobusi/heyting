@@ -25,14 +25,16 @@ hey help
 
   | Name | Prime | Used by |
   |------|-------|---------|
-  | `bn254` *(default)* | 21888242871839275222246405745257275088696311157297823662689037894645226208583 | circom |
+  | `bn254` *(default)* | 21888242871839275222246405745257275088548364400416034343698204186575808495617 | circom/snarkjs |
   | `bn128` | same as bn254 (alias) | circom |
   | `babybear` | 2013265921 (15 · 2²⁷ + 1) | zirgen |
   | `goldilocks` | 18446744069414584321 (2⁶⁴ − 2³² + 1) | plonky2 |
   | `mersenne31` | 2147483647 (2³¹ − 1) | Plonky3 |
   | `koalabear` | 2130706433 (2³¹ − 2²⁴ + 1) | Plonky3 |
 
-  These match the 6 fields in `llzk-lib/lib/Util/Field.cpp`. If `--prime-field` is omitted, `bn254` is used.
+  These are Heyting's supported CLI fields. For `bn254` / `bn128`, Heyting uses
+  the BN128 scalar field modulus expected by Circom/snarkjs binary `.r1cs` /
+  `.wtns` tooling. If `--prime-field` is omitted, `bn254` is used.
 
 - `--input <path>`
   JSON file of public circuit inputs (field elements) to pass to the circuit's `@compute`

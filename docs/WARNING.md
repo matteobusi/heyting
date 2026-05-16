@@ -59,7 +59,7 @@ error: failed to GET URL, error 400; received:
 **Status:** Active — intentional design
 **Affects:** `Heyting/CLI.lean` only
 
-CLI supports 6 prime fields matching `llzk-lib/lib/Util/Field.cpp`. Primality for `bn254`/`bn128` (254-bit) and `goldilocks` (Pseudo-Mersenne, not form `norm_num` handles) can't be verified at elaboration by `native_decide`/`norm_num`. Declared via `private axiom`:
+CLI supports 6 prime fields. For `bn254`/`bn128`, CLI now uses BN128 scalar field modulus so emitted `.r1cs` / `.wtns` files are accepted by Circom/snarkjs tooling. Primality for `bn254`/`bn128` (254-bit) and `goldilocks` (Pseudo-Mersenne, not form `norm_num` handles) can't be verified at elaboration by `native_decide`/`norm_num`. Declared via `private axiom`:
 
 ```lean
 private axiom BN254_prime : Fact (Nat.Prime BN254_p)
