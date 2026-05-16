@@ -76,39 +76,28 @@ Rank-1 Constraint Systems.
 
 These are proof-support files, not separate user-facing IRs in active compiler pipeline.
 
-### StructIR substitution semantics
+### StructIR freshening support
 
 Files:
 
 - `Heyting/Core/SubstSemantics.lean`
-- `Heyting/Languages/StructIRSubst.lean`
+- `Heyting/Languages/StructIRFreshen.lean`
 
 Purpose:
 
-- symbolic / substitution-style account of StructIR evaluation
-- bridge between executable semantics and direct reflection proof
+- freshening and renaming support for constrain bodies
+- environment-agreement lemmas used by `StructIR -> FlatIR` reflection proof
 
-### FlatIR substitution semantics
-
-File:
-
-- `Heyting/Languages/FlatIRSubst.lean`
-
-Purpose:
-
-- atom-level checked semantics used by direct simulation / reflection scaffolding
-
-### Direct proof scaffold
+### Active pass proof file
 
 Files:
 
-- `Heyting/Passes/StructIRToFlatIRDirectSim.lean`
-- `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean`
+- `Heyting/Passes/StructIRToFlatIR.lean`
 
 Purpose:
 
-- checked-semantics simulation lemmas
-- direct `ReflectingPass` scaffold for `StructIR -> FlatIR`
+- executable `StructIR -> FlatIR` lowering
+- direct `ReflectingPass` proof for `StructIR -> FlatIR`
 
 ## Historical note
 

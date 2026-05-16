@@ -30,24 +30,20 @@ StructIR  --->  FlatIR  --->  R1CS
 | Stage | Status | File |
 |------|--------|------|
 | **StructIR** | hierarchical source IR | `Heyting/Languages/StructIR.lean` |
-| **StructIR -> FlatIR** | active executable lowering; reflection scaffold restored, proof incomplete | `Heyting/Passes/StructIRToFlatIRDirect.lean` |
+| **StructIR -> FlatIR** | active executable lowering; proved `ReflectingPass` | `Heyting/Passes/StructIRToFlatIR.lean` |
 | **FlatIR** | flat instruction IR | `Heyting/Languages/FlatIR.lean` |
 | **FlatIR -> R1CS** | fully verified `PresReflPass` | `Heyting/Passes/FlatIRToR1CS.lean` |
 | **R1CS** | backend constraint system | `Heyting/Languages/R1CS.lean` |
-| **Pipeline** | active executable composition | `Heyting/Passes/Pipeline.lean` |
+| **Pipeline** | active executable composition; proved `ReflectingPass` | `Heyting/Passes/Pipeline.lean` |
 
 ### Current proof status
 
-- `FlatIR -> R1CS` is fully verified.
-- Direct `StructIR -> FlatIR` executable lowering is active.
-- Direct reflection scaffold lives in:
-  - `Heyting/Passes/StructIRToFlatIRDirectSim.lean`
-  - `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean`
-- Remaining live proof gaps are currently in:
-  - `Heyting/Languages/StructIRSubst.lean`
-  - `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean`
+- `FlatIR -> R1CS` is fully verified as a `PresReflPass`.
+- `StructIR -> FlatIR` is verified as a `ReflectingPass`.
+- `StructIR -> FlatIR -> R1CS` pipeline is verified as a `ReflectingPass`.
+- Current active support file for pass-1 proofs is `Heyting/Languages/StructIRFreshen.lean`.
 
-See `docs/GUARANTEES.md` and `docs/SORRY_STATUS.md` for current status.
+See `docs/GUARANTEES.md` for current status.
 
 ### Parser
 
@@ -116,16 +112,13 @@ lake exe hey compile --prime-field babybear circuit.llzk out/system
 
 All pass theorems are generic over `F : Type [Field F]`; CLI field selection happens only at boundary.
 
-## Roadmap
-
-See `docs/ROADMAP.md`.
-
 - [x] FlatIR -> R1CS proof
 - [x] StructIR language with intrinsic well-formedness
 - [x] Direct executable StructIR -> FlatIR lowering
+- [x] `StructIR -> FlatIR` reflection proof
+- [x] pipeline reflection proof
 - [x] LLZK parser and lowering to StructIR
 - [x] JSON and binary R1CS / witness output
-- [ ] Finish direct `StructIR -> FlatIR` reflection proof
 - [ ] Upgrade direct path to full `PresReflPass`
 - [ ] Array support
 - [ ] Verified optimization passes

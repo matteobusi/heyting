@@ -17,7 +17,7 @@ When both directions exist, source and target are equisatisfiable.
 
 ```text
 StructIR
-  --[StructIRToFlatIRDirect]--> FlatIR
+  --[StructIRToFlatIR]--> FlatIR
   --[FlatIRToR1CS]------------> R1CS
 ```
 
@@ -27,27 +27,15 @@ StructIR
 
 Files:
 
-- `Heyting/Passes/StructIRToFlatIRDirect.lean`
-- `Heyting/Passes/StructIRToFlatIRDirectSim.lean`
-- `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean`
-- `Heyting/Languages/StructIRSubst.lean`
-- `Heyting/Languages/FlatIRSubst.lean`
+- `Heyting/Passes/StructIRToFlatIR.lean`
+- `Heyting/Languages/StructIRFreshen.lean`
 
 Status:
 
 - executable lowering is active and used by CLI
-- checked-simulation / reflection scaffold restored
-- not yet a completed active `PresReflPass`
-- current live proof gaps are concentrated in substitution/correctness scaffold files
-
-Current remaining proof gaps:
-
-- `Heyting/Languages/StructIRSubst.lean`
-  - `evalConstrainBody_env_agree_on_init`
-  - `evalConstrainBody_objEnv_agree_on_init`
-- `Heyting/Passes/StructIRToFlatIRDirectCorrectness.lean`
-  - `evalConstrainBody_env_agree_on_init`
-  - `CorrectReflectingPass.reflection`
+- proved `ReflectingPass`
+- source and target use original `StructIR.satisfies` / `FlatIR.satisfies` semantics
+- not yet a completed `PresReflPass`
 
 ### `FlatIR -> R1CS`
 
@@ -69,9 +57,10 @@ File:
 
 Status:
 
-- executable composition of direct path is active
+- executable composition of active path is active
 - CLI and smoke tests run through this path
-- end-to-end `PresReflPass` for direct path is not yet bundled in active build
+- proved `ReflectingPass`
+- end-to-end `PresReflPass` is not yet available
 
 ## Witness generation
 

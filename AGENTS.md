@@ -37,8 +37,9 @@ Heyting/
     StructIR.lean          -- Hierarchical IR (structs, calls, felt ops, readMember)
     FlatIR.lean            -- Flat instruction list (7 types; no calls)
     R1CS.lean              -- Rank-1 Constraint Systems
+    StructIRFreshen.lean   -- Freshening/renaming support for StructIR proofs
   Passes/
-    StructIRToFlatIRDirect.lean    -- Direct executable lowering: StructIR → FlatIR
+    StructIRToFlatIR.lean          -- Executable lowering + reflection proof: StructIR → FlatIR
     FlatIRToR1CS.lean              -- FlatIR → R1CS (~270 lines)
     Pipeline.lean          -- active executable pipeline; compileProgram; pipelineWitness
     Lowering.lean          -- LLZK AST → StructIR (unverified, partial)
@@ -66,7 +67,6 @@ docs/
   tactics.md       -- Tactic documentation
   cli.md           -- CLI usage and --prime-field documentation
   llzk-dialects.md -- LLZK MLIR dialect reference
-  diary.md         -- Chronological session diary
   MATTEO_NOTES.md  -- Author's design notes
   superpowers/     -- Design specs and implementation plans
 multiply.llzk      -- Test circuit: a * b = out (2 R1CS constraints)
@@ -78,7 +78,7 @@ Current executable compiler path:
 
 ```
 StructIR
-  --[StructIRToFlatIRDirect]--> FlatIR
+  --[StructIRToFlatIR]--> FlatIR
   --[FlatIRToR1CS]------------> R1CS
 ```
 
@@ -86,10 +86,10 @@ StructIR
 
 | Component | File | Status | Notes |
 |------|------|:---:|-------|
-| Executable lowering | `StructIRToFlatIRDirect.lean` | active | direct executable lowering used by CLI |
+| Executable lowering | `StructIRToFlatIR.lean` | ✅ | active executable lowering and proved `ReflectingPass` |
 | Proven pass | `FlatIRToR1CS.lean` | ✅ | full `PresReflPass` (`CorrectPass`) |
-| Substitution proof layer | `StructIRSubst.lean` | partial | 2 remaining `sorry`s block direct-path proof work |
-| Pipeline wrapper | `Pipeline.lean` | active | executable composition only |
+| Freshening support | `StructIRFreshen.lean` | active | renaming/freshening lemmas used by pass-1 proof |
+| Pipeline wrapper | `Pipeline.lean` | ✅ | executable composition and proved `ReflectingPass` |
 
 ## Correctness framework
 
@@ -172,7 +172,6 @@ Follow `StructIRToFlatIR` pattern: `compileWitness_agrees` invariant (`∀ v, wt
 | `docs/WARNING.md` | New assumptions, limitations, resolutions |
 | `docs/cli.md` | CLI flags, supported fields |
 | `docs/llzk-dialects.md` | New LLZK dialects/ops, parser work |
-| `docs/diary.md` | Append session summary each session |
 | `docs/ROADMAP.md` | Completing or reprioritizing roadmap items |
 | `docs/tactics.md` | New tactics or proof patterns |
 | `README.md` | User-facing changes |
