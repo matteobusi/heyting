@@ -42,21 +42,22 @@ Old intermediate-language pipeline removed from build until those files return.
 
 /-! ## Convenience definitions -/
 
-/-- FlatIR witness induced by decode-seeded StructIR witness semantics. -/
-def liftStructWitness (w : StructIR.Witness F) : FlatIR.Witness F :=
-  fun v => w (VarIdEncoding.decode v)
+/-- FlatIR witness induced by shifted witness-slot seeding. -/
+def liftStructWitness (witnessBase : Nat) (w : StructIR.Witness F) : FlatIR.Witness F :=
+  StructIRToFlatIR.witnessSlotLift witnessBase w
 
 /-! ## Executable FlatIR witness execution
 
-The compiler places encoded witness coordinates in `[0, witBase)` and renamed
-local variables in `[witBase, ...)`. `liftStructWitness` correctly fills the
-witness range from a `StructIR.Witness`, but locals remain `0`. To produce a
+The compiler places all locals below `StructIRToFlatIR.witnessBase m` and all
+shifted witness coordinates at or above that base. `liftStructWitness`
+correctly fills witness slots from a `StructIR.Witness`, but locals remain `0`.
+To produce a
 witness that actually satisfies the compiled FlatIR (and hence the R1CS), we
 single-pass execute the FlatIR program, materializing each local from
 already-known values.
 
 Used only at runtime (CLI). Proof of pass correctness uses the abstract
-`wt' ws` lift, not this executor. -/
+shifted witness-slot lift, not this executor. -/
 
 /-- Witness construction state: current `FlatIR.Witness F` plus a predicate
     marking which variables have been concretely assigned. -/
@@ -69,12 +70,6 @@ private def FlatWitnessState.write (s : FlatWitnessState F) (dest : Nat) (val : 
     FlatWitnessState F :=
   { witness := fun v => if v = dest then val else s.witness v
     assigned := fun v => if v = dest then true else s.assigned v }
-
-/-- Seed initial witness state: witness coords come from the StructIR witness
-    lift, locals start at `0` and unassigned. -/
-private def initFlatWitnessState (w : StructIR.Witness F) : FlatWitnessState F :=
-  { witness := liftStructWitness w
-    assigned := fun _ => false }
 
 /-- Step the executable FlatIR witness builder. Returns `none` if a division
     by zero is forced during witness materialization. -/
@@ -112,8 +107,9 @@ private def stepFlatWitness [DecidableEq F] (s : FlatWitnessState F)
 private def buildFlatWitness [DecidableEq F] (m : StructIR.Module (n + 1) F)
     (w : StructIR.Witness F) : Option (FlatIR.Witness F) := do
   let prog := StructIRToFlatIR.compileProgram m
+  let wBase := StructIRToFlatIR.witnessBase m
   let s ← List.foldlM (fun s instr => stepFlatWitness (F := F) s instr)
-    (initFlatWitnessState (F := F) w) prog
+    ({ witness := liftStructWitness wBase w, assigned := fun _ => false } : FlatWitnessState F) prog
   pure s.witness
 
 /-- Compile StructIR program through direct StructIR -> FlatIR -> R1CS pipeline. -/
