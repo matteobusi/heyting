@@ -34,9 +34,10 @@ Files:
 Status:
 
 - executable lowering is active and used by CLI
-- proved `ReflectingPass`
+- full `PresReflPass` (`CorrectPass`)
 - source and target use original `StructIR.satisfies` / `FlatIR.satisfies` semantics
-- not yet a completed `PresReflPass`
+- 0 sorries
+- standard axioms only (`propext`, `Classical.choice`, `Quot.sound`)
 
 ### `FlatIR -> R1CS`
 
@@ -73,13 +74,15 @@ Status:
 
 - executable composition of active path is active
 - CLI and smoke tests run through this path
-- proved `ReflectingPass`
+- full `PresReflPass` (`CorrectPass`)
 - runtime path uses FlatIR compaction before R1CS lowering
-- end-to-end `PresReflPass` is not yet available
+- 0 sorries
+- standard axioms only (`propext`, `Classical.choice`, `Quot.sound`)
 
 ## Witness generation
 
-`StructIR.computeWitness` in `Heyting/Languages/StructIR.lean` computes witnesses by interpreting `@compute` bodies.
+`StructIR.computeWitness` in `Heyting/Languages/StructIR.lean` computes witnesses by
+interpreting `@compute` bodies.
 
 Status:
 

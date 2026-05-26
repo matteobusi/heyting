@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Mathlib.Data.Set.Basic
 
 import Heyting.Core.Language
@@ -14,21 +18,12 @@ satisfaction set `{ w | satisfies w p }`. The file restates the `τ`, `σ`,
 `TPσ`, `TPτ`, and `CC~` viewpoint in terms of witness relations.
 -/
 
-/-
-  τ is the existential image of the witness relation on properties.
-  Given a source property πS, τ(πS) collects all target witnesses related to
-  some source witness in πS.
-  (Definition 2.5 of TRCCCS)
--/
 /-! ## Property transformers and correctness notions -/
 
-/-
-  τ is the existential image of the witness relation on properties.
-  Given a source property πS, τ(πS) collects all target witnesses related to
-  some source witness in πS.
-  (Definition 2.5 of TRCCCS)
--/
-/-- Existential image of a source witness property along the pass witness relation. -/
+/-- Existential image of a source witness property along the pass witness relation.
+
+`τ p πS` collects all target witnesses related to some source witness in `πS`
+(Definition 2.5 of Abate et al. ESOP 2020). -/
 def τ
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   {S : Language Vs Fs} {T : Language Vt Ft} [P : Pass S T]
@@ -59,8 +54,10 @@ def WPτ
     (∀ wt, T.satisfies wt (P.compile p) →
       wt ∈ τ (S := S) (T := T) p πS)
 
-/-- Trace-relating compiler correctness specialized to witness semantics. -/
-def cc
+/-- Trace-relating compiler correctness (`CC~`) specialized to witness semantics.
+
+Every satisfying target witness comes from a related satisfying source witness. -/
+def CC
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   (S : Language Vs Fs) (T : Language Vt Ft) [P : Pass S T] : Prop :=
     ∀ (p : S.Program) (wt : Witness Vt Ft),
@@ -87,7 +84,7 @@ extends Pass S T where
 lemma TPσ_iff_CC
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   {S : Language Vs Fs} {T : Language Vt Ft} :
-    ∀ (P : Pass S T), WPσ S T ↔ cc (P := P) S T := by
+    ∀ (P : Pass S T), WPσ S T ↔ CC (P := P) S T := by
   intro P
   constructor
   · -- WPσ → CC~: instantiate πT with the "reachable" target property
@@ -105,7 +102,7 @@ lemma TPσ_iff_CC
 lemma TPτ_iff_CC
   {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
   {S : Language Vs Fs} {T : Language Vt Ft} :
-    ∀ (P : Pass S T), WPτ S T ↔ cc (P := P) S T := by
+    ∀ (P : Pass S T), WPτ S T ↔ CC (P := P) S T := by
   intro P
   constructor
   · -- WPτ → CC~: instantiate πS with the source satisfaction set
@@ -127,3 +124,10 @@ lemma TPσ_iff_TPτ
     ∀ (P : Pass S T), WPσ S T (P:=P) ↔ WPτ S T (P:=P) := by
   intro P
   exact (TPσ_iff_CC P).trans (TPτ_iff_CC P).symm
+
+/-- `TPσ` implies `CC~`. -/
+theorem TPσ_implies_CC
+  {Vs Vt : Type} {Fs Ft : Type} [Field Fs] [Field Ft]
+  {S : Language Vs Fs} {T : Language Vt Ft} (P : Pass S T)
+  (h : WPσ S T) : CC (P := P) S T :=
+  (TPσ_iff_CC P).mp h

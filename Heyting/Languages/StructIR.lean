@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Heyting.Core.Language
 import Heyting.Core.ComputingLanguage
 import Mathlib.Data.Nat.Pairing
@@ -92,7 +96,8 @@ def ConstrainStmt.reads {n i F numMembers} : ConstrainStmt n i F numMembers → 
 SSA checker for constrain bodies, parameterized by the set of initially-defined
 locals.
 -/
-def isSSA {n i F numMembers} : (LocalVar → Bool) → List (ConstrainStmt n i F numMembers) → Bool
+def isSSA {n i F numMembers} :
+    (LocalVar → Bool) → List (ConstrainStmt n i F numMembers) → Bool
   | _, [] => true
   | init, s :: sl =>
     s.reads.all init &&
@@ -212,13 +217,13 @@ def objectSafe {F : Type} (structs : (i : Fin n) → StructDef n i F)
 
 /-! ## Paths, environments, and module structure -/
 
--- Instance path: sequence of member indices tracing through the struct hierarchy
+/-- Instance path: sequence of member indices tracing through the struct hierarchy. -/
 abbrev InstancePath := List Nat
 
--- Variable identifier for the Language typeclass
-abbrev VarId := InstancePath × Nat  -- (path, member index)
+/-- Variable identifier for the `Language` typeclass: a pair `(path, memberIndex)`. -/
+abbrev VarId := InstancePath × Nat
 
--- Object environment: tracks which instance path is bound to each local var
+/-- Object environment: maps each local variable to the instance path it refers to. -/
 abbrev ObjEnv := LocalVar → InstancePath
 
 def ObjEnv.update (env : ObjEnv) (v : LocalVar) (path : InstancePath) :
@@ -235,8 +240,9 @@ structure of `evalConstrainBody` / `compileConstrainBody`.
 Used to define the `NoDuplicateReads` well-formedness condition on modules.
 -/
 
--- Collect (path, memberIdx) pairs read during constrain body traversal.
--- Takes `structs` directly (not `Module`) so it can be used in the `Module` definition.
+/-- Collect all `(path, memberIdx)` pairs read during constrain body traversal.
+Takes `structs` directly rather than a `Module` so this can be used inside the `Module`
+definition. -/
 def readPositions {F : Type} (structs : (i : Fin n) → StructDef n i F)
     (i : Fin n) (objEnv : ObjEnv)
     (stmts : List (ConstrainStmt n i F (structs i).members.length)) :
@@ -277,8 +283,9 @@ evaluation tree. Programs violating this condition cannot be
 represented as a `Module`.
 -/
 
--- The module: n structs, each at its own index, main is the last.
--- Carries a well-formedness proof that no (path, member) is read twice.
+/-- A length-`n` vector of struct definitions, with the main struct at index `n-1`.
+Carries well-formedness proofs: no `(path, member)` is read twice (`noDupReads`),
+all constrain bodies are SSA (`all_ssa`), and all object-channel uses are safe (`all_objSafe`). -/
 structure Module (n : Nat) (F : Type) where
   structs : (i : Fin n) → StructDef n i F
   noDupReads : ∀ (hn : 0 < n),
@@ -294,17 +301,17 @@ structure Module (n : Nat) (F : Type) where
       (fun v => v < (structs i).constrain.numParams)
       (structs i).constrain.body = true
 
--- The main struct is the last one (highest index = root of DAG)
+/-- The main struct: highest-index struct (root of the dependency DAG). -/
 def Module.main {n : Nat} (m : Module (n + 1) F) :
     StructDef (n + 1) ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩ F :=
   m.structs ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
 
 /-! ## Witness and Semantics -/
 
--- The witness maps (path, memberIdx) → field value
+/-- A witness maps every `(path, memberIdx)` coordinate to a field element. -/
 abbrev Witness (F : Type) := VarId → F
 
--- Local variable environment within a function evaluation
+/-- Local variable environment: maps each local variable index to its current value. -/
 abbrev LocalEnv (F : Type) := LocalVar → F
 
 def LocalEnv.update (env : LocalEnv F) (v : LocalVar) (val : F) :
@@ -385,15 +392,10 @@ decreasing_by
 def paramCoord (numMembers p : Nat) : VarId :=
   ([numMembers + p], 0)
 
--- Top-level: evaluate @Main::@constrain (main = last struct).
--- The initial local environment seeds:
---   * params  `p < numParams` to `w (paramCoord numMembers p)` — distinct
---     witness slot reserved for the public input that the source `@compute`
---     supplies as the `p`-th positional argument.
---   * non-param locals to `0` (SSA: every read preceded by a write, so the
---     initial value is irrelevant — but we still need a definite value).
--- Object env: only `%self` (local 0) is meaningful at entry; it points to
--- the root struct's empty path `[]`.
+/-- Top-level satisfaction predicate for `@Main::@constrain`.
+
+The initial environment seeds params `p < numParams` to `w (paramCoord numMembers p)` and
+non-param locals to `0`. The initial object env binds `%self` (local `0`) to the root path `[]`. -/
 def satisfies (w : Witness F) {n : Nat} (m : Module (n + 1) F) : Prop :=
   let mainIdx : Fin (n + 1) := ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩
   let mainDef := m.structs mainIdx
@@ -462,7 +464,8 @@ def evalComputeBody (m : Module n F)
         some { state with env := state.env.update dest (state.env src1 * state.env src2) }
       | .feltDiv dest src1 src2 =>
         if state.env src2 == 0 then none
-        else some { state with env := state.env.update dest (state.env src1 * (state.env src2)⁻¹) }
+        else
+          some { state with env := state.env.update dest (state.env src1 * (state.env src2)⁻¹) }
       | .feltNeg dest src =>
         some { state with env := state.env.update dest (-(state.env src)) }
       | .feltConst dest c =>

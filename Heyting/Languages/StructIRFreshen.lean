@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Heyting.Languages.StructIR
 
 /-!
@@ -163,7 +167,8 @@ lemma evalConstrainBody_rename (m : Module n F) (w : Witness F) (i : Fin n)
     | feltDiv dest src1 src2 =>
       simp [evalConstrainBody, renameBody, renameStmt]
       intro hnz
-      simpa [env_update_rename_comm env dest (env (ρ src1) * (env (ρ src2))⁻¹) ρ hρ_inj] using
+      simpa [env_update_rename_comm env dest (env (ρ src1) * (env (ρ src2))⁻¹) ρ hρ_inj]
+        using
         (ih (env.update (ρ dest) (env (ρ src1) * (env (ρ src2))⁻¹)) objEnv)
     | feltNeg dest src =>
       simp [evalConstrainBody, renameBody, renameStmt]
@@ -209,7 +214,8 @@ lemma evalConstrainBody_rename (m : Module n F) (w : Witness F) (i : Fin n)
       · rintro ⟨hcall, h⟩
         refine ⟨h_callee_objEnv_eq ▸ h_callee_env_eq ▸ hcall, (ih env objEnv).mp h⟩
       · rintro ⟨hcall, h⟩
-        refine ⟨h_callee_objEnv_eq.symm ▸ h_callee_env_eq.symm ▸ hcall, (ih env objEnv).mpr h⟩
+        refine ⟨h_callee_objEnv_eq.symm ▸ h_callee_env_eq.symm ▸ hcall,
+          (ih env objEnv).mpr h⟩
 
 private lemma list_all_true_of_mem {α : Type}
     (xs : List α) (p : α → Bool) (x : α)

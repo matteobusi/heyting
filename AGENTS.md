@@ -39,7 +39,7 @@ Heyting/
     R1CS.lean              -- Rank-1 Constraint Systems
     StructIRFreshen.lean   -- Freshening/renaming support for StructIR proofs
   Passes/
-    StructIRToFlatIR.lean          -- Executable lowering + reflection proof: StructIR → FlatIR
+    StructIRToFlatIR.lean          -- Executable lowering + proved PresReflPass: StructIR → FlatIR
     FlatIRCompact.lean             -- Dense FlatIR renaming; proved PresReflPass
     FlatIRToR1CS.lean              -- FlatIR → R1CS (~270 lines)
     Pipeline.lean          -- active executable pipeline; compileProgram; pipelineWitness
@@ -88,11 +88,11 @@ StructIR
 
 | Component | File | Status | Notes |
 |------|------|:---:|-------|
-| Executable lowering | `StructIRToFlatIR.lean` | ✅ | active executable lowering and proved `ReflectingPass` |
+| Executable lowering | `StructIRToFlatIR.lean` | ✅ | active executable lowering and full `PresReflPass` (`CorrectPass`) |
 | Compaction pass | `FlatIRCompact.lean` | ✅ | dense renaming; full `PresReflPass` |
 | Proven pass | `FlatIRToR1CS.lean` | ✅ | full `PresReflPass` (`CorrectPass`) |
 | Freshening support | `StructIRFreshen.lean` | active | renaming/freshening lemmas used by pass-1 proof |
-| Pipeline wrapper | `Pipeline.lean` | ✅ | executable composition and proved `ReflectingPass` |
+| Pipeline wrapper | `Pipeline.lean` | ✅ | executable composition and full `PresReflPass` (`CorrectPass`) |
 
 ## Correctness framework
 
@@ -140,22 +140,20 @@ lake exe hey compile --prime-field babybear circuit.llzk out/system.json
 
 **Imports:** Minimize — import specific Mathlib modules, not `import Mathlib`.
 
-**New StructIR statement type** — add cases in `StructIR.lean` + `StructIRToStructInlineIR.lean`: `inlineBody`, `expandBody`, `inlineBody_props` (frame + correctness), `inlineBody_frame`, `inlineBody_correct`, `expandBody_correct`, `evalConstrainBody_agree`.
+**New StructIR statement type** — add cases in `StructIR.lean` and update `StructIRToFlatIR.lean`: extend `compileConstrainBody`, `evalConstrainBody`, `readPositions`, and add frame/correctness lemmas for the new case.
 
 **New FlatIR instruction** — add to `FlatIRToR1CS.compileInstr` (1–2 constraints), then preservation + reflection cases via `r1cs_arith`; fall back to `linear_combination`/`field_simp`. See `docs/tactics.md`.
 
-**Pass 1 proof structure (`StructIRToStructInlineIR.lean`)**:
-Key theorem: `expandBody_correct`: source `evalConstrainBody` ↔ target `StructInlineIR.evalConstrainBody` after expansion. `call` case uses:
-- `inlineBody_correct` (proved by combined k-bounded strong induction `inlineBody_props`)
-- `StructIR.evalConstrainBody_agree` (env-agreement for bounded-variable bodies)
-- `inlineBody_frame` (positions < next unchanged after running inlined code)
-- `StructInlineIR.evalConstrainBody_append` (splitting evaluation over appended lists)
-
-**Pass 2 open question** (`StructInlineIRToMemberlessIR.lean`):
-Compiles `readMember dest self member` → `constrainEq dest (Nat.pair self member)`. Treats `self` as encoded path — only correct if `objEnv self` determined by `self` alone. Semantic gap must resolve before Pass 2 proof. See `docs/WARNING.md` §8.
-
-**Pass 3 proof structure (`MemberlessIRToFlatIR.lean`)**:
-Follow `StructIRToFlatIR` pattern: `compileWitness_agrees` invariant (`∀ v, wt (vm v) = env v`), preservation/reflection by joint induction on `(i, stmts.length)`. `call` case inlines callee body.
+**Pass 1 proof structure (`StructIRToFlatIR.lean`)**:
+Direct single-pass lowering: StructIR → FlatIR with full `PresReflPass`.
+Key theorems:
+- `body_reflection_wt`: FlatIR satisfaction → StructIR `evalConstrainBody` holds
+- `preservation_via_simulation`: StructIR satisfaction → FlatIR satisfaction
+- `evalConstrainBody_env_agree_on_init`: env-agreement for SSA bodies
+- `compileMainParamBindings_env_agree`: param-binding satisfaction ↔ env equality
+Proof support in `StructIRFreshen.lean`:
+- `evalConstrainBody_rename`: renaming commutes with evaluation
+- `env_update_rename_comm` / `objEnv_update_rename_comm`: env update/rename commutation
 
 **Macro hygiene:** Tactics in `Tactics.lean` can't reference names from other files. Pass-specific unfolding at call site, not in tactic.
 

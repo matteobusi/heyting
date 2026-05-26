@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 /-! Lightweight CLI argument parser for Heyting.
 
 This module provides a small, dependency-free parser that supports:
@@ -36,19 +40,32 @@ def parseOptionWithValue (args : List String) : Except String (String × List St
     positional tokens (if present) are interpreted as the .llzk source file
     and output path respectively. -/
 partial def parse (rawArgs : List String) : Except String Options :=
-  let rec go (acc : Options) (positional : List String) (rem : List String) : Except String Options :=
+  let rec loop (acc : Options) (positional : List String)
+      (rem : List String) : Except String Options :=
     match rem with
     | [] =>
       -- Fill in positional inputs if not already present
       let acc := match positional with
         | [] => acc
-        | [a] => if acc.cmd == "" then { acc with cmd := a } else if acc.llzk?.isNone then { acc with llzk? := some a } else acc
+        | [a] =>
+            if acc.cmd == "" then
+              { acc with cmd := a }
+            else if acc.llzk?.isNone then
+              { acc with llzk? := some a }
+            else
+              acc
         | [a, b] =>
-          let acc := if acc.cmd == "" then { acc with cmd := a } else if acc.llzk?.isNone then { acc with llzk? := some a } else acc
+          let acc :=
+            if acc.cmd == "" then
+              { acc with cmd := a }
+            else if acc.llzk?.isNone then
+              { acc with llzk? := some a }
+            else
+              acc
           let acc := if acc.output?.isNone then { acc with output? := some b } else acc
           acc
         | a :: b :: rest =>
-          -- More than two positionals: treat first as cmd, next as llzk source, next as output; ignore extras
+          -- Extra positionals are ignored after assigning command, source, and output.
           let acc := if acc.cmd == "" then { acc with cmd := a } else acc
           let acc := if acc.llzk?.isNone then { acc with llzk? := some b } else acc
           let acc := if acc.output?.isNone then { acc with output? := some rest.head! } else acc
@@ -57,24 +74,24 @@ partial def parse (rawArgs : List String) : Except String Options :=
     | tok :: rest =>
       if tok.startsWith "--" then
         match tok with
-        | "--json" => go { acc with json := true } positional rest
-        | "--auto" => go { acc with auto := true } positional rest
+        | "--json" => loop { acc with json := true } positional rest
+        | "--auto" => loop { acc with auto := true } positional rest
         | "--input" =>
           match parseOptionWithValue rest with
           | .error e => .error s!"{tok}: {e}"
-          | .ok (v, rest') => go { acc with input? := some v } positional rest'
+          | .ok (v, rest') => loop { acc with input? := some v } positional rest'
         | "--prime-field" =>
           match parseOptionWithValue rest with
           | .error e => .error s!"{tok}: {e}"
-          | .ok (v, rest') => go { acc with prime? := some v } positional rest'
+          | .ok (v, rest') => loop { acc with prime? := some v } positional rest'
         | "--output" | "--out" =>
           match parseOptionWithValue rest with
           | .error e => .error s!"{tok}: {e}"
-          | .ok (v, rest') => go { acc with output? := some v } positional rest'
+          | .ok (v, rest') => loop { acc with output? := some v } positional rest'
         | _ => .error s!"unknown option: {tok}"
       else
         -- positional argument
-        go acc (positional ++ [tok]) rest
-  go {} [] rawArgs
+        loop acc (positional ++ [tok]) rest
+  loop {} [] rawArgs
 
 end Heyting.CLIArgs

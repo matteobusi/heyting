@@ -1,5 +1,16 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Lean.Data.Json
 import Heyting.Languages.R1CS
+
+/-!
+# R1CS JSON Rendering
+
+JSON serializers and human-readable renderers for `R1CS` variables, linear
+combinations, constraints, and whole systems.
+-/
 
 namespace R1CSJSON
 
@@ -62,39 +73,43 @@ def constraintToJson (c : R1CS.Constraint F) : Json :=
 def constraintToHuman (c : R1CS.Constraint F) : String :=
   s!"({linCombToHuman c.A}) * ({linCombToHuman c.B}) = ({linCombToHuman c.C})"
 
--- Count the number of regular (non-aux) wire slots: max over all `.var n` indices + 1.
--- Wire index layout: 0 = varOne, 1..numRegVars = var 0..numRegVars-1,
---                    numRegVars+1..numRegVars+numAuxVars = aux 0..numAuxVars-1.
+/-- Count regular (`.var n`) wire slots: one past the maximum `.var` index seen, or 0. -/
 def countRegVars (constraints : List (R1CS.Constraint F)) : Nat :=
-  let goLC : R1CS.LinComb F → Nat → Nat := fun lc acc =>
+  let sumLC : R1CS.LinComb F → Nat → Nat := fun lc acc =>
     lc.foldl (fun a (v, _) =>
       match v with
       | .var n => max a (n + 1)
       | _      => a) acc
-  let goC : R1CS.Constraint F → Nat → Nat := fun c acc =>
-    goLC c.A (goLC c.B (goLC c.C acc))
-  constraints.foldl (fun acc c => goC c acc) 0
+  let sumC : R1CS.Constraint F → Nat → Nat := fun c acc =>
+    sumLC c.A (sumLC c.B (sumLC c.C acc))
+  constraints.foldl (fun acc c => sumC c acc) 0
 
 /-- Count auxiliary wire slots: `max (.aux n) + 1` across all constraints. -/
 def countAuxVars (constraints : List (R1CS.Constraint F)) : Nat :=
-  let goLC : R1CS.LinComb F → Nat → Nat := fun lc acc =>
+  let sumLC : R1CS.LinComb F → Nat → Nat := fun lc acc =>
     lc.foldl (fun a (v, _) =>
       match v with
       | .aux n => max a (n + 1)
       | _ => a) acc
-  let goC : R1CS.Constraint F → Nat → Nat := fun c acc =>
-    goLC c.A (goLC c.B (goLC c.C acc))
-  constraints.foldl (fun acc c => goC c acc) 0
+  let sumC : R1CS.Constraint F → Nat → Nat := fun c acc =>
+    sumLC c.A (sumLC c.B (sumLC c.C acc))
+  constraints.foldl (fun acc c => sumC c acc) 0
 
-/-- Total number of wire slots (including varOne): 1 + numRegVars + numAuxVars. -/
-def countVars (constraints : List (R1CS.Constraint F)) : Nat :=
+/-- Total number of wire slots (including `varOne`): `1 + numRegVars + numAuxVars`. -/
+def countTotalVars (constraints : List (R1CS.Constraint F)) : Nat :=
   1 + countRegVars constraints + countAuxVars constraints
 
+/-- Summary of constraint and wire counts for a serialized R1CS system. -/
 structure SystemSummary (F : Type) where
+  /-- Total number of R1CS constraints. -/
   numConstraints  : Nat
-  numRegVars      : Nat   -- number of regular (.var n) wire slots
-  numAuxVars      : Nat   -- number of auxiliary (.aux n) wire slots
+  /-- Number of regular `.var n` wire slots. -/
+  numRegVars      : Nat
+  /-- Number of auxiliary `.aux n` wire slots. -/
+  numAuxVars      : Nat
+  /-- Number of public input wires. -/
   numPublicInputs : Nat
+  /-- The constraint list. -/
   constraints     : List (R1CS.Constraint F)
 
 /-- Summarize constraint and wire counts for JSON and human-readable output. -/
@@ -120,10 +135,6 @@ def summaryToJson [Repr F] (s : SystemSummary F) : Json :=
 def systemToJson [Repr F] (sys : R1CS.System F) : Json :=
   summaryToJson (summarize sys)
 
-/-- Pretty-print one constraint. -/
-def ppConstraint (c : R1CS.Constraint F) : String :=
-  constraintToHuman c
-
 /-- Pretty-print whole R1CS system with summary header and numbered constraints. -/
 def ppSystem [Repr F] (sys : R1CS.System F) : String :=
   let s := summarize sys
@@ -132,7 +143,7 @@ def ppSystem [Repr F] (sys : R1CS.System F) : String :=
                 s!"{numWires} wires ({s.numRegVars} regular, {s.numAuxVars} aux), " ++
                 s!"{s.numPublicInputs} public inputs"
   let body : List String := s.constraints.toArray.mapIdx (fun i c =>
-    s!"  [{i}] {ppConstraint c}") |>.toList
+    s!"  [{i}] {constraintToHuman c}") |>.toList
   String.intercalate "\n" (header :: body)
 
 /-- Write JSON serialization of an R1CS system to `path`. -/

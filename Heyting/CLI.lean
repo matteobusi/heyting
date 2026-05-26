@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Mathlib.Algebra.Field.ZMod
 import Mathlib.Tactic.NormNum.Prime
 import Heyting.Parsers.Main
@@ -175,7 +179,7 @@ def compileAndSave
       R1CSBinary.saveR1CSBinary (F:=F) r1csSystem r1csPath
       IO.println s!"Wrote R1CS binary to {r1csPath} (field: {fieldName})"
     IO.println s!"  Constraints: {r1csSystem.constraints.length}"
-    IO.println s!"  Wires: {R1CSJSON.countVars r1csSystem.constraints}"
+    IO.println s!"  Wires: {R1CSJSON.countTotalVars r1csSystem.constraints}"
     -- Determine inputs for witness generation (--auto or --input).
     let witnessInputs : Option (List F) ←
       if let some jsonPath := inputsPath then

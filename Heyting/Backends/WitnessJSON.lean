@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Lean.Data.Json
 import Heyting.Languages.R1CS
 import Heyting.Backends.R1CSJSON
@@ -20,7 +24,8 @@ indexed by wire index as defined by `WireAssignment`.
 
 `witness[0]` is always the value of `varOne` (must be 1 for a valid witness).
 `witness[i]` for `1 ≤ i ≤ numRegVars` is the value of `var (i-1)`.
-`witness[i]` for `numRegVars+1 ≤ i ≤ numRegVars+numAuxVars` is the value of `aux (i-1-numRegVars)`.
+`witness[i]` for `numRegVars + 1 ≤ i ≤ numRegVars + numAuxVars` is the value of
+`aux (i - 1 - numRegVars)`.
 
 ## Relationship to verification
 
