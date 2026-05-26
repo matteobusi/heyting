@@ -7,6 +7,7 @@ import Heyting.Core.Pass
 import Heyting.Languages.FlatIR
 import Heyting.Languages.StructIRFreshen
 import Heyting.Languages.StructIR
+import Heyting.Passes.StructIRToFlatIRTactics
 
 /-!
 # StructIR -> FlatIR
@@ -2240,8 +2241,7 @@ lemma isSSA_dest_not_init {i : Fin n} {nm : Nat} (init : Nat → Bool) :
             exact hHead.1
       · cases hs : head.dest with
         | none =>
-            have hSSA'' : StructIR.isSSA init tail = true := by simpa [hs] using hSSA'
-            exact ih init stmt dest hSSA'' hmem hdest
+            exact ih init stmt dest (by simpa [hs] using hSSA') hmem hdest
         | some d =>
             have hStep : init d = false ∧ isSSA (fun x => init x || x == d) tail = true := by
               simpa [hs, Bool.and_eq_true] using hSSA'
@@ -2299,8 +2299,7 @@ theorem materializeConstrainBody_init_frame_aux
               (!init dest = true) ∧
                 StructIR.isSSA (fun y => init y || y == dest) rest = true := by
             simpa [Bool.and_eq_true] using hStep
-          have hdest : init dest = false := by simpa using hStep'.1
-          have hne : x ≠ dest := init_true_dest_ne hx hdest
+          have hne : x ≠ dest := init_true_dest_ne hx (by simpa using hStep'.1)
           rw [materializeConstrainBody_feltAdd_rename_eq]
           calc
             materializeConstrainBody witnessBase m i
@@ -2331,8 +2330,7 @@ theorem materializeConstrainBody_init_frame_aux
               (!init dest = true) ∧
                 StructIR.isSSA (fun y => init y || y == dest) rest = true := by
             simpa [Bool.and_eq_true] using hStep
-          have hdest : init dest = false := by simpa using hStep'.1
-          have hne : x ≠ dest := init_true_dest_ne hx hdest
+          have hne : x ≠ dest := init_true_dest_ne hx (by simpa using hStep'.1)
           simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
             materializeConstrainBody]
           calc
@@ -2364,8 +2362,7 @@ theorem materializeConstrainBody_init_frame_aux
               (!init dest = true) ∧
                 StructIR.isSSA (fun y => init y || y == dest) rest = true := by
             simpa [Bool.and_eq_true] using hStep
-          have hdest : init dest = false := by simpa using hStep'.1
-          have hne : x ≠ dest := init_true_dest_ne hx hdest
+          have hne : x ≠ dest := init_true_dest_ne hx (by simpa using hStep'.1)
           simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
             materializeConstrainBody]
           calc
@@ -2397,8 +2394,7 @@ theorem materializeConstrainBody_init_frame_aux
               (!init dest = true) ∧
                 StructIR.isSSA (fun y => init y || y == dest) rest = true := by
             simpa [Bool.and_eq_true] using hStep
-          have hdest : init dest = false := by simpa using hStep'.1
-          have hne : x ≠ dest := init_true_dest_ne hx hdest
+          have hne : x ≠ dest := init_true_dest_ne hx (by simpa using hStep'.1)
           simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
             materializeConstrainBody]
           calc
@@ -2430,8 +2426,7 @@ theorem materializeConstrainBody_init_frame_aux
               (!init dest = true) ∧
                 StructIR.isSSA (fun y => init y || y == dest) rest = true := by
             simpa [Bool.and_eq_true] using hStep
-          have hdest : init dest = false := by simpa using hStep'.1
-          have hne : x ≠ dest := init_true_dest_ne hx hdest
+          have hne : x ≠ dest := init_true_dest_ne hx (by simpa using hStep'.1)
           simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
             materializeConstrainBody]
           calc
@@ -2460,8 +2455,7 @@ theorem materializeConstrainBody_init_frame_aux
               (!init dest = true) ∧
                 StructIR.isSSA (fun y => init y || y == dest) rest = true := by
             simpa [Bool.and_eq_true] using hStep
-          have hdest : init dest = false := by simpa using hStep'.1
-          have hne : x ≠ dest := init_true_dest_ne hx hdest
+          have hne : x ≠ dest := init_true_dest_ne hx (by simpa using hStep'.1)
           simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
             materializeConstrainBody]
           calc
@@ -2486,8 +2480,7 @@ theorem materializeConstrainBody_init_frame_aux
               (!init dest = true) ∧
                 StructIR.isSSA (fun y => init y || y == dest) rest = true := by
             simpa [Bool.and_eq_true] using hStep
-          have hdest : init dest = false := by simpa using hStep'.1
-          have hne : x ≠ dest := init_true_dest_ne hx hdest
+          have hne : x ≠ dest := init_true_dest_ne hx (by simpa using hStep'.1)
           rw [materializeConstrainBody_readMember_rename_eq]
           calc
             materializeConstrainBody witnessBase m i
@@ -6883,8 +6876,7 @@ private theorem correctPass_reflection
         evalConstrainBody_env_agree_on_init m ws mainIdx (wt ∘ ρ) envSeed
           (ObjEnv.update (fun _ => []) 0 []) mainBody (m.all_ssa mainIdx)
           (by intro v hv
-              have hvlt : v < numParams := by simpa using hv
-              exact hParamAgree v hvlt)
+              exact hParamAgree v (by simpa using hv))
       -- Conclude: `StructIR.satisfies ws m` unfolds definitionally to this goal.
       change evalConstrainBody m ws mainIdx envSeed
             (ObjEnv.update (fun _ => []) 0 []) mainBody
