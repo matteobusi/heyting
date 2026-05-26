@@ -1,0 +1,24 @@
+// Modulus probe: x + 1 === 0
+// If x = p-1, then (p-1) + 1 ≡ 0 (mod p)
+// This distinguishes base field q from scalar field r
+
+module attributes {llzk.lang} {
+  struct.def @ModProbe {
+    struct.member @result: !felt.type {llzk.pub}
+    
+    function.def @compute(%x: !felt.type) -> !struct.type<@ModProbe> {
+      %self = struct.new : !struct.type<@ModProbe>
+      %one = felt.const 1
+      %sum = felt.add %x, %one
+      struct.writem %self[@result] = %sum : !struct.type<@ModProbe>, !felt.type
+      function.return %self : !struct.type<@ModProbe>
+    }
+    
+    function.def @constrain(%self: !struct.type<@ModProbe>, %x: !felt.type {llzk.pub}) {
+      %result = struct.readm %self[@result] : !struct.type<@ModProbe>, !felt.type
+      %zero = felt.const 0
+      constrain.eq %result, %zero : !felt.type
+      function.return
+    }
+  }
+}
