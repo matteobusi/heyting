@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Heyting.Core.Language
 import Heyting.Core.Pass
 import Heyting.Core.VarIdEncoding
@@ -22,3 +26,9 @@ import Heyting.Backends.FieldBytes
 import Heyting.Backends.R1CSBinary
 import Heyting.Backends.WitnessBinary
 import Heyting.CLI
+
+/-!
+# Heyting
+
+Umbrella import for core languages, passes, parsers, backends, and CLI.
+-/

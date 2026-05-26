@@ -113,11 +113,11 @@ Replace `HigherOrder` and `initialize_mathlib_Mathlib_Tactic_HigherOrder` with w
 
 ---
 
-## 8. Pass 2 semantic gap: `readMember` → `constrainEq` — Historical
+## 8. Pass 2 semantic gap: `readMember` → `constrainEq` — Historical (resolved by removal)
 
 **Date:** 2026-04-29
-**Status:** Historical note from removed intermediate pipeline
-**Affects:** old `Heyting/Passes/StructInlineIRToMemberlessIR.lean`
+**Status:** Historical — intermediate pipeline (`StructInlineIR`, `MemberlessIR`) removed from codebase
+**Affects:** removed files only; does not affect active executable pipeline
 
 ### Issue
 

@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Heyting.Languages.R1CS
 import Heyting.Backends.R1CSJSON
 
@@ -21,7 +25,7 @@ Total wires = `1 + numRegVars + numAuxVars`.
 
 ## Verifiability
 
-The key pure-algebraic correctness property (future verification target):
+The key pure-algebraic correctness property is:
 
 `encode` is injective — no two distinct `VarId`s receive the same index.
 

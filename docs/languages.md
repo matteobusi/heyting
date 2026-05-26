@@ -100,7 +100,7 @@ Files:
 Purpose:
 
 - freshening and renaming support for constrain bodies
-- environment-agreement lemmas used by `StructIR -> FlatIR` reflection proof
+- environment-agreement lemmas used by `StructIR -> FlatIR` full correctness proof
 
 ### Active pass proof file
 
@@ -111,7 +111,7 @@ Files:
 Purpose:
 
 - executable `StructIR -> FlatIR` lowering
-- direct `ReflectingPass` proof for `StructIR -> FlatIR`
+- direct `PresReflPass` proof for `StructIR -> FlatIR`
 
 ## Historical note
 

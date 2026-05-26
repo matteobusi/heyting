@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Heyting.Core.Pass
 import Heyting.Languages.FlatIR
 import Mathlib.Data.List.Basic
@@ -44,23 +48,23 @@ theorem mem_addNew {x v : FlatIR.VarId} {acc : List FlatIR.VarId} :
 def denseVars (p : FlatIR.Program F) : List FlatIR.VarId :=
   (usedVars p).foldl addNew []
 
-/-- Rename one source variable to its dense target id. -/
-def renameVar (p : FlatIR.Program F) (v : FlatIR.VarId) : FlatIR.VarId :=
+/-- Map one source variable to its dense target id. -/
+def compactVar (p : FlatIR.Program F) (v : FlatIR.VarId) : FlatIR.VarId :=
   (denseVars p).idxOf v
 
-/-- Rename all variable occurrences in one instruction. -/
-def renameInstr (p : FlatIR.Program F) : FlatIR.Instr F → FlatIR.Instr F
-  | .assignAdd dest src1 src2 => .assignAdd (renameVar p dest) (renameVar p src1) (renameVar p src2)
-  | .assignSub dest src1 src2 => .assignSub (renameVar p dest) (renameVar p src1) (renameVar p src2)
-  | .assignMul dest src1 src2 => .assignMul (renameVar p dest) (renameVar p src1) (renameVar p src2)
-  | .assignDiv dest src1 src2 => .assignDiv (renameVar p dest) (renameVar p src1) (renameVar p src2)
-  | .assignNeg dest src => .assignNeg (renameVar p dest) (renameVar p src)
-  | .assignConst dest c => .assignConst (renameVar p dest) c
-  | .assertEq src1 src2 => .assertEq (renameVar p src1) (renameVar p src2)
+/-- Apply variable compaction to every variable in a single instruction. -/
+def compactInstr (p : FlatIR.Program F) : FlatIR.Instr F → FlatIR.Instr F
+  | .assignAdd d s1 s2 => .assignAdd (compactVar p d) (compactVar p s1) (compactVar p s2)
+  | .assignSub d s1 s2 => .assignSub (compactVar p d) (compactVar p s1) (compactVar p s2)
+  | .assignMul d s1 s2 => .assignMul (compactVar p d) (compactVar p s1) (compactVar p s2)
+  | .assignDiv d s1 s2 => .assignDiv (compactVar p d) (compactVar p s1) (compactVar p s2)
+  | .assignNeg d s     => .assignNeg (compactVar p d) (compactVar p s)
+  | .assignConst d c   => .assignConst (compactVar p d) c
+  | .assertEq s1 s2    => .assertEq (compactVar p s1) (compactVar p s2)
 
 /-- Compile by densely renaming every variable occurrence. -/
 def compileProgram (p : FlatIR.Program F) : FlatIR.Program F :=
-  p.map (renameInstr p)
+  p.map (compactInstr p)
 
 omit [Field F] in
 theorem mem_usedVars_of_instrVar {p : FlatIR.Program F} {instr : FlatIR.Instr F} {v : FlatIR.VarId}
@@ -79,7 +83,8 @@ theorem mem_denseVars_of_instrVar {p : FlatIR.Program F} {instr : FlatIR.Instr F
     (hinstr : instr ∈ p) (hv : v ∈ FlatIR.instrVars instr) :
     v ∈ denseVars p := by
   have hused : v ∈ usedVars p := mem_usedVars_of_instrVar (p := p) hinstr hv
-  have hmem : ∀ {acc xs : List Nat} {x : Nat}, x ∈ xs.foldl addNew acc ↔ x ∈ acc ∨ x ∈ xs := by
+  have hmem : ∀ {acc xs : List Nat} {x : Nat},
+      x ∈ xs.foldl addNew acc ↔ x ∈ acc ∨ x ∈ xs := by
     intro acc xs x
     induction xs generalizing acc with
     | nil => simp
@@ -91,19 +96,19 @@ theorem mem_denseVars_of_instrVar {p : FlatIR.Program F} {instr : FlatIR.Instr F
 
 theorem satisfiesInstr_rename_iff {p : FlatIR.Program F} {instr : FlatIR.Instr F}
     {ws wt : FlatIR.Witness F}
-    (hvars : ∀ v, v ∈ FlatIR.instrVars instr → wt (renameVar p v) = ws v) :
-    FlatIR.satisfiesInstr wt (renameInstr p instr) ↔ FlatIR.satisfiesInstr ws instr := by
+    (hvars : ∀ v, v ∈ FlatIR.instrVars instr → wt (compactVar p v) = ws v) :
+    FlatIR.satisfiesInstr wt (compactInstr p instr) ↔ FlatIR.satisfiesInstr ws instr := by
   cases instr with
   | assignAdd dest src1 src2 =>
       have hdest := hvars dest (by simp [FlatIR.instrVars])
       have hsrc1 := hvars src1 (by simp [FlatIR.instrVars])
       have hsrc2 := hvars src2 (by simp [FlatIR.instrVars])
       constructor <;> intro h
-      · change wt (renameVar p dest) = wt (renameVar p src1) + wt (renameVar p src2) at h
+      · change wt (compactVar p dest) = wt (compactVar p src1) + wt (compactVar p src2) at h
         change ws dest = ws src1 + ws src2
         rw [← hdest, ← hsrc1, ← hsrc2]
         exact h
-      · change wt (renameVar p dest) = wt (renameVar p src1) + wt (renameVar p src2)
+      · change wt (compactVar p dest) = wt (compactVar p src1) + wt (compactVar p src2)
         change ws dest = ws src1 + ws src2 at h
         rw [hdest, hsrc1, hsrc2]
         exact h
@@ -112,11 +117,11 @@ theorem satisfiesInstr_rename_iff {p : FlatIR.Program F} {instr : FlatIR.Instr F
       have hsrc1 := hvars src1 (by simp [FlatIR.instrVars])
       have hsrc2 := hvars src2 (by simp [FlatIR.instrVars])
       constructor <;> intro h
-      · change wt (renameVar p dest) = wt (renameVar p src1) - wt (renameVar p src2) at h
+      · change wt (compactVar p dest) = wt (compactVar p src1) - wt (compactVar p src2) at h
         change ws dest = ws src1 - ws src2
         rw [← hdest, ← hsrc1, ← hsrc2]
         exact h
-      · change wt (renameVar p dest) = wt (renameVar p src1) - wt (renameVar p src2)
+      · change wt (compactVar p dest) = wt (compactVar p src1) - wt (compactVar p src2)
         change ws dest = ws src1 - ws src2 at h
         rw [hdest, hsrc1, hsrc2]
         exact h
@@ -125,11 +130,11 @@ theorem satisfiesInstr_rename_iff {p : FlatIR.Program F} {instr : FlatIR.Instr F
       have hsrc1 := hvars src1 (by simp [FlatIR.instrVars])
       have hsrc2 := hvars src2 (by simp [FlatIR.instrVars])
       constructor <;> intro h
-      · change wt (renameVar p dest) = wt (renameVar p src1) * wt (renameVar p src2) at h
+      · change wt (compactVar p dest) = wt (compactVar p src1) * wt (compactVar p src2) at h
         change ws dest = ws src1 * ws src2
         rw [← hdest, ← hsrc1, ← hsrc2]
         exact h
-      · change wt (renameVar p dest) = wt (renameVar p src1) * wt (renameVar p src2)
+      · change wt (compactVar p dest) = wt (compactVar p src1) * wt (compactVar p src2)
         change ws dest = ws src1 * ws src2 at h
         rw [hdest, hsrc1, hsrc2]
         exact h
@@ -139,8 +144,8 @@ theorem satisfiesInstr_rename_iff {p : FlatIR.Program F} {instr : FlatIR.Instr F
       have hsrc2 := hvars src2 (by simp [FlatIR.instrVars])
       constructor
       · intro h
-        change wt (renameVar p src2) ≠ 0 ∧
-            wt (renameVar p dest) = wt (renameVar p src1) * (wt (renameVar p src2))⁻¹ at h
+        change wt (compactVar p src2) ≠ 0 ∧
+            wt (compactVar p dest) = wt (compactVar p src1) * (wt (compactVar p src2))⁻¹ at h
         rcases h with ⟨hneq, heq⟩
         refine ⟨?_, ?_⟩
         · intro hz
@@ -155,29 +160,29 @@ theorem satisfiesInstr_rename_iff {p : FlatIR.Program F} {instr : FlatIR.Instr F
         · intro hz
           apply hneq
           rw [← hsrc2, hz]
-        · change wt (renameVar p dest) = wt (renameVar p src1) * (wt (renameVar p src2))⁻¹
+        · change wt (compactVar p dest) = wt (compactVar p src1) * (wt (compactVar p src2))⁻¹
           rw [hdest, hsrc1, hsrc2]
           exact heq
   | assignNeg dest src =>
       have hdest := hvars dest (by simp [FlatIR.instrVars])
       have hsrc := hvars src (by simp [FlatIR.instrVars])
       constructor <;> intro h
-      · change wt (renameVar p dest) = -(wt (renameVar p src)) at h
+      · change wt (compactVar p dest) = -(wt (compactVar p src)) at h
         change ws dest = -(ws src)
         rw [← hdest, ← hsrc]
         exact h
-      · change wt (renameVar p dest) = -(wt (renameVar p src))
+      · change wt (compactVar p dest) = -(wt (compactVar p src))
         change ws dest = -(ws src) at h
         rw [hdest, hsrc]
         exact h
   | assignConst dest c =>
       have hdest := hvars dest (by simp [FlatIR.instrVars])
       constructor <;> intro h
-      · change wt (renameVar p dest) = c at h
+      · change wt (compactVar p dest) = c at h
         change ws dest = c
         rw [← hdest]
         exact h
-      · change wt (renameVar p dest) = c
+      · change wt (compactVar p dest) = c
         change ws dest = c at h
         rw [hdest]
         exact h
@@ -185,18 +190,18 @@ theorem satisfiesInstr_rename_iff {p : FlatIR.Program F} {instr : FlatIR.Instr F
       have hsrc1 := hvars src1 (by simp [FlatIR.instrVars])
       have hsrc2 := hvars src2 (by simp [FlatIR.instrVars])
       constructor <;> intro h
-      · change wt (renameVar p src1) = wt (renameVar p src2) at h
+      · change wt (compactVar p src1) = wt (compactVar p src2) at h
         change ws src1 = ws src2
         rw [← hsrc1, ← hsrc2]
         exact h
-      · change wt (renameVar p src1) = wt (renameVar p src2)
+      · change wt (compactVar p src1) = wt (compactVar p src2)
         change ws src1 = ws src2 at h
         rw [hsrc1, hsrc2]
         exact h
 
 instance CorrectPass : PresReflPass (FlatIR.Language F) (FlatIR.Language F) where
   compile := compileProgram (F := F)
-  witnessRel p ws wt := ∀ v, v ∈ denseVars p → wt (renameVar p v) = ws v
+  witnessRel p ws wt := ∀ v, v ∈ denseVars p → wt (compactVar p v) = ws v
   preservation := by
     intro ws p hsat
     let wt : FlatIR.Witness F := fun v =>
@@ -205,27 +210,27 @@ instance CorrectPass : PresReflPass (FlatIR.Language F) (FlatIR.Language F) wher
       | none => 0
     refine ⟨wt, ?_, ?_⟩
     · intro v hv
-      simp [wt, renameVar, List.getElem?_idxOf hv]
+      simp [wt, compactVar, List.getElem?_idxOf hv]
     · intro instr hcomp
       obtain ⟨srcInstr, hinstr, rfl⟩ := List.mem_map.1 hcomp
-      have hvars : ∀ v, v ∈ FlatIR.instrVars srcInstr → wt (renameVar p v) = ws v := by
+      have hvars : ∀ v, v ∈ FlatIR.instrVars srcInstr → wt (compactVar p v) = ws v := by
         intro v hv
         have hv' : v ∈ denseVars p := mem_denseVars_of_instrVar (p := p) hinstr hv
-        simp [wt, renameVar, List.getElem?_idxOf hv']
+        simp [wt, compactVar, List.getElem?_idxOf hv']
       exact (satisfiesInstr_rename_iff (p := p) (instr := srcInstr) (ws := ws) (wt := wt) hvars).2
         (hsat srcInstr hinstr)
   reflection := by
     intro wt p hsat
     let ws : FlatIR.Witness F := fun v =>
-      if hv : v ∈ denseVars p then wt (renameVar p v) else 0
+      if hv : v ∈ denseVars p then wt (compactVar p v) else 0
     refine ⟨ws, ?_, ?_⟩
     · intro v hv
       simp [ws, hv]
     · intro instr hinstr
-      have hsat' : FlatIR.satisfiesInstr wt (renameInstr p instr) := by
+      have hsat' : FlatIR.satisfiesInstr wt (compactInstr p instr) := by
         apply hsat
         exact List.mem_map.2 ⟨instr, hinstr, rfl⟩
-      have hvars : ∀ v, v ∈ FlatIR.instrVars instr → wt (renameVar p v) = ws v := by
+      have hvars : ∀ v, v ∈ FlatIR.instrVars instr → wt (compactVar p v) = ws v := by
         intro v hv
         have hv' : v ∈ denseVars p := mem_denseVars_of_instrVar (p := p) hinstr hv
         simp [ws, hv']

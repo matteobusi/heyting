@@ -1,7 +1,6 @@
 /-
 Copyright (c) 2025 Heyting Authors. All rights reserved.
-Released under MIT license as described in the file LICENSE.
-Authors: Matteo Busi
+Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import Heyting.Languages.StructIR
 import Mathlib.Data.Nat.Pairing

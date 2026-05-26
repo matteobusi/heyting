@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2025 Heyting Authors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 import Heyting.Core.Language
 
 /-!
@@ -105,17 +109,11 @@ def PresReflPass.compose
     ∃ wm, pass1.witnessRel p ws wm ∧ pass2.witnessRel (pass1.compile p) wm wt
   preservation := by
     intro ws p hs
-    -- Apply pass1 preservation
     obtain ⟨wm, hwrel1, hsat1⟩ := pass1.preservation ws p hs
-    -- Apply pass2 preservation
     obtain ⟨wt, hwrel2, hsat2⟩ := pass2.preservation wm (pass1.compile p) hsat1
-    -- Combine
     exact ⟨wt, ⟨wm, hwrel1, hwrel2⟩, hsat2⟩
   reflection := by
     intro wt p hs
-    -- Apply pass2 reflection
     obtain ⟨wm, hwrel2, hsat2⟩ := pass2.reflection wt (pass1.compile p) hs
-    -- Apply pass1 reflection
     obtain ⟨ws, hwrel1, hsat1⟩ := pass1.reflection wm p hsat2
-    -- Combine
     exact ⟨ws, ⟨wm, hwrel1, hwrel2⟩, hsat1⟩

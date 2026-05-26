@@ -30,19 +30,19 @@ StructIR  --->  FlatIR  --->  FlatIR(compact)  --->  R1CS
 | Stage | Status | File |
 |------|--------|------|
 | **StructIR** | hierarchical source IR | `Heyting/Languages/StructIR.lean` |
-| **StructIR -> FlatIR** | active executable lowering; proved `ReflectingPass` | `Heyting/Passes/StructIRToFlatIR.lean` |
+| **StructIR -> FlatIR** | active executable lowering; full `PresReflPass` (`CorrectPass`) | `Heyting/Passes/StructIRToFlatIR.lean` |
 | **FlatIR** | flat instruction IR | `Heyting/Languages/FlatIR.lean` |
 | **FlatIR -> FlatIR(compact)** | dense variable renaming; proved `PresReflPass` | `Heyting/Passes/FlatIRCompact.lean` |
 | **FlatIR -> R1CS** | fully verified `PresReflPass` | `Heyting/Passes/FlatIRToR1CS.lean` |
 | **R1CS** | backend constraint system | `Heyting/Languages/R1CS.lean` |
-| **Pipeline** | active executable composition; proved `ReflectingPass` | `Heyting/Passes/Pipeline.lean` |
+| **Pipeline** | active executable composition; full `PresReflPass` (`CorrectPass`) | `Heyting/Passes/Pipeline.lean` |
 
 ### Current proof status
 
 - `FlatIR -> FlatIR(compact)` is fully verified as a `PresReflPass`.
 - `FlatIR -> R1CS` is fully verified as a `PresReflPass`.
-- `StructIR -> FlatIR` is verified as a `ReflectingPass`.
-- `StructIR -> FlatIR -> FlatIR(compact) -> R1CS` pipeline is verified as a `ReflectingPass`.
+- `StructIR -> FlatIR` is fully verified as a `PresReflPass`.
+- `StructIR -> FlatIR -> FlatIR(compact) -> R1CS` pipeline is fully verified as a `PresReflPass`.
 - Current active support file for pass-1 proofs is `Heyting/Languages/StructIRFreshen.lean`.
 
 See `docs/GUARANTEES.md` for current status.
@@ -94,9 +94,8 @@ Default field is `bn254`.
 | `mersenne31` | 2147483647 (2³¹ − 1) | Plonky3 |
 | `koalabear` | 2130706433 (2³¹ − 2²⁴ + 1) | Plonky3 |
 
-FIXME: external binary-compatibility smoke checks are currently validated with
-`snarkjs` for `bn254`/`bn128`. Compatibility and external witness-checking flows
-for other supported fields are still being investigated.
+External binary-compatibility smoke checks are validated with `snarkjs` for `bn254`/`bn128`.
+Compatibility and witness-checking flows for other supported fields are still being investigated.
 
 ### Example
 
@@ -126,14 +125,13 @@ constraints and a valid `snarkjs` witness check.
 - [x] FlatIR -> R1CS proof
 - [x] StructIR language with intrinsic well-formedness
 - [x] Direct executable StructIR -> FlatIR lowering
-- [x] `StructIR -> FlatIR` reflection proof
-- [x] pipeline reflection proof
+- [x] `StructIR -> FlatIR` full `PresReflPass`
+- [x] pipeline full `PresReflPass`
 - [x] LLZK parser and lowering to StructIR
 - [x] JSON and binary R1CS / witness output
-- [ ] Upgrade direct path to full `PresReflPass`
 - [ ] Array support
 - [ ] Verified optimization passes
 
 ## License
 
-MIT
+Apache 2.0

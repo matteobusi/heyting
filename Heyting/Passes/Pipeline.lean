@@ -19,7 +19,7 @@ Top-level executable composition used by the CLI.
 
 Current path:
 
-`StructIR -> FlatIR -> R1CS`
+`StructIR -> FlatIR -> FlatIR(compact) -> R1CS`
 
 This file contains only executable composition and witness plumbing. Proofs of
 individual pass correctness live in the pass-specific files.
@@ -29,34 +29,33 @@ namespace Pipeline
 
 variable {n : Nat} {F : Type} [Field F]
 
-/-! ## Direct pipeline
+/-! ## Active pipeline
 
 Current executable pipeline:
 
 ```
-StructIR --[StructIRToFlatIR]--> FlatIR --[FlatIRToR1CS]--> R1CS
+StructIR --[StructIRToFlatIR]--> FlatIR --[FlatIRCompact]--> FlatIR --[FlatIRToR1CS]--> R1CS
 ```
-
-Old intermediate-language pipeline removed from build until those files return.
 -/
 
 /-! ## Convenience definitions -/
 
-/-- FlatIR witness induced by decode-seeded StructIR witness semantics. -/
-def liftStructWitness (w : StructIR.Witness F) : FlatIR.Witness F :=
-  fun v => w (VarIdEncoding.decode v)
+/-- FlatIR witness induced by shifted witness-slot seeding. -/
+def liftStructWitness (witnessBase : Nat) (w : StructIR.Witness F) : FlatIR.Witness F :=
+  StructIRToFlatIR.witnessSlotLift witnessBase w
 
 /-! ## Executable FlatIR witness execution
 
-The compiler places encoded witness coordinates in `[0, witBase)` and renamed
-local variables in `[witBase, ...)`. `liftStructWitness` correctly fills the
-witness range from a `StructIR.Witness`, but locals remain `0`. To produce a
+The compiler places all locals below `StructIRToFlatIR.witnessBase m` and all
+shifted witness coordinates at or above that base. `liftStructWitness`
+correctly fills witness slots from a `StructIR.Witness`, but locals remain `0`.
+To produce a
 witness that actually satisfies the compiled FlatIR (and hence the R1CS), we
 single-pass execute the FlatIR program, materializing each local from
 already-known values.
 
 Used only at runtime (CLI). Proof of pass correctness uses the abstract
-`wt' ws` lift, not this executor. -/
+shifted witness-slot lift, not this executor. -/
 
 /-- Witness construction state: current `FlatIR.Witness F` plus a predicate
     marking which variables have been concretely assigned. -/
@@ -69,12 +68,6 @@ private def FlatWitnessState.write (s : FlatWitnessState F) (dest : Nat) (val : 
     FlatWitnessState F :=
   { witness := fun v => if v = dest then val else s.witness v
     assigned := fun v => if v = dest then true else s.assigned v }
-
-/-- Seed initial witness state: witness coords come from the StructIR witness
-    lift, locals start at `0` and unassigned. -/
-private def initFlatWitnessState (w : StructIR.Witness F) : FlatWitnessState F :=
-  { witness := liftStructWitness w
-    assigned := fun _ => false }
 
 /-- Step the executable FlatIR witness builder. Returns `none` if a division
     by zero is forced during witness materialization. -/
@@ -112,8 +105,9 @@ private def stepFlatWitness [DecidableEq F] (s : FlatWitnessState F)
 private def buildFlatWitness [DecidableEq F] (m : StructIR.Module (n + 1) F)
     (w : StructIR.Witness F) : Option (FlatIR.Witness F) := do
   let prog := StructIRToFlatIR.compileProgram m
+  let wBase := StructIRToFlatIR.witnessBase m
   let s ← List.foldlM (fun s instr => stepFlatWitness (F := F) s instr)
-    (initFlatWitnessState (F := F) w) prog
+    ({ witness := liftStructWitness wBase w, assigned := fun _ => false } : FlatWitnessState F) prog
   pure s.witness
 
 /-- Compile StructIR program through direct StructIR -> FlatIR -> R1CS pipeline. -/
@@ -142,56 +136,39 @@ private def compactFlatWitness (p : FlatIR.Program F) (w : FlatIR.Witness F) : F
     | some src => w src
     | none => 0
 
-/-- High-level direct pipeline reflects satisfiability from R1CS back to StructIR. -/
-instance CorrectReflectingPass [DecidableEq F] :
-    ReflectingPass (StructIR.Language n F) (R1CS.Language F) where
+/-- Pure correctness pipeline before CLI-only `numPublicInputs` annotation. -/
+private def correctnessPass : PresReflPass (StructIR.Language n F) (R1CS.Language F) :=
+  let pass1 : PresReflPass (StructIR.Language n F) (FlatIR.Language F) := inferInstance
+  let pass12 : PresReflPass (FlatIR.Language F) (R1CS.Language F) :=
+    PresReflPass.compose
+      (pass1 := FlatIRCompact.CorrectPass (F := F))
+      (pass2 := FlatIRToR1CS.CorrectPass (F := F))
+  PresReflPass.compose
+    (pass1 := pass1)
+    (pass2 := pass12)
+
+/-- High-level direct pipeline is fully proved as `PresReflPass`. -/
+instance CorrectPass [DecidableEq F] :
+    PresReflPass (StructIR.Language n F) (R1CS.Language F) where
   compile := compileProgram (F := F) (n := n)
-  witnessRel m ws wt :=
-    let pass1pr : PresReflPass (FlatIR.Language F) (FlatIR.Language F) :=
-      FlatIRCompact.CorrectPass (F := F)
-    let pass1 : ReflectingPass (FlatIR.Language F) (FlatIR.Language F) :=
-      { toPass := pass1pr.toPass
-        reflection := pass1pr.reflection }
-    let pass2pr : PresReflPass (FlatIR.Language F) (R1CS.Language F) :=
-      FlatIRToR1CS.CorrectPass (F := F)
-    let pass2 : ReflectingPass (FlatIR.Language F) (R1CS.Language F) :=
-      { toPass := pass2pr.toPass
-        reflection := pass2pr.reflection }
-    let pass12 : ReflectingPass (FlatIR.Language F) (R1CS.Language F) :=
-      ReflectingPass.compose (pass1 := pass1) (pass2 := pass2)
-    let pass : ReflectingPass (StructIR.Language n F) (R1CS.Language F) :=
-      ReflectingPass.compose
-        (pass1 := StructIRToFlatIR.CorrectReflectingPass (F := F) (n := n))
-        (pass2 := pass12)
-    pass.witnessRel m ws wt
+  witnessRel := (correctnessPass (F := F) (n := n)).witnessRel
+  preservation := by
+    intro ws m hsat
+    obtain ⟨wt, hwrel, hsat'⟩ := (correctnessPass (F := F) (n := n)).preservation ws m hsat
+    refine ⟨wt, hwrel, ?_⟩
+    let numPublicInputs :=
+      (m.structs ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).members.countP (·.isPublic)
+    exact (satisfies_compileProgram_numPublicInputs_iff (F := F) wt
+      (compileFlatIR (F := F) (n := n) m) numPublicInputs).mpr hsat'
   reflection := by
     intro wt m hsat
-    let compact := FlatIRCompact.compileProgram (StructIRToFlatIR.compileProgram m)
-    let pass1pr : PresReflPass (FlatIR.Language F) (FlatIR.Language F) :=
-      FlatIRCompact.CorrectPass (F := F)
-    let pass1 : ReflectingPass (FlatIR.Language F) (FlatIR.Language F) :=
-      { toPass := pass1pr.toPass
-        reflection := pass1pr.reflection }
-    let pass2pr : PresReflPass (FlatIR.Language F) (R1CS.Language F) :=
-      FlatIRToR1CS.CorrectPass (F := F)
-    let pass2 : ReflectingPass (FlatIR.Language F) (R1CS.Language F) :=
-      { toPass := pass2pr.toPass
-        reflection := pass2pr.reflection }
-    let pass12 : ReflectingPass (FlatIR.Language F) (R1CS.Language F) :=
-      ReflectingPass.compose (pass1 := pass1) (pass2 := pass2)
-    let pass : ReflectingPass (StructIR.Language n F) (R1CS.Language F) :=
-      ReflectingPass.compose
-        (pass1 := StructIRToFlatIR.CorrectReflectingPass (F := F) (n := n))
-        (pass2 := pass12)
-    have hsat' : R1CS.satisfies wt
-        (FlatIRToR1CS.compileProgram F compact) :=
+    let numPublicInputs :=
+      (m.structs ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).members.countP (·.isPublic)
+    have hsat' :
+        R1CS.satisfies wt (FlatIRToR1CS.compileProgram F (compileFlatIR (F := F) (n := n) m)) :=
       (satisfies_compileProgram_numPublicInputs_iff (F := F) wt
-        compact
-        ((m.structs ⟨n, Nat.lt_succ_iff.mpr (Nat.le_refl n)⟩).members.countP (·.isPublic))).mp hsat
-    have hsat'' : R1CS.satisfies wt (pass.compile m) := by
-      simpa [pass, pass12, pass1, pass1pr, pass2, pass2pr, compileProgram, compact] using hsat'
-    simpa [pass, pass12, pass1, pass1pr, pass2, pass2pr, compileProgram, compact] using
-      pass.reflection wt m hsat''
+        (compileFlatIR (F := F) (n := n) m) numPublicInputs).mp hsat
+    exact (correctnessPass (F := F) (n := n)).reflection wt m hsat'
 
 /-- End-to-end executable witness generation through StructIR and FlatIR witnesses. -/
 def pipelineWitness (m : StructIR.Module (n + 1) F) (inputs : List F)
