@@ -2,7 +2,7 @@
 
 A formally verified ZKP compiler, written in [Lean 4](https://lean-lang.org/) with [Mathlib](https://leanprover-community.github.io/mathlib4_docs/).
 
-Heyting compiles constraint languages (currently a core fragment of [LLZK](https://github.com/nicboul3/llzk-lib)) down to [R1CS](https://www.rareskills.io/post/r1cs) arithmetizations, and proves that compilation is correct: no constraints added, no constraints lost.
+Heyting compiles constraint languages (currently a core fragment of [LLZK](https://github.com/project-llzk/llzk-lib)) down to [R1CS](https://www.rareskills.io/post/r1cs) arithmetizations, and proves that compilation is correct: no constraints added, no constraints lost.
 
 ## Why formal verification?
 
