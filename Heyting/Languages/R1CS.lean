@@ -20,12 +20,14 @@ namespace R1CS
   Wire identifiers in R1CS.
 
   `varOne` is distinguished constant wire 1, `var` stores user/compiled wires,
-  and `aux` stores auxiliary witnesses such as inverses for division.
+  `aux` stores auxiliary inverse witnesses for `assignDiv` (holds `src⁻¹`), and
+  `auxIsZero` stores auxiliary is-zero witnesses for `assignInv` (holds `1 - src·src⁻¹`).
   -/
   inductive VarId
     | varOne : VarId
     | var : ℕ → VarId
     | aux : ℕ → VarId
+    | auxIsZero : ℕ → VarId
     deriving Repr
 
   /-- A linear combination over R1CS wires. -/

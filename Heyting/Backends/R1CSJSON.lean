@@ -24,6 +24,7 @@ def varIdToJson (v : R1CS.VarId) : Json :=
   | .varOne => Json.mkObj [("tag", "varOne")]
   | .var n => Json.mkObj [("tag", "var"), ("index", n)]
   | .aux n => Json.mkObj [("tag", "aux"), ("index", n)]
+  | .auxIsZero n => Json.mkObj [("tag", "auxIsZero"), ("index", n)]
 
 /-- Pretty-print an `R1CS.VarId` using witness-style names. -/
 def varIdToString (v : R1CS.VarId) : String :=
@@ -31,6 +32,7 @@ def varIdToString (v : R1CS.VarId) : String :=
   | .varOne => "ONE"
   | .var n => s!"v{n}"
   | .aux n => s!"aux{n}"
+  | .auxIsZero n => s!"auxIsZero{n}"
 
 /-- Render a field element using its `repr`. -/
 def fieldRepr (c : F) : String :=
@@ -84,12 +86,23 @@ def countRegVars (constraints : List (R1CS.Constraint F)) : Nat :=
     sumLC c.A (sumLC c.B (sumLC c.C acc))
   constraints.foldl (fun acc c => sumC c acc) 0
 
-/-- Count auxiliary wire slots: `max (.aux n) + 1` across all constraints. -/
+/-- Count auxiliary `.aux n` wire slots: `max (.aux n) + 1` across all constraints. -/
 def countAuxVars (constraints : List (R1CS.Constraint F)) : Nat :=
   let sumLC : R1CS.LinComb F → Nat → Nat := fun lc acc =>
     lc.foldl (fun a (v, _) =>
       match v with
       | .aux n => max a (n + 1)
+      | _ => a) acc
+  let sumC : R1CS.Constraint F → Nat → Nat := fun c acc =>
+    sumLC c.A (sumLC c.B (sumLC c.C acc))
+  constraints.foldl (fun acc c => sumC c acc) 0
+
+/-- Count auxiliary `.auxIsZero n` wire slots: `max (.auxIsZero n) + 1` across all constraints. -/
+def countAuxIsZeroVars (constraints : List (R1CS.Constraint F)) : Nat :=
+  let sumLC : R1CS.LinComb F → Nat → Nat := fun lc acc =>
+    lc.foldl (fun a (v, _) =>
+      match v with
+      | .auxIsZero n => max a (n + 1)
       | _ => a) acc
   let sumC : R1CS.Constraint F → Nat → Nat := fun c acc =>
     sumLC c.A (sumLC c.B (sumLC c.C acc))

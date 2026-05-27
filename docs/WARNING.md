@@ -84,6 +84,96 @@ For uniformity, all 6 use `private axiom` in CLI. Keeps code uniform, avoids two
 
 ---
 
+## 8. StructIR does not support helper functions within same struct — Active
+
+**Date:** 2026-05-27
+**Status:** Active — language limitation
+**Affects:** `Heyting/Languages/StructIR.lean`, `Heyting/Parsers/Lowering.lean`
+
+StructIR models each struct as having exactly two functions: `@compute` and `@constrain`. There is no support for additional helper functions within the same struct.
+
+**Why this limitation exists:**
+- StructIR `call` statements target structs by index (`call (target : Fin i)`), not individual functions
+- Topological ordering `j < i` prevents cyclic dependencies between structs
+- Helper functions within same struct would require `j = i`, but `Fin i` type excludes this
+- Calls implicitly target matching function: `ComputeStmt.call` calls target's `@compute`, `ConstrainStmt.call` calls target's `@constrain`
+
+**LLZK parsing vs lowering:**
+- LLZK parser accepts arbitrary `function.def` inside structs (stored in `AST.StructDef.funcs : List FuncDef`)
+- Lowering (`Lowering.lean` lines 406-407) only processes functions named "compute" and "constrain"
+- Additional functions (like `@helper`) parse successfully but are silently dropped during lowering
+- Calls to `@MyStruct::@helper` fail at lowering: "call to MyStruct (index i) is not < caller index i" (same-struct call) or function name ignored and wrong function called (cross-struct)
+
+**Impact:** LLZK programs with helper functions like:
+```llzk
+struct.def @MyStruct {
+  function.def @compute(...) {
+    %result = function.call @MyStruct::@helper(...)  // FAILS: same-struct call
+  }
+  function.def @helper(...) { ... }  // Silently dropped by lowering
+}
+```
+will fail lowering with "call to MyStruct (index i) is not < caller index i".
+
+**Workaround:**
+1. Inline helper logic directly into `@compute`/`@constrain` bodies, OR
+2. Factor helpers into separate structs in topological order (see `tests/nested_calls.llzk`)
+
+**Why adding function support is non-trivial:**
+
+The limitation is deeply embedded in StructIR's semantic model, not just a surface-level restriction:
+
+1. **StructDef structure** (`StructIR.lean` lines 151-156):
+   ```lean
+   structure StructDef (n : Nat) (i : Fin n) (F : Type) where
+     name : String
+     members : List (MemberDecl n)
+     compute : ComputeFunc n i F members.length    -- Exactly one
+     constrain : ConstrainFunc n i F members.length -- Exactly one
+   ```
+   Not `functions : List FuncDef`, but two named fields.
+
+2. **Call semantics hardcoded** (`StructIR.lean` lines 383-384, 524):
+   - `evalConstrainBody` line 384: `evalConstrainBody m w j calleeEnv calleeObjEnv sd.constrain.body`
+   - `evalComputeBody` line 524: `evalComputeBody m j calleeState sd.compute.body`
+   - Calls from compute always invoke target's compute; calls from constrain always invoke target's constrain
+   - No function selector in call semantics — the calling context determines which function is invoked
+
+3. **Proof architecture assumes exactly 2 functions**:
+   - 156+ references to `.constrain` across pass proofs
+   - Preservation/reflection theorems reference `(m.structs i).constrain.body` directly
+   - SSA and object-safety checks iterate over `constrain.body` specifically
+   - Pass compilation logic extracts `sd.constrain.numParams`, `sd.compute.returnVar`, etc.
+
+**Extending to multiple functions would require:**
+
+**Option A: Full function support with explicit selector**
+- Change `StructDef` to `functions : List (FuncDef n i F members.length)`
+- Add `FuncDef` type with name, body, params, return type
+- Change call statements: `call (target : Fin i) (funcIdx : Nat) (args : List LocalVar)`
+- Rewrite `evalConstrainBody`/`evalComputeBody` to index `sd.functions[funcIdx]`
+- Update all 156+ proof references to iterate over function list
+- Rewrite lowering to build function index per struct
+- **Estimated effort:** 2-3 weeks, touches every proof
+
+**Option B: Function pairs (preserves symmetry)**
+- Change `StructDef` to `functionPairs : List (FuncPair n i F members.length)`
+- `FuncPair` has `(name, compute, constrain)` — maintains compute↔constrain symmetry
+- Call statements: `call (target : Fin i) (pairIdx : Nat) (args : List LocalVar)`
+- Semantics: compute calls target's `pairs[pairIdx].compute`, constrain calls `pairs[pairIdx].constrain`
+- Still requires rewriting all proofs but preserves semantic structure
+- **Estimated effort:** 1-2 weeks
+
+**Option C: Single "main" function per struct (simplest)**
+- Keep current `compute`/`constrain` as "main" pair
+- Add `helpers : List (HelperFunc n i F members.length)` to StructDef
+- Helpers are pure compute-only (no witness ops, no constraint emission)
+- Helper calls inlined during Pass 1 (before FlatIR)
+- Main functions can call helpers within same struct
+- **Estimated effort:** 3-5 days, minimal proof changes
+
+---
+
 **Linker fix for `undefined symbol: initialize_mathlib_Mathlib_Tactic_HigherOrder` (and similar):**
 
 If `lake build hey` fails with `ld64.lld: error: undefined symbol: initialize_mathlib_Mathlib_Tactic_*`, cause is cache stub `.c.o.export` file with no symbols. Compile minimal stub and overwrite:

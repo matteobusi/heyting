@@ -87,6 +87,8 @@ private def stepFlatWitness [DecidableEq F] (s : FlatWitnessState F)
         some <| s.write dest (s.witness src1 * (s.witness src2)⁻¹)
   | .assignNeg dest src =>
       some <| s.write dest (-(s.witness src))
+  | .assignInv dest src =>
+      some <| s.write dest ((s.witness src)⁻¹)
   | .assignConst dest c =>
       some <| s.write dest c
   | .assertEq src1 src2 =>

@@ -1,0 +1,52 @@
+// Test cross-struct function calls (demonstrates topological ordering)
+// NOTE: StructIR requires called structs to appear earlier in dependency order
+module attributes {llzk.lang, llzk.main = !struct.type<@NestedCalls::@Main<[]>>} {
+  module @NestedCalls {
+    // Helper struct: computes z + 1
+    struct.def @Helper {
+      struct.member @input : !felt.type<"bn128">
+      struct.member @result : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%self: !struct.type<@NestedCalls::@Helper>, %z: !felt.type<"bn128">) -> !felt.type<"bn128"> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %c1 = felt.const 1 : !felt.type<"bn128">
+        %result = felt.add %z, %c1 : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return %result : !felt.type<"bn128">
+      }
+      function.def @constrain(%self: !struct.type<@NestedCalls::@Helper>, %z: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %inp = struct.readm %self[@input] : <@NestedCalls::@Helper>, !felt.type<"bn128">
+        %res = struct.readm %self[@result] : <@NestedCalls::@Helper>, !felt.type<"bn128">
+        %c1 = felt.const 1 : !felt.type<"bn128">
+        %expected = felt.add %inp, %c1 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %res, %expected : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+    
+    // Main struct: calls Helper
+    struct.def @Main {
+      struct.member @result : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%arg0: !felt.type<"bn128">, %arg1: !felt.type<"bn128">) -> !struct.type<@NestedCalls::@Main> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %self = struct.new : <@NestedCalls::@Main>
+        // Compute (arg0 + arg1) * 2
+        %sum = felt.add %arg0, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %doubled = felt.mul %sum, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Call Helper to compute doubled + 1
+        %helper_self = struct.new : <@NestedCalls::@Helper>
+        %result = function.call @Helper::@compute(%helper_self, %doubled) : (!struct.type<@NestedCalls::@Helper>, !felt.type<"bn128">) -> !felt.type<"bn128">
+        struct.writem %self[@result] = %result : <@NestedCalls::@Main>, !felt.type<"bn128">
+        function.return %self : !struct.type<@NestedCalls::@Main>
+      }
+      function.def @constrain(%arg0: !struct.type<@NestedCalls::@Main>, %arg1: !felt.type<"bn128">, %arg2: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %result = struct.readm %arg0[@result] : <@NestedCalls::@Main>, !felt.type<"bn128">
+        // Inline same computation to verify
+        %sum = felt.add %arg1, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %doubled = felt.mul %sum, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %c1 = felt.const 1 : !felt.type<"bn128">
+        %expected = felt.add %doubled, %c1 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %result, %expected : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}

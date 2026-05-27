@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import Mathlib.Tactic.Ring
 import Mathlib.Tactic.LinearCombination
 import Mathlib.Tactic.FieldSimp
+import Mathlib.Tactic.Linarith
 
 import Heyting.Languages.R1CS
 

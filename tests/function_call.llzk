@@ -1,0 +1,38 @@
+// Test repeated computation pattern (simulates helper function via inlining)
+// NOTE: StructIR does not support helper functions within same struct.
+// This test inlines the helper logic directly.
+module attributes {llzk.lang, llzk.main = !struct.type<@FuncCall::@FuncCall<[]>>} {
+  module @FuncCall {
+    struct.def @FuncCall {
+      struct.member @intermediate : !felt.type<"bn128">
+      struct.member @final : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%arg0: !felt.type<"bn128">, %arg1: !felt.type<"bn128">) -> !struct.type<@FuncCall::@FuncCall> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %self = struct.new : <@FuncCall::@FuncCall>
+        // Inline helper computation: (arg0 + arg1) * 2
+        %sum = felt.add %arg0, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %inter = felt.mul %sum, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@intermediate] = %inter : <@FuncCall::@FuncCall>, !felt.type<"bn128">
+        // Use result in another computation
+        %c3 = felt.const 3 : !felt.type<"bn128">
+        %final_val = felt.mul %inter, %c3 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@final] = %final_val : <@FuncCall::@FuncCall>, !felt.type<"bn128">
+        function.return %self : !struct.type<@FuncCall::@FuncCall>
+      }
+      function.def @constrain(%arg0: !struct.type<@FuncCall::@FuncCall>, %arg1: !felt.type<"bn128">, %arg2: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %inter = struct.readm %arg0[@intermediate] : <@FuncCall::@FuncCall>, !felt.type<"bn128">
+        %final = struct.readm %arg0[@final] : <@FuncCall::@FuncCall>, !felt.type<"bn128">
+        // Inline same helper computation to verify
+        %sum = felt.add %arg1, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %expected_inter = felt.mul %sum, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %inter, %expected_inter : !felt.type<"bn128">, !felt.type<"bn128">
+        // Verify final = 3 * intermediate
+        %c3 = felt.const 3 : !felt.type<"bn128">
+        %expected_final = felt.mul %inter, %c3 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %final, %expected_final : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}

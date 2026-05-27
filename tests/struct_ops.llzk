@@ -1,0 +1,38 @@
+// Test struct operations: new, readm, writem
+module attributes {llzk.lang, llzk.main = !struct.type<@StructOps::@StructOps<[]>>} {
+  module @StructOps {
+    struct.def @StructOps {
+      struct.member @x : !felt.type<"bn128">
+      struct.member @y : !felt.type<"bn128">
+      struct.member @z : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%arg0: !felt.type<"bn128">, %arg1: !felt.type<"bn128">) -> !struct.type<@StructOps::@StructOps> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        // Test struct.new
+        %self = struct.new : <@StructOps::@StructOps>
+        // Test struct.writem (multiple members)
+        struct.writem %self[@x] = %arg0 : <@StructOps::@StructOps>, !felt.type<"bn128">
+        struct.writem %self[@y] = %arg1 : <@StructOps::@StructOps>, !felt.type<"bn128">
+        // Compute result using written values
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %temp = felt.mul %arg0, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %result = felt.add %temp, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@z] = %result : <@StructOps::@StructOps>, !felt.type<"bn128">
+        function.return %self : !struct.type<@StructOps::@StructOps>
+      }
+      function.def @constrain(%arg0: !struct.type<@StructOps::@StructOps>, %arg1: !felt.type<"bn128">, %arg2: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        // Test struct.readm (multiple members)
+        %x = struct.readm %arg0[@x] : <@StructOps::@StructOps>, !felt.type<"bn128">
+        %y = struct.readm %arg0[@y] : <@StructOps::@StructOps>, !felt.type<"bn128">
+        %z = struct.readm %arg0[@z] : <@StructOps::@StructOps>, !felt.type<"bn128">
+        // Verify stored values match inputs
+        constrain.eq %x, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %y, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Verify computation: z = 2*x + y
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %temp = felt.mul %x, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %expected = felt.add %temp, %y : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %z, %expected : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}

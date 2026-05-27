@@ -105,6 +105,30 @@ def compileInstr (instr : FlatIR.Instr F) : List (R1CS.Constraint F) :=
         B := [(.varOne, -1)],
         C := [(compileVar dest, 1)]
       }]
+  | .assignInv dest src =>
+      -- Encode dest = inv(src) with inv(0) = 0.
+      -- Let isZero = auxIsZero(src) = 1 - src * src⁻¹ (= 1 if src=0, 0 otherwise).
+      -- Witness: dest = src⁻¹ (= 0 when src=0), isZero = 1 - src * src⁻¹.
+      -- Constraint 1: src * dest = 1 - isZero  (encodes src·inv(src) = 1 when src≠0)
+      -- Constraint 2: src * isZero = 0          (forces isZero=0 when src≠0)
+      -- Constraint 3: dest * isZero = 0         (forces dest=0 when src=0, since isZero=1)
+      [
+        {
+          A := [(compileVar src, 1)],
+          B := [(compileVar dest, 1)],
+          C := [(.varOne, 1), (.auxIsZero src, -1)]
+        },
+        {
+          A := [(compileVar src, 1)],
+          B := [(.auxIsZero src, 1)],
+          C := []
+        },
+        {
+          A := [(compileVar dest, 1)],
+          B := [(.auxIsZero src, 1)],
+          C := []
+        }
+      ]
   | .assignConst dest c =>
       -- c * 1 = dest
       [{
@@ -131,12 +155,15 @@ def compileProgram (s : FlatIR.Program F) (numPublicInputs : Nat := 0) : R1CS.Sy
 /-! ## Witness translation -/
 
 /-- Forward witness: extend a FlatIR witness to an R1CS witness.
-    Sets `varOne = 1`, preserves FlatIR variable values, and provides
-    auxiliary inverse witnesses needed by the `assignDiv` encoding. -/
+    Sets `varOne = 1`, preserves FlatIR variable values,
+    provides auxiliary inverse witnesses for `assignDiv` (`aux v = (w v)⁻¹`), and
+    provides auxiliary is-zero witnesses for `assignInv`
+    (`auxIsZero v = 1 - w v * (w v)⁻¹`, which equals 1 when `w v = 0` and 0 otherwise). -/
 def compileWitness (w : FlatIR.Witness F) : R1CS.Witness F :=
-  fun | (.varOne) => 1
-      | (.var v)  => w v
-      | (.aux v)  => (w v)⁻¹
+  fun | (.varOne)       => 1
+      | (.var v)        => w v
+      | (.aux v)        => (w v)⁻¹
+      | (.auxIsZero v)  => 1 - w v * (w v)⁻¹
 
 /-- Backward witness: project an R1CS witness down to a FlatIR witness
     by reading out the `.var` slots. -/
@@ -195,6 +222,30 @@ instance CorrectPass : PresReflPass (FlatIR.Language F) (R1CS.Language F) where
           simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
                 compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
           r1cs_arith
+        | assignInv dest src =>
+          -- h_instr : w dest = (w src)⁻¹
+          -- Need: for each c ∈ [C1, C2, C3], satisfiesLinComb (compileWitness w) c
+          simp only [compileInstr, List.mem_cons, List.mem_nil_iff, or_false] at hc_mem
+          simp only [FlatIR.satisfiesInstr] at h_instr
+          rcases hc_mem with rfl | rfl | rfl
+          · -- C1: src * dest = varOne - auxIsZero(src)
+            simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb,
+                  compileVar, compileWitness, List.foldl]
+            rw [h_instr]; ring
+          · -- C2: src * auxIsZero(src) = 0
+            simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb,
+                  compileVar, compileWitness, List.foldl]
+            by_cases hs : w src = 0
+            · simp [hs]
+            · have hmul : w src * (w src)⁻¹ = 1 := mul_inv_cancel₀ hs
+              simp only [one_mul, zero_add]; rw [hmul]; ring
+          · -- C3: dest * auxIsZero(src) = 0
+            simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb,
+                  compileVar, compileWitness, List.foldl]
+            by_cases hs : w src = 0
+            · simp [hs, h_instr]
+            · have hmul : w src * (w src)⁻¹ = 1 := mul_inv_cancel₀ hs
+              simp only [one_mul, zero_add]; rw [h_instr, hmul]; ring
         | assignConst dest c =>
           simp only [compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
           simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
@@ -261,6 +312,35 @@ instance CorrectPass : PresReflPass (FlatIR.Language F) (R1CS.Language F) where
         simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
               extractWitness, FlatIR.satisfiesInstr, List.foldl] at *
         r1cs_arith
+      | assignInv dest src =>
+        -- C1: src * dest = 1 - auxIsZero(src)
+        -- C2: src * auxIsZero(src) = 0
+        -- C3: dest * auxIsZero(src) = 0
+        -- Goal: extractWitness w dest = (extractWitness w src)⁻¹
+        simp only [compileInstr, List.forall_mem_cons] at h_all
+        obtain ⟨h_c1, h_c2, h_c3, _⟩ := h_all
+        simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+          FlatIR.satisfiesInstr, List.foldl, extractWitness] at h_c1 h_c2 h_c3 ⊢
+        -- Strip evalLinComb scaffolding; normalize h_c1 to use literal 1
+        simp only [zero_add, one_mul] at h_c1 h_c2 h_c3
+        rw [h_one] at h_c1; ring_nf at h_c1
+        -- h_c1 : w (.var src) * w (.var dest) = 1 - w (.auxIsZero src)
+        -- h_c2 : w (.var src) * w (.auxIsZero src) = 0
+        -- h_c3 : w (.var dest) * w (.auxIsZero src) = 0
+        by_cases hs : w (R1CS.VarId.var src) = 0
+        · -- src = 0 → isZero = 1 (from h_c1) → dest = 0 (from h_c3) = 0⁻¹
+          rw [hs, zero_mul] at h_c1
+          rw [hs, inv_zero]
+          have h_iz1 : w (R1CS.VarId.auxIsZero src) = 1 := by linear_combination h_c1
+          rw [h_iz1, mul_one] at h_c3; exact h_c3
+        · -- src ≠ 0 → isZero = 0 (from h_c2) → src * dest = 1 (from h_c1) → dest = src⁻¹
+          have h_iz : w (R1CS.VarId.auxIsZero src) = 0 :=
+            (mul_eq_zero.mp h_c2).resolve_left hs
+          simp only [h_iz, sub_zero] at h_c1
+          -- h_c1 : w src * w dest = 1; want dest = src⁻¹
+          have hdc : w (R1CS.VarId.var dest) * w (R1CS.VarId.var src) = 1 := by
+            rw [mul_comm]; exact h_c1
+          exact eq_inv_of_mul_eq_one_left hdc
       | assignConst dest c =>
         simp only [compileInstr, List.forall_mem_cons] at h_all
         simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,

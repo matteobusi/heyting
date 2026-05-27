@@ -77,6 +77,9 @@ def compileConstrainBody (witnessBase : Nat) (m : StructIR.Module n F)
     | .feltNeg dest src =>
       let (tail, objEnv', nextFresh') := compileConstrainBody witnessBase m i objEnv nextFresh rest
       (FlatIR.Instr.assignNeg dest src :: tail, objEnv', nextFresh')
+    | .feltInv dest src =>
+      let (tail, objEnv', nextFresh') := compileConstrainBody witnessBase m i objEnv nextFresh rest
+      (FlatIR.Instr.assignInv dest src :: tail, objEnv', nextFresh')
     | .feltConst dest c =>
       let (tail, objEnv', nextFresh') := compileConstrainBody witnessBase m i objEnv nextFresh rest
       (FlatIR.Instr.assignConst dest c :: tail, objEnv', nextFresh')
@@ -616,6 +619,14 @@ lemma compileParamBindings_satisfies_of_agree
       simp only [evalConstrainBody, true_and]
       rw [localEnv_update_self _ _ _ hI]
       exact ih _ _ hRest
+    | feltInv dest src =>
+      simp only [compileConstrainBody] at hSat
+      rw [satisfies_cons] at hSat
+      obtain ⟨hI, hRest⟩ := hSat
+      simp only [FlatIR.satisfiesInstr] at hI
+      simp only [evalConstrainBody, true_and]
+      rw [localEnv_update_self _ _ _ hI]
+      exact ih _ _ hRest
     | feltConst dest c =>
       simp only [compileConstrainBody] at hSat
       rw [satisfies_cons] at hSat
@@ -851,6 +862,7 @@ theorem compileConstrainBody_next_ge_aux (witnessBase : Nat) (m : Module n F)
     | feltMul dest src1 src2 => simpa [compileConstrainBody] using ih objEnv nextFresh
     | feltDiv dest src1 src2 => simpa [compileConstrainBody] using ih objEnv nextFresh
     | feltNeg dest src => simpa [compileConstrainBody] using ih objEnv nextFresh
+    | feltInv dest src => simpa [compileConstrainBody] using ih objEnv nextFresh
     | feltConst dest c => simpa [compileConstrainBody] using ih objEnv nextFresh
     | readMember dest self member =>
       let path := objEnv self
@@ -912,6 +924,8 @@ theorem compileConstrainBody_localCeil_eq_aux (witnessBase : Nat) (m : Module n 
       | feltDiv dest src1 src2 =>
           simpa [compileConstrainBody, localCeilConstrainBody] using ih objEnv nextFresh
       | feltNeg dest src =>
+          simpa [compileConstrainBody, localCeilConstrainBody] using ih objEnv nextFresh
+      | feltInv dest src =>
           simpa [compileConstrainBody, localCeilConstrainBody] using ih objEnv nextFresh
       | feltConst dest c =>
           simpa [compileConstrainBody, localCeilConstrainBody] using ih objEnv nextFresh
@@ -1078,6 +1092,11 @@ def materializeConstrainBody (witnessBase : Nat)
         objEnv nextFresh rest
     | .feltNeg dest src =>
       let val := -(env src)
+      let wt' : FlatIR.Witness F := fun v => if v = dest then val else wt v
+      materializeConstrainBody witnessBase m i wt' (env.update dest val)
+        objEnv nextFresh rest
+    | .feltInv dest src =>
+      let val := (env src)⁻¹
       let wt' : FlatIR.Witness F := fun v => if v = dest then val else wt v
       materializeConstrainBody witnessBase m i wt' (env.update dest val)
         objEnv nextFresh rest
@@ -1396,6 +1415,13 @@ theorem materializeConstrainBody_fresh_frame_aux
             materialize_tail_of_witness_update_frame_gen witnessBase m i rest ih
               freshBase wt (env.update (StructIRFreshen.freshMap freshBase dest) val) objEnv
               runFresh dest v val hle hv
+      | feltInv dest src =>
+          let val := (env (StructIRFreshen.freshMap freshBase src))⁻¹
+          simpa [materializeConstrainBody, StructIRFreshen.renameBody,
+            StructIRFreshen.renameStmt] using
+            materialize_tail_of_witness_update_frame_gen witnessBase m i rest ih
+              freshBase wt (env.update (StructIRFreshen.freshMap freshBase dest) val) objEnv
+              runFresh dest v val hle hv
       | feltConst dest c =>
           simpa [materializeConstrainBody, StructIRFreshen.renameBody,
             StructIRFreshen.renameStmt] using
@@ -1656,6 +1682,19 @@ theorem materializeConstrainBody_high_frame_aux
           have hv' : localCeilConstrainBody m i runFresh rest ≤ v := by
             exact localCeilConstrainBody_noncall_tail_le m runFresh v
               (.feltNeg dest src) rest (by intro target args hCall; cases hCall) hv
+          calc _ = _ := ih _ _ _ _ hFitRest hv'
+            _ = wt v :=
+              witness_update_high_frame wt freshBase dest runFresh v _ hDest hRun_le_v
+      | feltInv dest src =>
+          simp only [StructIRFreshen.renameBody, List.map_cons,
+            StructIRFreshen.renameStmt, materializeConstrainBody]
+          have hDest : freshBase + dest < runFresh := by
+            have := maxVarStmt_le_maxVarBody_cons
+              (.feltInv dest src : ConstrainStmt n i F _) rest
+            simp [StructIRFreshen.maxVarStmt] at this; omega
+          have hv' : localCeilConstrainBody m i runFresh rest ≤ v := by
+            exact localCeilConstrainBody_noncall_tail_le m runFresh v
+              (.feltInv dest src) rest (by intro target args hCall; cases hCall) hv
           calc _ = _ := ih _ _ _ _ hFitRest hv'
             _ = wt v :=
               witness_update_high_frame wt freshBase dest runFresh v _ hDest hRun_le_v
@@ -2003,11 +2042,34 @@ theorem materializeConstrainBody_middle_frame_aux
                   if u = StructIRFreshen.freshMap freshBase dest then
                     -(env (StructIRFreshen.freshMap freshBase src))
                   else wt u) v := by
-                    exact ih (wt := _)
-                      (env := _)
-                      (objEnv := objEnv)
-                      (runFresh := runFresh)
-                      hFitRest hAnchorRun hv
+                    exact ih (wt := _) (env := _) (objEnv := objEnv)
+                      (runFresh := runFresh) hFitRest hAnchorRun hv
+            _ = wt v := by
+                  exact witness_update_high_frame wt freshBase dest anchor v _ hDest hAnchorV
+      | feltInv dest src =>
+          simp only [StructIRFreshen.renameBody, List.map_cons,
+            StructIRFreshen.renameStmt, materializeConstrainBody]
+          have hDest : freshBase + dest < anchor := by
+            have := maxVarStmt_le_maxVarBody_cons
+              (.feltInv dest src : ConstrainStmt n i F _) rest
+            simp [StructIRFreshen.maxVarStmt] at this
+            omega
+          calc
+            materializeConstrainBody witnessBase m i
+                (fun u =>
+                  if u = StructIRFreshen.freshMap freshBase dest then
+                    (env (StructIRFreshen.freshMap freshBase src))⁻¹
+                  else wt u)
+                (env.update (StructIRFreshen.freshMap freshBase dest)
+                  ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+                objEnv runFresh
+                (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest) v
+              = (fun u =>
+                  if u = StructIRFreshen.freshMap freshBase dest then
+                    (env (StructIRFreshen.freshMap freshBase src))⁻¹
+                  else wt u) v := by
+                    exact ih (wt := _) (env := _) (objEnv := objEnv)
+                      (runFresh := runFresh) hFitRest hAnchorRun hv
             _ = wt v := by
                   exact witness_update_high_frame wt freshBase dest anchor v _ hDest hAnchorV
       | feltConst dest c =>
@@ -2441,6 +2503,35 @@ theorem materializeConstrainBody_init_frame_aux
                 (StructIRFreshen.freshMap freshBase x)
               = (fun u => if u = StructIRFreshen.freshMap freshBase dest then
                     -(env (StructIRFreshen.freshMap freshBase src))
+                  else wt u) (StructIRFreshen.freshMap freshBase x) := by
+                    apply ih
+                    · exact hStep'.2
+                    · simp [hx]
+                    · exact hlt
+            _ = wt (StructIRFreshen.freshMap freshBase x) := by simp [StructIRFreshen.freshMap, hne]
+      | feltInv dest src =>
+          have hStep :
+              !init dest && StructIR.isSSA (fun y => init y || y == dest) rest = true := by
+            simpa [ConstrainStmt.dest] using hSSA'
+          have hStep' :
+              (!init dest = true) ∧
+                StructIR.isSSA (fun y => init y || y == dest) rest = true := by
+            simpa [Bool.and_eq_true] using hStep
+          have hne : x ≠ dest := init_true_dest_ne hx (by simpa using hStep'.1)
+          simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
+            materializeConstrainBody]
+          calc
+            materializeConstrainBody witnessBase m i
+                (fun u => if u = StructIRFreshen.freshMap freshBase dest then
+                    (env (StructIRFreshen.freshMap freshBase src))⁻¹
+                  else wt u)
+                (env.update (StructIRFreshen.freshMap freshBase dest)
+                  ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+                objEnv runFresh
+                (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest)
+                (StructIRFreshen.freshMap freshBase x)
+              = (fun u => if u = StructIRFreshen.freshMap freshBase dest then
+                    (env (StructIRFreshen.freshMap freshBase src))⁻¹
                   else wt u) (StructIRFreshen.freshMap freshBase x) := by
                     apply ih
                     · exact hStep'.2
@@ -3116,6 +3207,11 @@ lemma read_le_maxVarStmt {i : Fin n} {nm : Nat}
         simpa [ConstrainStmt.reads] using hx
       rcases hx' with rfl
       simp [StructIRFreshen.maxVarStmt]
+  | feltInv dest src =>
+      have hx' : x = src := by
+        simpa [ConstrainStmt.reads] using hx
+      rcases hx' with rfl
+      simp [StructIRFreshen.maxVarStmt]
   | feltConst dest c =>
       simp [ConstrainStmt.reads] at hx
   | readMember dest self member =>
@@ -3150,6 +3246,7 @@ lemma dest_le_maxVarStmt {i : Fin n} {nm : Nat}
   | feltMul dest' src1 src2 => cases hd; simp [StructIRFreshen.maxVarStmt]
   | feltDiv dest' src1 src2 => cases hd; simp [StructIRFreshen.maxVarStmt]
   | feltNeg dest' src => cases hd; simp [StructIRFreshen.maxVarStmt]
+  | feltInv dest' src => cases hd; simp [StructIRFreshen.maxVarStmt]
   | feltConst dest' c => cases hd; simp [StructIRFreshen.maxVarStmt]
   | readMember dest' self member => cases hd; simp [StructIRFreshen.maxVarStmt]
   | constrainEq src1 src2 => cases hd
@@ -4451,6 +4548,174 @@ theorem materialize_compile_feltNeg_satisfies
             (List.map (StructIRFreshen.renameStmt (StructIRFreshen.freshMap freshBase)) rest)
             (StructIRFreshen.freshMap freshBase src) := by rw [hSrc']
   · exact ih instr hmem
+
+theorem materialize_compile_feltInv_satisfies
+    (witnessBase : Nat) (m : Module n F) (i : Fin n)
+    (freshBase : Nat) (wt : FlatIR.Witness F) (env : LocalEnv F) (objEnv : ObjEnv)
+    (runFresh dest src : Nat)
+    (rest : List (ConstrainStmt n i F (m.structs i).members.length))
+    (ih : FlatIR.satisfies
+      (materializeConstrainBody witnessBase m i
+        (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+          (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+        (env.update (StructIRFreshen.freshMap freshBase dest)
+          ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+        objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest))
+      (compileConstrainBody witnessBase m i objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest)).1)
+    (hDest :
+      materializeConstrainBody witnessBase m i
+          (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+            (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+          (env.update (StructIRFreshen.freshMap freshBase dest)
+            ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+          objEnv runFresh
+          (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest)
+          (StructIRFreshen.freshMap freshBase dest) =
+        (env (StructIRFreshen.freshMap freshBase src))⁻¹)
+    (hSrc :
+      materializeConstrainBody witnessBase m i
+          (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+            (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+          (env.update (StructIRFreshen.freshMap freshBase dest)
+            ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+          objEnv runFresh
+          (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest)
+          (StructIRFreshen.freshMap freshBase src) =
+        env (StructIRFreshen.freshMap freshBase src)) :
+    FlatIR.satisfies
+      (materializeConstrainBody witnessBase m i wt env objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase)
+          (.feltInv dest src :: rest)))
+      (compileConstrainBody witnessBase m i objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase)
+          (.feltInv dest src :: rest))).1 := by
+  simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
+    materializeConstrainBody]
+  intro instr hmem
+  simp only [compileConstrainBody, List.mem_cons] at hmem
+  rcases hmem with rfl | hmem
+  · have hDest' :
+        materializeConstrainBody witnessBase m i
+            (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+              (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+            (env.update (StructIRFreshen.freshMap freshBase dest)
+              ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+            objEnv runFresh
+            (List.map (StructIRFreshen.renameStmt (StructIRFreshen.freshMap freshBase)) rest)
+            (StructIRFreshen.freshMap freshBase dest) =
+          (env (StructIRFreshen.freshMap freshBase src))⁻¹ := by
+        simpa [StructIRFreshen.renameBody] using hDest
+    have hSrc' :
+        materializeConstrainBody witnessBase m i
+            (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+              (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+            (env.update (StructIRFreshen.freshMap freshBase dest)
+              ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+            objEnv runFresh
+            (List.map (StructIRFreshen.renameStmt (StructIRFreshen.freshMap freshBase)) rest)
+            (StructIRFreshen.freshMap freshBase src) =
+          env (StructIRFreshen.freshMap freshBase src) := by
+        simpa [StructIRFreshen.renameBody] using hSrc
+    exact calc
+      materializeConstrainBody witnessBase m i
+          (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+            (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+          (env.update (StructIRFreshen.freshMap freshBase dest)
+            ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+           objEnv runFresh
+           (List.map (StructIRFreshen.renameStmt (StructIRFreshen.freshMap freshBase)) rest)
+           (StructIRFreshen.freshMap freshBase dest)
+         = (env (StructIRFreshen.freshMap freshBase src))⁻¹ := hDest'
+      _ = (materializeConstrainBody witnessBase m i
+            (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+              (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+            (env.update (StructIRFreshen.freshMap freshBase dest)
+              ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+            objEnv runFresh
+            (List.map (StructIRFreshen.renameStmt (StructIRFreshen.freshMap freshBase)) rest)
+            (StructIRFreshen.freshMap freshBase src))⁻¹ := by rw [hSrc']
+  · exact ih instr hmem
+
+theorem materialize_step_feltInv_satisfies
+    (witnessBase : Nat) (m : Module n F) (i : Fin n)
+    (init : Nat → Bool) (freshBase : Nat)
+    (wt : FlatIR.Witness F) (ws : StructIR.Witness F)
+    (env : LocalEnv F) (objEnv : ObjEnv) (runFresh : Nat)
+    (dest src : Nat)
+    (rest : List (ConstrainStmt n i F (m.structs i).members.length))
+    (hSSA : StructIR.isSSA init (.feltInv dest src :: rest) = true)
+    (hAgree : ∀ y, init y = true →
+      wt (StructIRFreshen.freshMap freshBase y) = env (StructIRFreshen.freshMap freshBase y))
+    (_hSlots : ∀ pos, wt (encodeWitnessPos witnessBase pos) = ws pos)
+    (hFit : freshBase + StructIRFreshen.maxVarBody (.feltInv dest src :: rest) < runFresh)
+    (_hCeilCons : localCeilConstrainBody m i runFresh (.feltInv dest src :: rest) ≤ witnessBase)
+    (_hCeilRest : localCeilConstrainBody m i runFresh rest ≤ witnessBase)
+    (ih : FlatIR.satisfies
+      (materializeConstrainBody witnessBase m i
+        (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+          (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+        (env.update (StructIRFreshen.freshMap freshBase dest)
+          ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+        objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest))
+      (compileConstrainBody witnessBase m i objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest)).1) :
+    FlatIR.satisfies
+      (materializeConstrainBody witnessBase m i wt env objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase)
+          (.feltInv dest src :: rest)))
+      (compileConstrainBody witnessBase m i objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase)
+          (.feltInv dest src :: rest))).1 := by
+  let stmt : ConstrainStmt n i F (m.structs i).members.length := .feltInv dest src
+  have hd : stmt.dest = some dest := by rfl
+  have hDest := materializeConstrainBody_head_dest_after_write witnessBase m i init wt env
+    objEnv freshBase runFresh dest ((env (StructIRFreshen.freshMap freshBase src))⁻¹)
+    stmt rest hSSA hAgree hd hFit
+  have hSrc := materializeConstrainBody_head_read_after_write witnessBase m i init wt env
+    objEnv freshBase runFresh dest src ((env (StructIRFreshen.freshMap freshBase src))⁻¹)
+    stmt rest hSSA hAgree hd
+    (by simp [stmt, ConstrainStmt.reads]) hFit
+  have hsrc_ne : src ≠ dest :=
+    isSSA_read_ne_dest init stmt rest dest src hSSA hd (by simp [stmt, ConstrainStmt.reads])
+  exact materialize_compile_feltInv_satisfies witnessBase m i freshBase wt env objEnv runFresh
+    dest src rest ih hDest (by simpa [hsrc_ne] using hSrc)
+
+theorem bodySatCtx_feltInv_cons_satisfies
+    (witnessBase : Nat) (m : Module n F) (i : Fin n)
+    (init : Nat → Bool) (freshBase : Nat)
+    (wt : FlatIR.Witness F) (ws : StructIR.Witness F)
+    (env : LocalEnv F) (objEnv : ObjEnv) (runFresh : Nat)
+    (dest src : Nat)
+    (rest : List (ConstrainStmt n i F (m.structs i).members.length))
+    (hctx : BodySatCtx witnessBase m i init freshBase wt ws env objEnv runFresh
+      (.feltInv dest src :: rest))
+    (ih : FlatIR.satisfies
+      (materializeConstrainBody witnessBase m i
+        (fun v => if v = StructIRFreshen.freshMap freshBase dest then
+          (env (StructIRFreshen.freshMap freshBase src))⁻¹ else wt v)
+        (env.update (StructIRFreshen.freshMap freshBase dest)
+          ((env (StructIRFreshen.freshMap freshBase src))⁻¹))
+        objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest))
+      (compileConstrainBody witnessBase m i objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase) rest)).1) :
+    FlatIR.satisfies
+      (materializeConstrainBody witnessBase m i wt env objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase)
+          (.feltInv dest src :: rest)))
+      (compileConstrainBody witnessBase m i objEnv runFresh
+        (StructIRFreshen.renameBody (StructIRFreshen.freshMap freshBase)
+          (.feltInv dest src :: rest))).1 := by
+  exact materialize_step_feltInv_satisfies witnessBase m i init freshBase wt ws env objEnv runFresh
+    dest src rest (bodySatCtx.ssa hctx) (bodySatCtx.agree hctx) (bodySatCtx.slots hctx)
+    (bodySatCtx.fit hctx) (bodySatCtx.ceil hctx)
+     (bodySatCtx.ceil (bodySatCtx_after_dest_noncall witnessBase m i init freshBase wt ws env
+       objEnv runFresh dest ((env (StructIRFreshen.freshMap freshBase src))⁻¹)
+       (.feltInv dest src) rest hctx (by intro target args h; cases h) rfl))
+    ih
 
 theorem materialize_compile_feltConst_satisfies
     (witnessBase : Nat) (m : Module n F) (i : Fin n)
@@ -5797,6 +6062,27 @@ private theorem compileConstrainBody_instrVars_in_range_aux
           · rcases ih objEnv nextFresh hBound' hTail with ⟨hlo, hhi⟩ | hge
             · left; exact ⟨hlo, hS ▸ hhi⟩
             · right; exact hge
+      | feltInv d s =>
+          simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
+            compileConstrainBody, List.mem_cons] at hInstr
+          have hS : (compileConstrainBody witnessBase m i objEnv nextFresh
+              (StructIRFreshen.renameBody (fun v => base + v)
+                (ConstrainStmt.feltInv d s :: rest))).2.2 =
+            (compileConstrainBody witnessBase m i objEnv nextFresh
+              (StructIRFreshen.renameBody (fun v => base + v) rest)).2.2 := by
+            simp [StructIRFreshen.renameBody, StructIRFreshen.renameStmt, compileConstrainBody]
+          rcases hInstr with rfl | hTail
+          · have hmv := maxVarStmt_le_maxVarBody_cons (ConstrainStmt.feltInv d s) rest
+            have hge := compileConstrainBody_next_ge witnessBase m i objEnv nextFresh
+              (StructIRFreshen.renameBody (fun v => base + v) rest)
+            simp only [FlatIR.instrVars, List.mem_cons, List.not_mem_nil, or_false] at hv
+            rw [hS]
+            rcases hv with rfl | rfl <;>
+              (left; exact ⟨by omega, by
+                simp [StructIRFreshen.maxVarStmt] at hmv; omega⟩)
+          · rcases ih objEnv nextFresh hBound' hTail with ⟨hlo, hhi⟩ | hge
+            · left; exact ⟨hlo, hS ▸ hhi⟩
+            · right; exact hge
       | feltConst d c =>
           simp only [StructIRFreshen.renameBody, List.map_cons, StructIRFreshen.renameStmt,
             compileConstrainBody, List.mem_cons] at hInstr
@@ -6576,6 +6862,15 @@ private theorem body_forward_satisfies_aux
             (ih _ _ _ _ _
               (bodySatCtx_after_dest_noncall witnessBase m i init freshBase wt ws env objEnv
                 runFresh dest _ (.feltNeg dest src) rest hctx
+                (by intro target args h; cases h) rfl)
+              (eval_after_update m ws i env objEnv freshBase dest _ rest hEval))
+      | feltInv dest src =>
+          simp only [evalConstrainBody, true_and] at hEval
+          exact bodySatCtx_feltInv_cons_satisfies witnessBase m i init freshBase wt ws env objEnv
+            runFresh dest src rest hctx
+            (ih _ _ _ _ _
+              (bodySatCtx_after_dest_noncall witnessBase m i init freshBase wt ws env objEnv
+                runFresh dest _ (.feltInv dest src) rest hctx
                 (by intro target args h; cases h) rfl)
               (eval_after_update m ws i env objEnv freshBase dest _ rest hEval))
       | feltConst dest c =>

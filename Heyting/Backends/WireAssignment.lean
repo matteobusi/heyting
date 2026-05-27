@@ -13,15 +13,18 @@ binary formats (Circom `.r1cs`, `.wtns`) and the witness JSON array.
 
 ## Wire index layout
 
-Given an R1CS system with `numRegVars` regular wires and `numAuxVars` auxiliary wires:
+Given an R1CS system with `numRegVars` regular wires, `numAuxVars` auxiliary inverse wires,
+and `numAuxIsZeroVars` auxiliary is-zero wires:
 
 ```
-index 0                                         → varOne  (the constant-1 wire)
-index 1 .. numRegVars                           → var 0 .. var (numRegVars-1)
-index numRegVars+1 .. numRegVars+numAuxVars     → aux 0 .. aux (numAuxVars-1)
+index 0                                                            → varOne  (the constant-1 wire)
+index 1 .. numRegVars                                              → var 0 .. var (numRegVars-1)
+index numRegVars+1 .. numRegVars+numAuxVars                        → aux 0 .. aux (numAuxVars-1)
+index numRegVars+numAuxVars+1 ..                                   → auxIsZero 0 ..
+  numRegVars+numAuxVars+numAuxIsZeroVars
 ```
 
-Total wires = `1 + numRegVars + numAuxVars`.
+Total wires = `1 + numRegVars + numAuxVars + numAuxIsZeroVars`.
 
 ## Verifiability
 
@@ -40,36 +43,41 @@ namespace WireAssignment
 variable {F : Type} [Field F]
 
 /-- Wire-index namespace sizes for an R1CS system.
-    Carry the two counts so that `encode`/`decode` are definable without
+    Carry the three counts so that `encode`/`decode` are definable without
     re-scanning the constraint list. -/
 structure Sizes where
   /-- Number of `.var n` slots: wire indices 1 .. numRegVars. -/
   numRegVars : Nat
   /-- Number of `.aux n` slots: wire indices numRegVars+1 .. numRegVars+numAuxVars. -/
   numAuxVars : Nat
+  /-- Number of `.auxIsZero n` slots: wire indices after aux region. -/
+  numAuxIsZeroVars : Nat
   deriving Repr
 
 /-- Total number of wires, including the constant-1 wire at index `0`. -/
 def Sizes.numWires (wa : Sizes) : Nat :=
-  1 + wa.numRegVars + wa.numAuxVars
+  1 + wa.numRegVars + wa.numAuxVars + wa.numAuxIsZeroVars
 
 /-- Compute `Sizes` from a constraint list by scanning all mentioned `VarId`s. -/
 def fromConstraints [Repr F] (constraints : List (R1CS.Constraint F)) : Sizes :=
   { numRegVars := R1CSJSON.countRegVars constraints
-    numAuxVars := R1CSJSON.countAuxVars constraints }
+    numAuxVars := R1CSJSON.countAuxVars constraints
+    numAuxIsZeroVars := R1CSJSON.countAuxIsZeroVars constraints }
 
 /-- Compute `Sizes` from an `R1CS.System`. -/
 def fromSystem [Repr F] (sys : R1CS.System F) : Sizes :=
   fromConstraints sys.constraints
 
 /-- Map a `VarId` to its dense wire index.
-    - `varOne` → 0
-    - `var n`  → n + 1
-    - `aux n`  → numRegVars + 1 + n -/
+    - `varOne`      → 0
+    - `var n`       → n + 1
+    - `aux n`       → numRegVars + 1 + n
+    - `auxIsZero n` → numRegVars + numAuxVars + 1 + n -/
 def encode (wa : Sizes) : R1CS.VarId → Nat
-  | .varOne => 0
-  | .var n  => n + 1
-  | .aux n  => wa.numRegVars + 1 + n
+  | .varOne      => 0
+  | .var n       => n + 1
+  | .aux n       => wa.numRegVars + 1 + n
+  | .auxIsZero n => wa.numRegVars + wa.numAuxVars + 1 + n
 
 /-- Map a dense wire index back to a `VarId`.
     Returns `none` if the index is out of range. -/
@@ -80,6 +88,8 @@ def decode (wa : Sizes) (i : Nat) : Option R1CS.VarId :=
     some (.var (i - 1))
   else if i ≤ wa.numRegVars + wa.numAuxVars then
     some (.aux (i - 1 - wa.numRegVars))
+  else if i ≤ wa.numRegVars + wa.numAuxVars + wa.numAuxIsZeroVars then
+    some (.auxIsZero (i - 1 - wa.numRegVars - wa.numAuxVars))
   else
     none
 

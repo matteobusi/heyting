@@ -1,0 +1,44 @@
+// Test all felt operations: add, sub, mul, div, neg, inv, const
+module attributes {llzk.lang, llzk.main = !struct.type<@FeltOps::@FeltOps<[]>>} {
+  module @FeltOps {
+    struct.def @FeltOps {
+      struct.member @result : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%arg0: !felt.type<"bn128">, %arg1: !felt.type<"bn128">) -> !struct.type<@FeltOps::@FeltOps> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %self = struct.new : <@FeltOps::@FeltOps>
+        // Test felt.const
+        %c5 = felt.const 5 : !felt.type<"bn128">
+        // Test felt.add
+        %add = felt.add %arg0, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Test felt.sub
+        %sub = felt.sub %add, %c5 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Test felt.mul
+        %mul = felt.mul %sub, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Test felt.div
+        %div = felt.div %mul, %arg0 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Test felt.neg
+        %neg = felt.neg %c5 : !felt.type<"bn128">
+        // Test felt.inv
+        %inv = felt.inv %arg1 : !felt.type<"bn128">
+        // Final computation combining everything
+        %temp1 = felt.add %div, %neg : !felt.type<"bn128">, !felt.type<"bn128">
+        %temp2 = felt.mul %temp1, %inv : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@result] = %temp2 : <@FeltOps::@FeltOps>, !felt.type<"bn128">
+        function.return %self : !struct.type<@FeltOps::@FeltOps>
+      }
+      function.def @constrain(%arg0: !struct.type<@FeltOps::@FeltOps>, %arg1: !felt.type<"bn128">, %arg2: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %c5 = felt.const 5 : !felt.type<"bn128">
+        %add = felt.add %arg1, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %sub = felt.sub %add, %c5 : !felt.type<"bn128">, !felt.type<"bn128">
+        %mul = felt.mul %sub, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %div = felt.div %mul, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        %neg = felt.neg %c5 : !felt.type<"bn128">
+        %inv = felt.inv %arg2 : !felt.type<"bn128">
+        %temp1 = felt.add %div, %neg : !felt.type<"bn128">, !felt.type<"bn128">
+        %temp2 = felt.mul %temp1, %inv : !felt.type<"bn128">, !felt.type<"bn128">
+        %result = struct.readm %arg0[@result] : <@FeltOps::@FeltOps>, !felt.type<"bn128">
+        constrain.eq %result, %temp2 : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}

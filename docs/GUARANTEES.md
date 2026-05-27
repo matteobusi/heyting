@@ -89,3 +89,25 @@ Status:
 - executable witness generation is active
 - used by `Pipeline.pipelineWitness` / CLI `--auto`
 - separate correctness theorem for `computeWitness` is still future work
+
+## Test coverage
+
+Comprehensive test suite at `tests/` exercises all supported LLZK features:
+
+| Feature | Test File | Coverage |
+|---------|-----------|----------|
+| Felt operations | `felt_ops.llzk` | `add`, `sub`, `mul`, `div`, `neg`, `inv`, `const` |
+| Struct operations | `struct_ops.llzk` | `new`, `readm`, `writem` |
+| Function calls | `function_call.llzk` | helper functions in `@compute`/`@constrain` |
+| Constraint emission | `constrain_eq.llzk` | multiple `constrain.eq` statements |
+| Nondeterministic witnesses | `nondet.llzk` | `llzk.nondet` |
+| Multiple struct members | `multi_struct.llzk` | 8 members, objEnv tracking |
+| Nested function calls | `nested_calls.llzk` | call chain depth 3 |
+| Public members | `pub_members.llzk` | `llzk.pub` attribute |
+
+Run: `./tests/run_tests.sh` or `./scripts/smoke_cli.sh`
+
+All tests verify:
+- Parser accepts LLZK input
+- Compiler produces R1CS output
+- Optional: `snarkjs` validates constraint system structure

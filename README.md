@@ -56,6 +56,8 @@ LLZK parser reads MLIR textual IR and produces untyped AST.
 
 Supported constructs include felt ops, struct ops, `constrain.eq`, function calls, `llzk.nondet`, and returns. Unsupported ops are skipped with warnings.
 
+See `docs/llzk-dialects.md` for full LLZK dialect reference and supported feature mapping.
+
 ## Building
 
 Requires [elan](https://github.com/leanprover/elan).
@@ -117,6 +119,36 @@ Compaction matters for emitted artifacts: sparse witness-coordinate variables fr
 `StructIR -> FlatIR` are now renamed densely before R1CS lowering. For example,
 `scripts/multiply.llzk` drops from `994` wires to `15` wires with identical
 constraints and a valid `snarkjs` witness check.
+
+## Testing
+
+Comprehensive test suite in `tests/` directory exercises all supported LLZK features:
+
+| Test | Features Exercised |
+|------|-------------------|
+| `felt_ops.llzk` | All felt operations: `add`, `sub`, `mul`, `div`, `neg`, `inv`, `const` |
+| `struct_ops.llzk` | Struct operations: `new`, `readm`, `writem` |
+| `function_call.llzk` | Function calls between `@compute` and `@constrain` |
+| `constrain_eq.llzk` | Multiple `constrain.eq` constraint emission |
+| `nondet.llzk` | Nondeterministic witness values (`llzk.nondet`) |
+| `multi_struct.llzk` | Struct with 8 members (objEnv tracking) |
+| `nested_calls.llzk` | Function call chains (depth 3) |
+| `pub_members.llzk` | Public struct members (`llzk.pub` attribute) |
+
+Run test suite:
+
+```bash
+# Run all tests
+./tests/run_tests.sh
+
+# Run smoke tests (includes test suite)
+./scripts/smoke_cli.sh
+```
+
+Each test verifies:
+- Parsing succeeds
+- Compilation produces R1CS output
+- Optional: `snarkjs r1cs info` validates constraint system structure
 
 - [x] FlatIR -> R1CS proof
 - [x] StructIR language with intrinsic well-formedness

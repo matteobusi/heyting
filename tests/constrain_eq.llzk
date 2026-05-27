@@ -1,0 +1,42 @@
+// Test constraint emission with multiple constrain.eq statements
+module attributes {llzk.lang, llzk.main = !struct.type<@ConstrainEq::@ConstrainEq<[]>>} {
+  module @ConstrainEq {
+    struct.def @ConstrainEq {
+      struct.member @a : !felt.type<"bn128">
+      struct.member @b : !felt.type<"bn128">
+      struct.member @sum : !felt.type<"bn128"> {llzk.pub}
+      struct.member @product : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%arg0: !felt.type<"bn128">, %arg1: !felt.type<"bn128">) -> !struct.type<@ConstrainEq::@ConstrainEq> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %self = struct.new : <@ConstrainEq::@ConstrainEq>
+        struct.writem %self[@a] = %arg0 : <@ConstrainEq::@ConstrainEq>, !felt.type<"bn128">
+        struct.writem %self[@b] = %arg1 : <@ConstrainEq::@ConstrainEq>, !felt.type<"bn128">
+        %sum_val = felt.add %arg0, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@sum] = %sum_val : <@ConstrainEq::@ConstrainEq>, !felt.type<"bn128">
+        %prod_val = felt.mul %arg0, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@product] = %prod_val : <@ConstrainEq::@ConstrainEq>, !felt.type<"bn128">
+        function.return %self : !struct.type<@ConstrainEq::@ConstrainEq>
+      }
+      function.def @constrain(%arg0: !struct.type<@ConstrainEq::@ConstrainEq>, %arg1: !felt.type<"bn128">, %arg2: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %a = struct.readm %arg0[@a] : <@ConstrainEq::@ConstrainEq>, !felt.type<"bn128">
+        %b = struct.readm %arg0[@b] : <@ConstrainEq::@ConstrainEq>, !felt.type<"bn128">
+        %sum = struct.readm %arg0[@sum] : <@ConstrainEq::@ConstrainEq>, !felt.type<"bn128">
+        %product = struct.readm %arg0[@product] : <@ConstrainEq::@ConstrainEq>, !felt.type<"bn128">
+        // Test multiple constrain.eq statements
+        // Constraint 1: stored a equals input
+        constrain.eq %a, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Constraint 2: stored b equals input
+        constrain.eq %b, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Constraint 3: sum = a + b
+        %expected_sum = felt.add %a, %b : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %sum, %expected_sum : !felt.type<"bn128">, !felt.type<"bn128">
+        // Constraint 4: product = a * b
+        %expected_product = felt.mul %a, %b : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %product, %expected_product : !felt.type<"bn128">, !felt.type<"bn128">
+        // Constraint 5: commutativity check (product = b * a)
+        %commutative_product = felt.mul %b, %a : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %product, %commutative_product : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}

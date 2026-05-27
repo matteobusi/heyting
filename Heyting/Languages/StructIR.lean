@@ -62,6 +62,8 @@ inductive ConstrainStmt (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
   | feltMul (dest : LocalVar) (src1 src2 : LocalVar)
   | feltDiv (dest : LocalVar) (src1 src2 : LocalVar)
   | feltNeg (dest : LocalVar) (src : LocalVar)
+  /-- Field inverse: `dest = src⁻¹` with `inv(0) = 0`. -/
+  | feltInv (dest : LocalVar) (src : LocalVar)
   | feltConst (dest : LocalVar) (c : F)
   | readMember (dest : LocalVar) (self : LocalVar) (member : Fin numMembers)
   | constrainEq (src1 src2 : LocalVar)
@@ -75,6 +77,7 @@ def ConstrainStmt.dest {n i F numMembers} : ConstrainStmt n i F numMembers → O
   | .feltMul d _ _ => some d
   | .feltDiv d _ _ => some d
   | .feltNeg d _ => some d
+  | .feltInv d _ => some d
   | .feltConst d _ => some d
   | .readMember d _ _ => some d
   | .constrainEq _ _ => none
@@ -87,6 +90,7 @@ def ConstrainStmt.reads {n i F numMembers} : ConstrainStmt n i F numMembers → 
   | .feltMul _ s1 s2 => [s1, s2]
   | .feltDiv _ s1 s2 => [s1, s2]
   | .feltNeg _ s => [s]
+  | .feltInv _ s => [s]
   | .feltConst _ _ => []
   | .readMember _ self _ => [self]
   | .constrainEq s1 s2 => [s1, s2]
@@ -113,6 +117,8 @@ inductive ComputeStmt (n : Nat) (i : Fin n) (F : Type) (numMembers : Nat)
   | feltMul (dest : LocalVar) (src1 src2 : LocalVar)
   | feltDiv (dest : LocalVar) (src1 src2 : LocalVar)
   | feltNeg (dest : LocalVar) (src : LocalVar)
+  /-- Field inverse: `dest = src⁻¹` with `inv(0) = 0`. -/
+  | feltInv (dest : LocalVar) (src : LocalVar)
   | feltConst (dest : LocalVar) (c : F)
   | readMember (dest : LocalVar) (self : LocalVar) (member : Fin numMembers)
   | writeMember (self : LocalVar) (member : Fin numMembers) (src : LocalVar)
@@ -188,6 +194,8 @@ def objectInfo {F : Type} (structs : (i : Fin n) → StructDef n i F)
     | .feltDiv dest _ _ =>
       (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
     | .feltNeg dest _ =>
+      (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
+    | .feltInv dest _ =>
       (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
     | .feltConst dest _ =>
       (safeRest && !(needsRest.contains dest), dropVar dest needsRest)
@@ -350,6 +358,8 @@ def evalConstrainBody (m : Module n F) (w : Witness F)
         (env.update dest (env src1 * (env src2)⁻¹), objEnv, env src2 ≠ 0)
       | .feltNeg dest src =>
         (env.update dest (-(env src)), objEnv, True)
+      | .feltInv dest src =>
+        (env.update dest ((env src)⁻¹), objEnv, True)
       | .feltConst dest c =>
         (env.update dest c, objEnv, True)
       | .readMember dest self member =>
@@ -468,6 +478,8 @@ def evalComputeBody (m : Module n F)
           some { state with env := state.env.update dest (state.env src1 * (state.env src2)⁻¹) }
       | .feltNeg dest src =>
         some { state with env := state.env.update dest (-(state.env src)) }
+      | .feltInv dest src =>
+        some { state with env := state.env.update dest ((state.env src)⁻¹) }
       | .feltConst dest c =>
         some { state with env := state.env.update dest c }
       | .readMember dest self member =>

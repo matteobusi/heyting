@@ -1,0 +1,71 @@
+// Test struct with many members (8) exercising objEnv tracking
+module attributes {llzk.lang, llzk.main = !struct.type<@MultiStruct::@MultiStruct<[]>>} {
+  module @MultiStruct {
+    struct.def @MultiStruct {
+      struct.member @m0 : !felt.type<"bn128">
+      struct.member @m1 : !felt.type<"bn128">
+      struct.member @m2 : !felt.type<"bn128">
+      struct.member @m3 : !felt.type<"bn128">
+      struct.member @m4 : !felt.type<"bn128">
+      struct.member @m5 : !felt.type<"bn128">
+      struct.member @m6 : !felt.type<"bn128">
+      struct.member @result : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%arg0: !felt.type<"bn128">, %arg1: !felt.type<"bn128">) -> !struct.type<@MultiStruct::@MultiStruct> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %self = struct.new : <@MultiStruct::@MultiStruct>
+        // Write to all members in sequence
+        struct.writem %self[@m0] = %arg0 : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        struct.writem %self[@m1] = %arg1 : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %v2 = felt.mul %arg0, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@m2] = %v2 : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %c3 = felt.const 3 : !felt.type<"bn128">
+        %v3 = felt.mul %arg1, %c3 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@m3] = %v3 : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %v4 = felt.add %v2, %v3 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@m4] = %v4 : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %c5 = felt.const 5 : !felt.type<"bn128">
+        struct.writem %self[@m5] = %c5 : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %v6 = felt.mul %v4, %c5 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@m6] = %v6 : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        // Compute result from multiple members
+        %sum1 = felt.add %arg0, %v2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %sum2 = felt.add %sum1, %v4 : !felt.type<"bn128">, !felt.type<"bn128">
+        %sum3 = felt.add %sum2, %v6 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@result] = %sum3 : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        function.return %self : !struct.type<@MultiStruct::@MultiStruct>
+      }
+      function.def @constrain(%arg0: !struct.type<@MultiStruct::@MultiStruct>, %arg1: !felt.type<"bn128">, %arg2: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        // Read all members
+        %m0 = struct.readm %arg0[@m0] : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %m1 = struct.readm %arg0[@m1] : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %m2 = struct.readm %arg0[@m2] : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %m3 = struct.readm %arg0[@m3] : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %m4 = struct.readm %arg0[@m4] : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %m5 = struct.readm %arg0[@m5] : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %m6 = struct.readm %arg0[@m6] : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        %result = struct.readm %arg0[@result] : <@MultiStruct::@MultiStruct>, !felt.type<"bn128">
+        // Verify each member
+        constrain.eq %m0, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %m1, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %exp_m2 = felt.mul %arg1, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %m2, %exp_m2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %c3 = felt.const 3 : !felt.type<"bn128">
+        %exp_m3 = felt.mul %arg2, %c3 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %m3, %exp_m3 : !felt.type<"bn128">, !felt.type<"bn128">
+        %exp_m4 = felt.add %m2, %m3 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %m4, %exp_m4 : !felt.type<"bn128">, !felt.type<"bn128">
+        %c5 = felt.const 5 : !felt.type<"bn128">
+        constrain.eq %m5, %c5 : !felt.type<"bn128">, !felt.type<"bn128">
+        %exp_m6 = felt.mul %m4, %c5 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %m6, %exp_m6 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Verify result
+        %sum1 = felt.add %m0, %m2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %sum2 = felt.add %sum1, %m4 : !felt.type<"bn128">, !felt.type<"bn128">
+        %sum3 = felt.add %sum2, %m6 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %result, %sum3 : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}

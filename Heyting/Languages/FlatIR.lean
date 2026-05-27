@@ -32,6 +32,10 @@ namespace FlatIR
     | assignMul (dest : VarId) (src1 src2 : VarId)
     | assignDiv (dest : VarId) (src1 src2 : VarId)
     | assignNeg (dest : VarId) (src : VarId)
+    /-- Field inverse with `inv(0) = 0`.  For `src ≠ 0`, `dest = src⁻¹`;
+        for `src = 0`, `dest = 0`.  This matches LLZK semantics where
+        `felt.inv` is a non-native op that does not panic on zero. -/
+    | assignInv (dest : VarId) (src : VarId)
     | assignConst (dest : VarId) (c : F)
     | assertEq (src1 src2 : VarId)
     deriving Repr
@@ -50,6 +54,7 @@ namespace FlatIR
     | .assignMul dest src1 src2 => w dest = w src1 * w src2
     | .assignDiv dest src1 src2 => w src2 ≠ 0 ∧ w dest = w src1 * (w src2)⁻¹
     | .assignNeg dest src       => w dest = -(w src)
+    | .assignInv dest src       => w dest = (w src)⁻¹  -- inv(0) = 0 by field convention
     | .assignConst dest c       => w dest = c
     | .assertEq src1 src2       => w src1 = w src2
 
@@ -61,6 +66,7 @@ namespace FlatIR
     | .assignMul dest src1 src2 => [dest, src1, src2]
     | .assignDiv dest src1 src2 => [dest, src1, src2]
     | .assignNeg dest src       => [dest, src]
+    | .assignInv dest src       => [dest, src]
     | .assignConst dest _       => [dest]
     | .assertEq src1 src2       => [src1, src2]
 
@@ -87,6 +93,10 @@ namespace FlatIR
       simp only [satisfiesInstr,
         h dest (by tauto), h src1 (by tauto), h src2 (by tauto)]
     | assignNeg dest src =>
+      simp only [instrVars, List.mem_cons] at h
+      simp only [satisfiesInstr,
+        h dest (by tauto), h src (by tauto)]
+    | assignInv dest src =>
       simp only [instrVars, List.mem_cons] at h
       simp only [satisfiesInstr,
         h dest (by tauto), h src (by tauto)]

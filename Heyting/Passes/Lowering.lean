@@ -16,7 +16,7 @@ dependently-typed `StructIR.Module`. This is a pure `Except String` function
 ## Design decisions
 
 - Topological sort: Kahn's algorithm (BFS-based, iterative with fuel)
-- `feltInv dest src` → two stmts: `feltConst tmp 1` + `feltDiv dest tmp src`
+- `feltInv dest src` → `feltInv dest src` (inv(0)=0 semantics, no division-by-zero)
 - `nondet dest` in compute → `feltConst dest 0` (placeholder)
 - `funcReturn` in compute → sets `returnVar`; in constrain → skip
 - `noDupReads` discharged via decidable `List.Nodup` check at runtime
@@ -46,16 +46,17 @@ private def collectMemberDeps (ty : LLZK.Ty) : List String :=
   | .structTy name => [name]
   | _ => []
 
-private def collectStmtDeps (stmt : LLZK.Stmt) : List String :=
+private def collectStmtDeps (currentStruct : String) (stmt : LLZK.Stmt) : List String :=
   match stmt with
   | .call _ _ target _ =>
     let (structName, _) := parseCallTarget target
-    if structName.isEmpty then [] else [structName]
+    -- Ignore self-references (method calls within the same struct)
+    if structName.isEmpty || structName == currentStruct then [] else [structName]
   | _ => []
 
 private def collectStructDeps (sd : LLZK.StructDef) : List String :=
   let memberDeps := sd.members.flatMap (fun m => collectMemberDeps m.ty)
-  let stmtDeps := sd.funcs.flatMap (fun f => f.body.flatMap collectStmtDeps)
+  let stmtDeps := sd.funcs.flatMap (fun f => f.body.flatMap (collectStmtDeps sd.name))
   (memberDeps ++ stmtDeps).eraseDups
 
 /-! ## Topological sort -/
@@ -166,8 +167,7 @@ def buildSSAMap (params : List LLZK.ParamDecl) (body : List LLZK.Stmt) :
     | .call _ (some dest) _ _ => (m.insert dest next, next + 1)
     | .nondet _ dest        => (m.insert dest next, next + 1)
     | .feltInv _ dest _ =>
-      -- Reserve `next` for the hidden const-1 temp, `next+1` for dest
-      (m.insert dest (next + 1), next + 2)
+      (m.insert dest next, next + 1)
     | .writeMember _ _ _ _  => (m, next)
     | .constrainEq _ _ _    => (m, next)
     | .funcReturn _ _       => (m, next)
@@ -200,8 +200,6 @@ def lowerConstrainBody {F : Type} [IntCast F] (n i : Nat) (hi : i < n)
     (ssaMap : HashMap String Nat) (numMembers : Nat)
     (stmts : List LLZK.Stmt) :
     Except String (List (StructIR.ConstrainStmt n ⟨i, hi⟩ F numMembers)) := do
-  let maxVar := ssaMap.toList.foldl (fun acc (_, v) => max acc v) 0
-  let mut nextVar : Nat := maxVar + 1
   let mut result : List (StructIR.ConstrainStmt n ⟨i, hi⟩ F numMembers) := []
   for stmt in stmts do
     match stmt with
@@ -233,15 +231,9 @@ def lowerConstrainBody {F : Type} [IntCast F] (n i : Nat) (hi : i < n)
       let d ← lookupSSA ssaMap dest
       result := result ++ [.feltConst d (Int.cast value : F)]
     | .feltInv _ dest src =>
-      -- Lower to: feltConst tmp 1, feltDiv dest tmp src
-      let tmp := nextVar
-      nextVar := nextVar + 1
       let d ← lookupSSA ssaMap dest
       let s ← lookupSSA ssaMap src
-      result := result ++ [
-        .feltConst tmp (Int.cast (1 : Int) : F),
-        .feltDiv d tmp s
-      ]
+      result := result ++ [.feltInv d s]
     | .readMember _ dest self member =>
       let d  ← lookupSSA ssaMap dest
       let sv ← lookupSSA ssaMap self
@@ -302,8 +294,6 @@ def lowerComputeBody {F : Type} [IntCast F] (n i : Nat) (hi : i < n)
     (ssaMap : HashMap String Nat) (numMembers : Nat)
     (stmts : List LLZK.Stmt) :
     Except String (List (StructIR.ComputeStmt n ⟨i, hi⟩ F numMembers) × Nat) := do
-  let maxVar := ssaMap.toList.foldl (fun acc (_, v) => max acc v) 0
-  let mut nextVar : Nat := maxVar + 1
   let mut returnVar : Nat := 0
   let mut result : List (StructIR.ComputeStmt n ⟨i, hi⟩ F numMembers) := []
   for stmt in stmts do
@@ -336,15 +326,9 @@ def lowerComputeBody {F : Type} [IntCast F] (n i : Nat) (hi : i < n)
       let d ← lookupSSA ssaMap dest
       result := result ++ [.feltConst d (Int.cast value : F)]
     | .feltInv _ dest src =>
-      -- Lower to: feltConst tmp 1, feltDiv dest tmp src
-      let tmp := nextVar
-      nextVar := nextVar + 1
       let d ← lookupSSA ssaMap dest
       let s ← lookupSSA ssaMap src
-      result := result ++ [
-        .feltConst tmp (Int.cast (1 : Int) : F),
-        .feltDiv d tmp s
-      ]
+      result := result ++ [.feltInv d s]
     | .readMember _ dest self member =>
       let d  ← lookupSSA ssaMap dest
       let sv ← lookupSSA ssaMap self

@@ -1,0 +1,31 @@
+// Test nondeterministic witness values (llzk.nondet)
+module attributes {llzk.lang, llzk.main = !struct.type<@Nondet::@Nondet<[]>>} {
+  module @Nondet {
+    struct.def @Nondet {
+      struct.member @witness : !felt.type<"bn128">
+      struct.member @square : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%arg0: !felt.type<"bn128">) -> !struct.type<@Nondet::@Nondet> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %self = struct.new : <@Nondet::@Nondet>
+        // Test llzk.nondet - introduce a nondeterministic witness value
+        // In practice this would be provided externally, here we compute it deterministically
+        // The key is that nondet marks this value as witness-only (not directly constrained by inputs)
+        %witness_val = llzk.nondet : !felt.type<"bn128">
+        struct.writem %self[@witness] = %witness_val : <@Nondet::@Nondet>, !felt.type<"bn128">
+        // Compute square of witness
+        %sq = felt.mul %witness_val, %witness_val : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@square] = %sq : <@Nondet::@Nondet>, !felt.type<"bn128">
+        function.return %self : !struct.type<@Nondet::@Nondet>
+      }
+      function.def @constrain(%arg0: !struct.type<@Nondet::@Nondet>, %arg1: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %witness = struct.readm %arg0[@witness] : <@Nondet::@Nondet>, !felt.type<"bn128">
+        %square = struct.readm %arg0[@square] : <@Nondet::@Nondet>, !felt.type<"bn128">
+        // Constraint: square must equal witness squared
+        %expected_sq = felt.mul %witness, %witness : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %square, %expected_sq : !felt.type<"bn128">, !felt.type<"bn128">
+        // Additional constraint: square must equal the public input
+        constrain.eq %square, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}

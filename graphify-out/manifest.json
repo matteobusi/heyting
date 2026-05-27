@@ -1,0 +1,262 @@
+{
+  "Heyting/CLIArgs.lean": {
+    "mtime": 1779827830.7606251,
+    "ast_hash": "4bd6776baf1eced2e1e451d07a9ef0f4",
+    "semantic_hash": "4bd6776baf1eced2e1e451d07a9ef0f4"
+  },
+  "Heyting/CLI.lean": {
+    "mtime": 1779827830.7603266,
+    "ast_hash": "d0de7288e86a5c9592380ca7b063fd1f",
+    "semantic_hash": "d0de7288e86a5c9592380ca7b063fd1f"
+  },
+  "Heyting/Parsers/Parser.lean": {
+    "mtime": 1779827830.766084,
+    "ast_hash": "28878c449aa7981bec9e949adf210aec",
+    "semantic_hash": "28878c449aa7981bec9e949adf210aec"
+  },
+  "Heyting/Parsers/InputJSON.lean": {
+    "mtime": 1779827830.7654257,
+    "ast_hash": "00e6eb9cecfe9d5b845f48889dd4c3f0",
+    "semantic_hash": "00e6eb9cecfe9d5b845f48889dd4c3f0"
+  },
+  "Heyting/Parsers/AST.lean": {
+    "mtime": 1779827830.7652256,
+    "ast_hash": "cd98929332445ad1d1f31ddf608f75cb",
+    "semantic_hash": "cd98929332445ad1d1f31ddf608f75cb"
+  },
+  "Heyting/Parsers/Tokenizer.lean": {
+    "mtime": 1779827830.7664707,
+    "ast_hash": "6bc7286636f030985151174513afbcc4",
+    "semantic_hash": "6bc7286636f030985151174513afbcc4"
+  },
+  "Heyting/Parsers/Main.lean": {
+    "mtime": 1779827830.765772,
+    "ast_hash": "fedf7c4b5a091aa4824c8d28e56c1c88",
+    "semantic_hash": "fedf7c4b5a091aa4824c8d28e56c1c88"
+  },
+  "Heyting/Core/Pass.lean": {
+    "mtime": 1779827830.762039,
+    "ast_hash": "f36faa51ae772e38fcf564c069193c88",
+    "semantic_hash": "f36faa51ae772e38fcf564c069193c88"
+  },
+  "Heyting/Core/TrinitaryCC.lean": {
+    "mtime": 1779827830.7626338,
+    "ast_hash": "2bf76ad839a67c8e142ff997ccb115ce",
+    "semantic_hash": "2bf76ad839a67c8e142ff997ccb115ce"
+  },
+  "Heyting/Core/VarIdEncoding.lean": {
+    "mtime": 1779827830.7628381,
+    "ast_hash": "5c3747f273791529996993cd59c43e37",
+    "semantic_hash": "5c3747f273791529996993cd59c43e37"
+  },
+  "Heyting/Core/ComputingLanguage.lean": {
+    "mtime": 1779827830.7613826,
+    "ast_hash": "95acb371daa518965548b4df52770ef3",
+    "semantic_hash": "95acb371daa518965548b4df52770ef3"
+  },
+  "Heyting/Core/Language.lean": {
+    "mtime": 1779827830.7617178,
+    "ast_hash": "abf1825b7683b17c66d266323d7fc24f",
+    "semantic_hash": "abf1825b7683b17c66d266323d7fc24f"
+  },
+  "Heyting/Core/CheckedSemantics.lean": {
+    "mtime": 1779827830.761191,
+    "ast_hash": "cf14c4556c74ce01c34d270c39b35722",
+    "semantic_hash": "cf14c4556c74ce01c34d270c39b35722"
+  },
+  "Heyting/Core/SubstSemantics.lean": {
+    "mtime": 1779827830.7623284,
+    "ast_hash": "5696338bccf031d171de239a80f830e4",
+    "semantic_hash": "5696338bccf031d171de239a80f830e4"
+  },
+  "Heyting/Backends/R1CSBinary.lean": {
+    "mtime": 1779827830.758451,
+    "ast_hash": "3ea751047a1f53ed72a1b4b83f68ce50",
+    "semantic_hash": "3ea751047a1f53ed72a1b4b83f68ce50"
+  },
+  "Heyting/Backends/WitnessBinary.lean": {
+    "mtime": 1779827830.7594914,
+    "ast_hash": "34fd0511141ce39582278cf73a6599ea",
+    "semantic_hash": "34fd0511141ce39582278cf73a6599ea"
+  },
+  "Heyting/Backends/WitnessJSON.lean": {
+    "mtime": 1779827830.760007,
+    "ast_hash": "10ddefdf12e4007f629544cbbea28535",
+    "semantic_hash": "10ddefdf12e4007f629544cbbea28535"
+  },
+  "Heyting/Backends/R1CSJSON.lean": {
+    "mtime": 1779827830.7588477,
+    "ast_hash": "ed9c798565f3ce87c11025fa5670adcc",
+    "semantic_hash": "ed9c798565f3ce87c11025fa5670adcc"
+  },
+  "Heyting/Backends/FieldBytes.lean": {
+    "mtime": 1779827830.7579045,
+    "ast_hash": "3c32f74c3d490dbbf8bcdc3dc0cd00f2",
+    "semantic_hash": "3c32f74c3d490dbbf8bcdc3dc0cd00f2"
+  },
+  "Heyting/Backends/WireAssignment.lean": {
+    "mtime": 1779827830.7591894,
+    "ast_hash": "2c9f6cc9ec96d053e6818ab3b14355a3",
+    "semantic_hash": "2c9f6cc9ec96d053e6818ab3b14355a3"
+  },
+  "Heyting/Passes/StructIRToFlatIR.lean": {
+    "mtime": 1779827830.7688472,
+    "ast_hash": "f31b8b0abf3e95fa650ba9bd77b89f29",
+    "semantic_hash": "f31b8b0abf3e95fa650ba9bd77b89f29"
+  },
+  "Heyting/Passes/FlatIRToR1CS.lean": {
+    "mtime": 1779827830.7674785,
+    "ast_hash": "f39ededee05c0e7937a1f90061fcd676",
+    "semantic_hash": "f39ededee05c0e7937a1f90061fcd676"
+  },
+  "Heyting/Passes/Lowering.lean": {
+    "mtime": 1779827830.7677324,
+    "ast_hash": "c9c769c36ad48a76087b4e34d7174acc",
+    "semantic_hash": "c9c769c36ad48a76087b4e34d7174acc"
+  },
+  "Heyting/Passes/StructIRToFlatIRTactics.lean": {
+    "mtime": 1779827830.769034,
+    "ast_hash": "c27a5355a2eccbe4321fa06f69ac41eb",
+    "semantic_hash": "c27a5355a2eccbe4321fa06f69ac41eb"
+  },
+  "Heyting/Passes/Pipeline.lean": {
+    "mtime": 1779827830.7680395,
+    "ast_hash": "5512d1478d4d9f1d7dc01bda7079d86f",
+    "semantic_hash": "5512d1478d4d9f1d7dc01bda7079d86f"
+  },
+  "Heyting/Passes/Tactics.lean": {
+    "mtime": 1779827830.7692199,
+    "ast_hash": "39ddbf7ebaad4117da1501ff3ea89f07",
+    "semantic_hash": "39ddbf7ebaad4117da1501ff3ea89f07"
+  },
+  "Heyting/Passes/FlatIRCompact.lean": {
+    "mtime": 1779827830.7671793,
+    "ast_hash": "7a33fc720e48f53011f05da2922d15cf",
+    "semantic_hash": "7a33fc720e48f53011f05da2922d15cf"
+  },
+  "Heyting/Languages/StructIRFreshen.lean": {
+    "mtime": 1779827830.7649143,
+    "ast_hash": "7897dc2823f6c0a569f22840d769f0be",
+    "semantic_hash": "7897dc2823f6c0a569f22840d769f0be"
+  },
+  "Heyting/Languages/FlatIRChecked.lean": {
+    "mtime": 1779827830.763614,
+    "ast_hash": "ec4854225bf71de4cc0263ba24f9ef45",
+    "semantic_hash": "ec4854225bf71de4cc0263ba24f9ef45"
+  },
+  "Heyting/Languages/FlatIR.lean": {
+    "mtime": 1779827830.7632048,
+    "ast_hash": "cde6c063ae62960774c96e52724dd60b",
+    "semantic_hash": "cde6c063ae62960774c96e52724dd60b"
+  },
+  "Heyting/Languages/StructIR.lean": {
+    "mtime": 1779827830.7645297,
+    "ast_hash": "60dba78da387734d7f9f133f01c81f5e",
+    "semantic_hash": "60dba78da387734d7f9f133f01c81f5e"
+  },
+  "Heyting/Languages/R1CS.lean": {
+    "mtime": 1779827830.7641587,
+    "ast_hash": "f198d4814fc3f67d4bfdb1f5fe090ac1",
+    "semantic_hash": "f198d4814fc3f67d4bfdb1f5fe090ac1"
+  },
+  "docs/cli.md": {
+    "mtime": 1778936762.1479535,
+    "ast_hash": "feb0a5de0ed7d80a5df33c90e6ea0e45",
+    "semantic_hash": "feb0a5de0ed7d80a5df33c90e6ea0e45"
+  },
+  "docs/languages.md": {
+    "mtime": 1779827830.77116,
+    "ast_hash": "8d9fd5d88b0d0b56832bc2b067ac3fd2",
+    "semantic_hash": "8d9fd5d88b0d0b56832bc2b067ac3fd2"
+  },
+  "docs/GUARANTEES.md": {
+    "mtime": 1779827830.7706528,
+    "ast_hash": "cf33b825213069c41ee4d00b113f1dea",
+    "semantic_hash": "cf33b825213069c41ee4d00b113f1dea"
+  },
+  "docs/tactics.md": {
+    "mtime": 1778935698.6131291,
+    "ast_hash": "a78e52c4d82be7c04bab881665816911",
+    "semantic_hash": "a78e52c4d82be7c04bab881665816911"
+  },
+  "docs/WARNING.md": {
+    "mtime": 1779827830.7709577,
+    "ast_hash": "3a8a01a73684680522a7c2d671bc4c36",
+    "semantic_hash": "3a8a01a73684680522a7c2d671bc4c36"
+  },
+  "docs/llzk-dialects.md": {
+    "mtime": 1778936698.8276083,
+    "ast_hash": "eff2af96d7183b70f0ee527340972400",
+    "semantic_hash": "eff2af96d7183b70f0ee527340972400"
+  },
+  "docs/handover/LANGUAGE_R1CS.md": {
+    "mtime": 1777719518.9413388,
+    "ast_hash": "c5346ca6cd93a15b5ea9eb610cfe1102",
+    "semantic_hash": "c5346ca6cd93a15b5ea9eb610cfe1102"
+  },
+  "docs/handover/PASS2_STRUCTINLINEIR_TO_MEMBERLESSIR.md": {
+    "mtime": 1777719538.9613802,
+    "ast_hash": "ca559ea6bbafe1ac43b68ad52f7a40ac",
+    "semantic_hash": "ca559ea6bbafe1ac43b68ad52f7a40ac"
+  },
+  "docs/handover/LANGUAGE_MEMBERLESSIR.md": {
+    "mtime": 1777719507.4148633,
+    "ast_hash": "6e2e9a3c64f03699e6df7dc47203c94d",
+    "semantic_hash": "6e2e9a3c64f03699e6df7dc47203c94d"
+  },
+  "docs/handover/PASS1_PRESERVATION_PLAN.md": {
+    "mtime": 1779188606.716605,
+    "ast_hash": "99129988946b4b82beb50452f71e97da",
+    "semantic_hash": "99129988946b4b82beb50452f71e97da"
+  },
+  "docs/handover/LANGUAGE_STRUCTINLINEIR.md": {
+    "mtime": 1777719499.6797996,
+    "ast_hash": "6a61535d01840b8140f05e11bf57c536",
+    "semantic_hash": "6a61535d01840b8140f05e11bf57c536"
+  },
+  "docs/handover/PROOF_ENGINEER_ONBOARDING.md": {
+    "mtime": 1779121253.521002,
+    "ast_hash": "76d7954c00747a8b1f24001edf45de1b",
+    "semantic_hash": "76d7954c00747a8b1f24001edf45de1b"
+  },
+  "docs/handover/LANGUAGE_FLATIR.md": {
+    "mtime": 1777719513.119751,
+    "ast_hash": "a79aeb9ca7431fc7397c9ae9c2d3671a",
+    "semantic_hash": "a79aeb9ca7431fc7397c9ae9c2d3671a"
+  },
+  "docs/handover/PIPELINE_COMPOSITION_HANDOVER.md": {
+    "mtime": 1777719564.7724543,
+    "ast_hash": "dad33ea2c3139906e4d535c04d2b9d8b",
+    "semantic_hash": "dad33ea2c3139906e4d535c04d2b9d8b"
+  },
+  "docs/handover/PASS4_FLATIR_TO_R1CS.md": {
+    "mtime": 1777719556.9482274,
+    "ast_hash": "1ed89c2dc00c95993cbefc7c8c2244b3",
+    "semantic_hash": "1ed89c2dc00c95993cbefc7c8c2244b3"
+  },
+  "docs/handover/PASS3_MEMBERLESSIR_TO_FLATIR.md": {
+    "mtime": 1777719549.940452,
+    "ast_hash": "67c747919bc3060b042ca81f72177018",
+    "semantic_hash": "67c747919bc3060b042ca81f72177018"
+  },
+  "docs/handover/LANGUAGE_STRUCTIR.md": {
+    "mtime": 1777719491.1790097,
+    "ast_hash": "25a5af9e70f73f2e74ba3955defa8818",
+    "semantic_hash": "25a5af9e70f73f2e74ba3955defa8818"
+  },
+  "docs/handover/PASS1_STRUCTIR_TO_STRUCTINLINEIR.md": {
+    "mtime": 1777719528.8902125,
+    "ast_hash": "08b20b1bb8b8c562d09ab07a8ad246f7",
+    "semantic_hash": "08b20b1bb8b8c562d09ab07a8ad246f7"
+  },
+  "AGENTS.md": {
+    "mtime": 1779869096.2059295,
+    "ast_hash": "7ae81c053423cbb57b308503206aedd4",
+    "semantic_hash": "7ae81c053423cbb57b308503206aedd4"
+  },
+  "README.md": {
+    "mtime": 1779828141.640633,
+    "ast_hash": "496158a5a1a28c98f9d5ab662cc531cd",
+    "semantic_hash": "496158a5a1a28c98f9d5ab662cc531cd"
+  }
+}

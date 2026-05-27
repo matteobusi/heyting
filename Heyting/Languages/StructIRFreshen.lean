@@ -27,7 +27,7 @@ def maxVarStmt {i : Fin n} {nm : Nat} (stmt : StructIR.ConstrainStmt n i F nm) :
   match stmt with
   | .feltAdd d s1 s2 | .feltSub d s1 s2
   | .feltMul d s1 s2 | .feltDiv d s1 s2 => max d (max s1 s2)
-  | .feltNeg d s | .readMember d s _ => max d s
+  | .feltNeg d s | .feltInv d s | .readMember d s _ => max d s
   | .feltConst d _ => d
   | .constrainEq s1 s2 => max s1 s2
   | .call _ args => args.foldl max 0
@@ -47,6 +47,7 @@ def renameStmt {i : Fin n} {nm : Nat} (ρ : Nat → Nat)
   | .feltMul d s1 s2 => .feltMul (ρ d) (ρ s1) (ρ s2)
   | .feltDiv d s1 s2 => .feltDiv (ρ d) (ρ s1) (ρ s2)
   | .feltNeg d s => .feltNeg (ρ d) (ρ s)
+  | .feltInv d s => .feltInv (ρ d) (ρ s)
   | .feltConst d c => .feltConst (ρ d) c
   | .readMember d s member => .readMember (ρ d) (ρ s) member
   | .constrainEq s1 s2 => .constrainEq (ρ s1) (ρ s2)
@@ -174,6 +175,10 @@ lemma evalConstrainBody_rename (m : Module n F) (w : Witness F) (i : Fin n)
       simp [evalConstrainBody, renameBody, renameStmt]
       simpa [env_update_rename_comm env dest (-(env (ρ src))) ρ hρ_inj] using
         (ih (env.update (ρ dest) (-(env (ρ src)))) objEnv)
+    | feltInv dest src =>
+      simp [evalConstrainBody, renameBody, renameStmt]
+      simpa [env_update_rename_comm env dest ((env (ρ src))⁻¹) ρ hρ_inj] using
+        (ih (env.update (ρ dest) ((env (ρ src))⁻¹)) objEnv)
     | feltConst dest c =>
       simp [evalConstrainBody, renameBody, renameStmt]
       simpa [env_update_rename_comm env dest c ρ hρ_inj] using
@@ -359,12 +364,27 @@ private lemma evalConstrainBody_env_agree_on_init_aux
         simp only [LocalEnv.update]
         rcases hv with hv | hv
         · by_cases heq : v = dest
-          · subst heq
-            simp
-          · simp only [beq_iff_eq, heq, if_false]
-            exact hAgree _ hv
-        · subst hv
-          simp
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
+      exact ih _ _ _ _ hSSA'' hext
+    | feltInv dest src =>
+      simp only [ConstrainStmt.reads, List.mem_cons, List.not_mem_nil, or_false] at hReadsAgree
+      have hs : env1 src = env2 src := hReadsAgree src rfl
+      simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'
+      obtain ⟨_, hSSA''⟩ := hSSA'
+      simp only [evalConstrainBody, hs, true_and]
+      have hext : ∀ v, (init v || v == dest) = true →
+          (env1.update dest ((env2 src)⁻¹)) v =
+          (env2.update dest ((env2 src)⁻¹)) v := by
+        intro v hv
+        simp only [Bool.or_eq_true, beq_iff_eq] at hv
+        simp only [LocalEnv.update]
+        rcases hv with hv | hv
+        · by_cases heq : v = dest
+          · subst heq; simp
+          · simp only [beq_iff_eq, heq, if_false]; exact hAgree _ hv
+        · subst hv; simp
       exact ih _ _ _ _ hSSA'' hext
     | feltConst dest c =>
       simp only [ConstrainStmt.dest, Bool.and_eq_true] at hSSA'

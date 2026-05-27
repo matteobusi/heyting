@@ -59,6 +59,7 @@ def compactInstr (p : FlatIR.Program F) : FlatIR.Instr F → FlatIR.Instr F
   | .assignMul d s1 s2 => .assignMul (compactVar p d) (compactVar p s1) (compactVar p s2)
   | .assignDiv d s1 s2 => .assignDiv (compactVar p d) (compactVar p s1) (compactVar p s2)
   | .assignNeg d s     => .assignNeg (compactVar p d) (compactVar p s)
+  | .assignInv d s     => .assignInv (compactVar p d) (compactVar p s)
   | .assignConst d c   => .assignConst (compactVar p d) c
   | .assertEq s1 s2    => .assertEq (compactVar p s1) (compactVar p s2)
 
@@ -173,6 +174,18 @@ theorem satisfiesInstr_rename_iff {p : FlatIR.Program F} {instr : FlatIR.Instr F
         exact h
       · change wt (compactVar p dest) = -(wt (compactVar p src))
         change ws dest = -(ws src) at h
+        rw [hdest, hsrc]
+        exact h
+  | assignInv dest src =>
+      have hdest := hvars dest (by simp [FlatIR.instrVars])
+      have hsrc := hvars src (by simp [FlatIR.instrVars])
+      constructor <;> intro h
+      · change wt (compactVar p dest) = (wt (compactVar p src))⁻¹ at h
+        change ws dest = (ws src)⁻¹
+        rw [← hdest, ← hsrc]
+        exact h
+      · change wt (compactVar p dest) = (wt (compactVar p src))⁻¹
+        change ws dest = (ws src)⁻¹ at h
         rw [hdest, hsrc]
         exact h
   | assignConst dest c =>

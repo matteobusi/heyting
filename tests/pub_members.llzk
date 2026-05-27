@@ -1,0 +1,50 @@
+// Test public struct members (llzk.pub attribute)
+module attributes {llzk.lang, llzk.main = !struct.type<@PubMembers::@PubMembers<[]>>} {
+  module @PubMembers {
+    struct.def @PubMembers {
+      struct.member @private1 : !felt.type<"bn128">
+      struct.member @public1 : !felt.type<"bn128"> {llzk.pub}
+      struct.member @private2 : !felt.type<"bn128">
+      struct.member @public2 : !felt.type<"bn128"> {llzk.pub}
+      struct.member @private3 : !felt.type<"bn128">
+      struct.member @public3 : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%arg0: !felt.type<"bn128">, %arg1: !felt.type<"bn128">, %arg2: !felt.type<"bn128">) -> !struct.type<@PubMembers::@PubMembers> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %self = struct.new : <@PubMembers::@PubMembers>
+        // Store private witnesses
+        struct.writem %self[@private1] = %arg0 : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        struct.writem %self[@private2] = %arg1 : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        struct.writem %self[@private3] = %arg2 : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        // Compute public outputs from private inputs
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %pub1_val = felt.mul %arg0, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@public1] = %pub1_val : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        %sum = felt.add %arg0, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@public2] = %sum : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        %prod = felt.mul %arg1, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@public3] = %prod : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        function.return %self : !struct.type<@PubMembers::@PubMembers>
+      }
+      function.def @constrain(%arg0: !struct.type<@PubMembers::@PubMembers>, %arg1: !felt.type<"bn128">, %arg2: !felt.type<"bn128">, %arg3: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %priv1 = struct.readm %arg0[@private1] : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        %pub1 = struct.readm %arg0[@public1] : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        %priv2 = struct.readm %arg0[@private2] : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        %pub2 = struct.readm %arg0[@public2] : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        %priv3 = struct.readm %arg0[@private3] : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        %pub3 = struct.readm %arg0[@public3] : <@PubMembers::@PubMembers>, !felt.type<"bn128">
+        // Verify private values match inputs
+        constrain.eq %priv1, %arg1 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %priv2, %arg2 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %priv3, %arg3 : !felt.type<"bn128">, !felt.type<"bn128">
+        // Verify public outputs computed correctly
+        %c2 = felt.const 2 : !felt.type<"bn128">
+        %expected_pub1 = felt.mul %priv1, %c2 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %pub1, %expected_pub1 : !felt.type<"bn128">, !felt.type<"bn128">
+        %expected_pub2 = felt.add %priv1, %priv2 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %pub2, %expected_pub2 : !felt.type<"bn128">, !felt.type<"bn128">
+        %expected_pub3 = felt.mul %priv2, %priv3 : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %pub3, %expected_pub3 : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}
