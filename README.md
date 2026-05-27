@@ -4,10 +4,6 @@ A formally verified ZKP compiler, written in [Lean 4](https://lean-lang.org/) wi
 
 Heyting compiles constraint languages (currently a core fragment of [LLZK](https://github.com/project-llzk/llzk-lib)) down to [R1CS](https://www.rareskills.io/post/r1cs) arithmetizations, and proves that compilation is correct: no constraints added, no constraints lost.
 
-## Why formal verification?
-
-A bug in a ZKP compiler can silently break soundness (accepting invalid proofs) or completeness (rejecting valid ones). Formal verification gives mathematical certainty that compiler preserves meaning of constraints.
-
 ## Architecture
 
 Compiler organized around 2 core abstractions:
@@ -95,7 +91,7 @@ Default field is `bn254`.
 | `koalabear` | 2130706433 (2³¹ − 2²⁴ + 1) | Plonky3 |
 
 External binary-compatibility smoke checks are validated with `snarkjs` for `bn254`/`bn128`.
-Compatibility and witness-checking flows for other supported fields are still being investigated.
+**Compatibility and witness-checking flows for other supported fields are still being investigated.**
 
 ### Example
 
