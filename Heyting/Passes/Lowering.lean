@@ -551,6 +551,8 @@ private def checkAllObjectSafe {F : Type} [Field F]
     3. Assemble `StructIR.Module` with `noDupReads` check via `decide` -/
 def LLZK.lower {F : Type} [Field F] [DecidableEq F] [IntCast F]
     (m : LLZK.Module) : Except String (Σ n, StructIR.Module (n + 1) F) := do
+  if !m.freeFuncs.isEmpty then
+    throw "module-level free functions parsed but not lowered yet"
   if m.structs.isEmpty then
     throw "empty module: nothing to lower"
   -- 1. Topological sort

@@ -123,10 +123,11 @@ structure StructDef where
   pos      : Pos
   deriving Repr
 
-/-- Parsed top-level module containing struct definitions. -/
+/-- Parsed top-level module containing struct definitions and module-level free functions. -/
 structure Module where
-  structs : List StructDef
-  pos     : Pos
+  structs   : List StructDef
+  freeFuncs : List FuncDef
+  pos       : Pos
   deriving Repr
 
 end LLZK

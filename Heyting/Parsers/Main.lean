@@ -85,14 +85,17 @@ private def ppStruct (ind : Nat) (sd : StructDef) : String :=
 /-- Pretty-print a parsed Module AST. -/
 def ppModule (m : Module) : String :=
   let structsStr := "\n\n".intercalate (m.structs.map (ppStruct 1))
-  s!"module \{\n{structsStr}\n}"
+  let freeFuncsStr := "\n\n".intercalate (m.freeFuncs.map (ppFunc 1))
+  let bodyParts := [structsStr, freeFuncsStr].filter (· != "")
+  s!"module \{\n{"\n\n".intercalate bodyParts}\n}"
 
 /-! ## Summary statistics -/
 
 /-- Count broad statement categories in a parsed module for debugging summaries. -/
 def countStmts (m : Module) : String :=
   let allStmts : List Stmt :=
-    m.structs.flatMap fun sd => sd.funcs.flatMap fun f => f.body
+    m.structs.flatMap (fun sd => sd.funcs.flatMap fun f => f.body) ++
+      m.freeFuncs.flatMap (fun f => f.body)
   let total := allStmts.length
   let felt := allStmts.filter fun
     | .feltAdd .. | .feltSub .. | .feltMul .. | .feltDiv ..
@@ -104,7 +107,7 @@ def countStmts (m : Module) : String :=
     | .structNew .. | .readMember .. | .writeMember .. => true
     | _ => false
   let skipped := allStmts.filter fun | .skipped .. => true | _ => false
-  s!"Structs: {m.structs.length}, Total stmts: {total}, \
+  s!"Structs: {m.structs.length}, Free funcs: {m.freeFuncs.length}, Total stmts: {total}, \
 Felt ops: {felt.length}, Constraints: {constrain.length}, \
 Calls: {calls.length}, Struct ops: {structOps.length}, \
 Skipped: {skipped.length}"

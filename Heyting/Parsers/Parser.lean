@@ -643,26 +643,25 @@ skipping parameters"
   return { name, members, funcs, pos }
 
 /-- Parse struct definitions, nested modules, and free functions at module level. -/
-private partial def parseModuleBody (structs : List StructDef) :
-    Parser (List StructDef) := do
+private partial def parseModuleBody (structs : List StructDef) (freeFuncs : List FuncDef) :
+    Parser (List StructDef × List FuncDef) := do
   let tok ← getPeek
   match tok with
-  | .rbrace => return structs
-  | .eof => return structs
+  | .rbrace => return (structs, freeFuncs)
+  | .eof => return (structs, freeFuncs)
   | .keyword "struct.def" =>
     let sd ← parseStructDef
-    parseModuleBody (structs ++ [sd])
+    parseModuleBody (structs ++ [sd]) freeFuncs
   | .keyword "module" =>
     let nested ← parseModule
-    parseModuleBody (structs ++ nested.structs)
+    parseModuleBody (structs ++ nested.structs) (freeFuncs ++ nested.freeFuncs)
   | .keyword "function.def" =>
-    warn s!"{(← getPos)}: skipping free function at module level"
-    let _ ← parseFuncDef
-    parseModuleBody structs
+    let f ← parseFuncDef
+    parseModuleBody structs (freeFuncs ++ [f])
   | _ =>
     warn s!"{(← getPos)}: unexpected token at module level: {tok}, skipping"
     advance
-    parseModuleBody structs
+    parseModuleBody structs freeFuncs
 where
   /-- Parse a top-level or nested module.
   Handles `module { ... }`, `module attributes {...} { ... }`,
@@ -677,9 +676,9 @@ where
     | _ => pure ()
     skipAttributesKw
     expect .lbrace
-    let structs ← parseModuleBody []
+    let (structs, freeFuncs) ← parseModuleBody [] []
     expect .rbrace
-    return { structs, pos }
+    return { structs, freeFuncs, pos }
 
 /-- Parse a top-level module. Handles optional `@name` after `module`. -/
 def parseModule : Parser Module := do
@@ -692,9 +691,9 @@ def parseModule : Parser Module := do
   | _ => pure ()
   skipAttributesKw
   expect .lbrace
-  let structs ← parseModuleBody []
+  let (structs, freeFuncs) ← parseModuleBody [] []
   expect .rbrace
-  return { structs, pos }
+  return { structs, freeFuncs, pos }
 
 /-! ## Entry point -/
 
@@ -725,40 +724,37 @@ private partial def parseSection (tokens : List PosToken) :
     | .keyword "struct.def" =>
       -- Bare struct at top level (no module wrapper)
       let pos ← getPos
-      let structs ← parseBareTopLevel []
-      return { structs, pos }
+      let (structs, freeFuncs) ← parseBareTopLevel [] []
+      return { structs, freeFuncs, pos }
     | .keyword "function.def" =>
-      -- Bare function at top level — skip it
       let pos ← getPos
-      warn s!"{pos}: skipping free function at top level"
-      let _ ← parseFuncDef
-      let structs ← parseBareTopLevel []
-      return { structs, pos }
-    | .eof => return { structs := [], pos := ⟨0, 0⟩ }
+      let (structs, freeFuncs) ← parseBareTopLevel [] []
+      return { structs, freeFuncs, pos }
+    | .eof => return { structs := [], freeFuncs := [], pos := ⟨0, 0⟩ }
     | other =>
       let pos ← getPos
       throw s!"{pos}: expected 'module' or 'struct.def', got {other}"
     ).run s
   return (mod, s'.warnings)
 where
-  parseBareTopLevel (structs : List StructDef) : Parser (List StructDef) := do
+  parseBareTopLevel (structs : List StructDef) (freeFuncs : List FuncDef) :
+      Parser (List StructDef × List FuncDef) := do
     let tok ← getPeek
     match tok with
-    | .eof => return structs
+    | .eof => return (structs, freeFuncs)
     | .keyword "struct.def" =>
       let sd ← parseStructDef
-      parseBareTopLevel (structs ++ [sd])
+      parseBareTopLevel (structs ++ [sd]) freeFuncs
     | .keyword "function.def" =>
-      warn s!"{(← getPos)}: skipping free function at top level"
-      let _ ← parseFuncDef
-      parseBareTopLevel structs
+      let f ← parseFuncDef
+      parseBareTopLevel structs (freeFuncs ++ [f])
     | .keyword "module" =>
       let mod ← parseModule
-      parseBareTopLevel (structs ++ mod.structs)
+      parseBareTopLevel (structs ++ mod.structs) (freeFuncs ++ mod.freeFuncs)
     | _ =>
       warn s!"{(← getPos)}: unexpected token at top level: {tok}, skipping"
       advance
-      parseBareTopLevel structs
+      parseBareTopLevel structs freeFuncs
 
 /-- Parse an LLZK source string into a Module AST.
 Handles `// -----` split-input-file separators by parsing each section
@@ -766,6 +762,7 @@ independently and merging the resulting structs. -/
 def parse (input : String) : Except String (Module × List String) := do
   let sections := splitSections input
   let mut allStructs : List StructDef := []
+  let mut allFreeFuncs : List FuncDef := []
   let mut allWarnings : List String := []
   for sect in sections do
     let tokens ← tokenize sect
@@ -775,7 +772,8 @@ def parse (input : String) : Except String (Module × List String) := do
     match ← parseSection tokens with
     | (mod, warnings) =>
       allStructs := allStructs ++ mod.structs
+      allFreeFuncs := allFreeFuncs ++ mod.freeFuncs
       allWarnings := allWarnings ++ warnings
-  return ({ structs := allStructs, pos := ⟨1, 1⟩ }, allWarnings)
+  return ({ structs := allStructs, freeFuncs := allFreeFuncs, pos := ⟨1, 1⟩ }, allWarnings)
 
 end LLZK
