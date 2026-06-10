@@ -47,6 +47,48 @@ fully proved `PresReflPass` instances, composed via `PresReflPass.compose`
 
 ## 2. Architecture
 
+### Three layers
+
+```
+text
+  │  generic parser (dialect-agnostic, MLIR generic form: mnemonic +
+  │  operands + results + attrs + regions)
+  ▼
+GenericOp tree
+  │  typing / skeleton extraction (unverified now; Phase 6 verifies):
+  │  interpret struct.def / function.def / module ops → callable order Fin n,
+  │  member tables, OpCtx per body; per-dialect lowerOp on leaf ops
+  ▼
+Module Δfull, calls = true ───────────── MIDDLE: dialect erasure passes
+  │  skeleton-preserving, Vs = Vt (one shared VarId type), witnessRel ≈
+  │  equality on shared variables; Δ shrinks to core; EraseCalls last
+  ▼
+Module Δcore, calls = false ──────────── BOTTOM: fixed two-pass backend
+  │  flatten: skeleton + struct-op erasure, (path × slot) → Nat
+  │  core lowering: felt + constrainEq → CCS
+  ▼
+CCS → verified R1CS specialization / Plonkish serializer
+```
+
+Key consequences:
+
+- **Front end is uniform.** Regions make `struct.def`/`function.def`/module
+  parse generically — no per-dialect parser machinery. Structural dialects
+  are special at *typing* time (they build the `OpCtx` every other dialect's
+  op type is indexed by), not at parse time. Leaf-op lowering and round-trip
+  proofs (Phase 6) decompose per dialect via mnemonic dispatch.
+- **VarId coherence.** All dialect ops live inside the same skeleton, so all
+  middle-layer passes share one VarId type and get a canonical, near-trivial
+  witness relation. The heterogeneous witness relations (instance paths →
+  Nat → R1CS ids) — the hard proof artifacts — are confined to the fixed
+  bottom passes, which exist and are proved today. `PresReflPass.compose`
+  is V-polymorphic and stitches the regimes together.
+- **Fixed backend = today's pipeline, minus inlining.** Current
+  `StructIRToFlatIR` survives as the flatten pass, simplified by extracting
+  call inlining into a middle-layer `EraseCalls` pass (the principled seam
+  for splitting the 7188-line monolith: freshening/frame proofs go to
+  `EraseCalls`, encoding proofs stay in flatten).
+
 ### Encoding (`Heyting/Core/Dialect.lean`, `Core/Stmt.lean`)
 
 Statements are **flat sums of leaf ops** — no recursion through subterms; the
@@ -105,18 +147,34 @@ native re-ports land one at a time.
 
 ### Pipeline (erasure order, front → back)
 
+Canonical total order on dialects; every pass lowers strictly downward
+(emits only into dialects below it). Any module's dialect subset is then
+automatically schedulable, and composition is type-checked — a scheduling
+bug is a type error, not a runtime failure.
+
 1. poly/include monomorphization, scf unrolling — initially AST-level rewrites
    with translation validation; verified-pass status deferred until the
    encoding proves out
 2. global const-inlining
-3. **function erasure** (inlining; flips `calls`)
-4. struct-op erasure (member → witness slot)
-5. array scalarization (static sizes)
-6. bool + `constrain.in` via bit decomposition
-7. cast
-8. non-native felt ops (pow, bitwise)
-9. felt + constrainEq lowering into **CCS**
+3. array scalarization (static sizes)
+4. bool + `constrain.in` via bit decomposition
+5. cast
+6. non-native felt ops (pow, bitwise)
+7. **function erasure** (`EraseCalls`: inlining; flips `calls`) — deliberately
+   *late*, so feature-dialect lowerings (4–6) may emit calls into shared
+   verified gadget functions (bit decomposition, range checks) instead of
+   inline-expanding at every use site
+8. fixed backend: flatten (skeleton + struct-op erasure, member → witness
+   slot, paths → Nat)
+9. fixed backend: felt + constrainEq lowering into **CCS**
 10. verified CCS→R1CS specialization + Plonkish serializer
+
+Open question (defer): whether `EraseCalls` runs strictly before struct-op
+erasure or interleaved with it inside flatten. Constrain-call inlining must
+remap callee member reads through caller instance paths, easiest while
+struct ops are still present — so "before" is the likely answer — but
+today's monolith does them interleaved, so keeping that is cheap if
+extraction proves awkward.
 
 ---
 
@@ -142,6 +200,10 @@ transported pipeline; CLI parity tests.
 
 T2 theorem; `Passes/EraseCalls.lean`, `EraseStructOps.lean`, `EraseFelt.lean`,
 `Compact.lean`; retire isos; quarantine old StructIR/FlatIR.
+The monolith splits along the inlining/encoding seam: freshening and frame
+discipline proofs (`StructIRFreshen` machinery) move to `EraseCalls`
+(middle layer, shared VarId, near-trivial witnessRel); witness-encoding
+proofs (`witnessBase`, `encodeWitnessPos`) stay in the fixed flatten pass.
 **Success metric:** 7188 lines → ≤ ~3000.
 
 ### Phase 3 — first-class function dialect (3–4 pw)
@@ -165,8 +227,10 @@ kit (4–5) → cast (1–2) → felt pow/bitwise (3); scf/poly AST-level front-
 
 ### Phase 6 — front-half verification + witness checker (4–6 pw)
 
-`Parsers/ASTSemantics.lean`; verified Lowering (fallback: verified per-run
-validator); `Parsers/Printer.lean` + round-trip/golden harness vs llzk-lib;
+`Parsers/ASTSemantics.lean`; verified typing of the GenericOp tree into
+`Module Δ` (skeleton extraction + per-dialect `lowerOp`; fallback: verified
+per-run validator); `Parsers/Printer.lean` + round-trip/golden harness vs
+llzk-lib — round-trip decomposes per dialect via mnemonic dispatch;
 `Core/WitnessChecker.lean` (`checkWitness ↔ satisfies`, generic from
 `stepDecidable`); `Dialects/Nondet.lean` with oracle-stream semantics.
 
