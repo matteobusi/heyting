@@ -114,4 +114,19 @@ abbrev numMembers (m : Module Δ calls n F) (i : Fin n) : Nat :=
 
 end Module
 
+/-! ## Free functions
+
+`function.def @f(felts) → felt` at module level (outside any struct) is not
+yet a first-class type in this module structure. Current encoding (usable
+now): represent a free function as a `StructDef` with `members = []` and a
+trivial `constrain` body. `Stmt.call target sel args` with `sel` selecting
+the compute body reaches it. This encoding is provably correct — the
+isomorphism is trivial — and is what Phase 1's iso-bridging will use.
+
+Phase 3 will introduce a unified `Callable` sum type (struct | free function)
+replacing the homogeneous `structs` array, with `sel : Nat` in `Stmt.call`
+selecting which body of the target callable is invoked. The `sel` field is
+already present as a placeholder for this upgrade.
+-/
+
 end Dialect
