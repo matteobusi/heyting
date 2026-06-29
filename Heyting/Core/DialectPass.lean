@@ -3,6 +3,7 @@ Copyright (c) 2025 Heyting Authors. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import Heyting.Core.Module
+import Heyting.Core.ModuleSemantics
 import Heyting.Core.Semantics
 
 /-!
@@ -773,6 +774,53 @@ def lowerStruct {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
 def lowerModule {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
     {n : Nat} (m : Module Δ n F) : Module Δ' n F where
   structs := fun i => pass.lowerStruct (m.structs i)
+
+/-- Constraint-function semantics is preserved and reflected by a dialect pass. -/
+theorem evalFuncConstrain_iff {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
+    {n i : Nat} {numMembers : Nat}
+    (fn : FuncDef Δ n i F .constraint numMembers)
+    (env : LocalVar → F) :
+    evalFuncConstrain pass.handlers' (pass.lowerFunc fn) env ↔
+      evalFuncConstrain pass.handlers fn env := by
+  change evalConstrainBody pass.handlers'
+      (pass.lowerModuleBody fn.numParams fn.body) env ↔
+    evalConstrainBody pass.handlers fn.body env
+  exact pass.constrainBody fn.body (pass.startFresh fn.numParams fn.body) env
+    (pass.startFresh_above fn.numParams fn.body)
+
+/-- Compute-function execution status is preserved by a dialect pass. -/
+theorem evalFuncCompute_status {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
+    {n i : Nat} {numMembers : Nat}
+    (fn : FuncDef Δ n i F .witness numMembers)
+    (input : FuncInput F) (default : F) :
+    (evalFuncCompute pass.handlers' (pass.lowerFunc fn) input default).isSome =
+      (evalFuncCompute pass.handlers fn input default).isSome := by
+  unfold evalFuncCompute
+  simp only [Option.isSome_map]
+  have h := pass.computeBody fn.body (pass.startFresh fn.numParams fn.body)
+    (bindParams input.args default) (pass.startFresh_above fn.numParams fn.body)
+  cases ht : evalComputeBody pass.handlers'
+      (pass.lowerBody (pass.startFresh fn.numParams fn.body) fn.body).1
+      (bindParams input.args default) <;>
+    cases hs : evalComputeBody pass.handlers fn.body (bindParams input.args default)
+  · simp [DialectPass.lowerFunc, DialectPass.lowerModuleBody, ht]
+  · simp [ht, hs] at h
+  · simp [ht, hs] at h
+  · simp [DialectPass.lowerFunc, DialectPass.lowerModuleBody, ht]
+
+/-- Constraint part of struct satisfaction is preserved for any target compute output. -/
+theorem lowerStruct_constrain_iff {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
+    {n : Nat} {i : Fin n} (s : StructDef Δ n i F) (env : LocalVar → F) :
+    evalFuncConstrain pass.handlers' (pass.lowerStruct s).constrain env ↔
+      evalFuncConstrain pass.handlers s.constrain env :=
+  pass.evalFuncConstrain_iff s.constrain env
+
+/-- Module entry constraint semantics is preserved for any target compute output. -/
+theorem lowerModule_entryConstrain_iff {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
+    {n : Nat} (m : Module Δ n F) (entry : Fin n) (env : LocalVar → F) :
+    evalFuncConstrain pass.handlers' ((pass.lowerModule m).structs entry).constrain env ↔
+      evalFuncConstrain pass.handlers (m.structs entry).constrain env :=
+  pass.lowerStruct_constrain_iff (m.structs entry) env
 
 end DialectPass
 
