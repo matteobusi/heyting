@@ -8,6 +8,7 @@ import Heyting.Core.VarIdEncoding
 import Heyting.Core.Dialect
 import Heyting.Core.Semantics
 import Heyting.Core.Module
+import Heyting.Core.ModuleSemantics
 import Heyting.Core.DialectPass
 
 import Heyting.Dialects.Felt
