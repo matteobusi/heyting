@@ -824,4 +824,47 @@ theorem lowerModule_entryConstrain_iff {Δ Δ' : DialectSet} (pass : DialectPass
 
 end DialectPass
 
+/-- Composable wrapper for module-level constraint correctness. -/
+structure ModuleConstraintPass (Δ Δ' : DialectSet) (F : Type) [Field F] where
+  handlers  : HandlerFamily Δ F
+  handlers' : HandlerFamily Δ' F
+  lowerModule : {n : Nat} → Module Δ n F → Module Δ' n F
+  constrain_iff : ∀ {n : Nat} (m : Module Δ n F) (entry : Fin n) (env : LocalVar → F),
+    evalFuncConstrain handlers' ((lowerModule m).structs entry).constrain env ↔
+      evalFuncConstrain handlers (m.structs entry).constrain env
+
+namespace ModuleConstraintPass
+
+/-- Lift a concrete `DialectPass` into the composable constraint-correct wrapper. -/
+def ofDialectPass {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) :
+    ModuleConstraintPass Δ Δ' F where
+  handlers := pass.handlers
+  handlers' := pass.handlers'
+  lowerModule := pass.lowerModule
+  constrain_iff := pass.lowerModule_entryConstrain_iff
+
+/-- Compose two module-level constraint-correct passes with matching middle semantics. -/
+def compose {Δ₀ Δ₁ Δ₂ : DialectSet}
+    (p₁ : ModuleConstraintPass Δ₀ Δ₁ F)
+    (p₂ : ModuleConstraintPass Δ₁ Δ₂ F)
+    (hmid : p₁.handlers' = p₂.handlers) :
+    ModuleConstraintPass Δ₀ Δ₂ F where
+  handlers := p₁.handlers
+  handlers' := p₂.handlers'
+  lowerModule := fun m => p₂.lowerModule (p₁.lowerModule m)
+  constrain_iff := by
+    intro n m entry env
+    have h₁ := p₁.constrain_iff m entry env
+    rw [hmid] at h₁
+    exact (p₂.constrain_iff (p₁.lowerModule m) entry env).trans h₁
+
+@[simp] theorem compose_lowerModule {Δ₀ Δ₁ Δ₂ : DialectSet}
+    (p₁ : ModuleConstraintPass Δ₀ Δ₁ F)
+    (p₂ : ModuleConstraintPass Δ₁ Δ₂ F)
+    (hmid : p₁.handlers' = p₂.handlers)
+    {n : Nat} (m : Module Δ₀ n F) :
+    (compose p₁ p₂ hmid).lowerModule m = p₂.lowerModule (p₁.lowerModule m) := rfl
+
+end ModuleConstraintPass
+
 end Dialect
