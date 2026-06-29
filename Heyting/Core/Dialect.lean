@@ -11,17 +11,12 @@ Phase 0 of the dialect re-architecture (`docs/ROADMAP.md`).
 
 ## Key design choices
 
-**Flat sum of leaf ops.** No recursion through subterms. The only recursion
-in the language is `call`, resolved through the module's topological callable
-index. This keeps the generic evaluator's termination measure identical to
-today's StructIR measure `(i, stmts.length)`.
+**Flat sum of dialect ops.** No recursion through subterms in generic
+statements. Recursive constructs such as calls are ordinary dialect ops, erased
+by dialect passes before the fixed bottom pipeline.
 
 **`Fin Δ.length` dialect index.** Membership is computable, so handler
 dispatch reduces by `simp` and `fin_cases` gives exact case splits in proofs.
-
-**Type-level `calls : Bool`.** "Function dialect erased" = `calls = false`,
-which makes the `call` constructor uninhabitable. No code changes needed in
-the generic evaluator.
 
 **Shared `VarId` / `LocalVar`.** All dialect ops live inside the same module
 skeleton, so all middle-layer passes share one variable-id type. Witness
@@ -142,81 +137,53 @@ abbrev DialectSet := List OpSig
 
 /-! ## Core statements -/
 
-/--
-A statement over dialect set `Δ` in context `γ` over field `F`.
-
-- `op d payload` — a leaf op of dialect `d ∈ Δ`.
-- `call` — a call into a callable earlier in topological order, gated by
-  `calls = true`. `dest = none` for void (constraint-kind) calls.
-  `sel` selects which body of the target callable is invoked — Phase 3
-  unifies free functions, `@compute`, `@constrain`, and helper functions
-  into one topologically ordered callable space.
--/
-inductive Stmt (Δ : DialectSet) (calls : Bool) (γ : OpCtx) (F : Type) where
-  | op   (d : Fin Δ.length) (payload : (Δ.get d).Op γ F)
-  | call (h : calls = true) (dest : Option LocalVar) (target : Fin γ.i)
-         (sel : Nat) (args : List LocalVar)
+/-- A statement over dialect set `Δ` in context `γ` over field `F`. -/
+inductive Stmt (Δ : DialectSet) (γ : OpCtx) (F : Type) where
+  | op (d : Fin Δ.length) (payload : (Δ.get d).Op γ F)
 
 namespace Stmt
 
-variable {Δ : DialectSet} {calls : Bool} {γ : OpCtx} {F : Type}
+variable {Δ : DialectSet} {γ : OpCtx} {F : Type}
 
 /-- Destination local written by a statement, if any. -/
-def dest : Stmt Δ calls γ F → Option LocalVar
-  | .op d p          => (Δ.get d).dest p
-  | .call _ dst _ _ _ => dst
+def dest : Stmt Δ γ F → Option LocalVar
+  | .op d p => (Δ.get d).dest p
 
 /-- Locals read by a statement. -/
-def reads : Stmt Δ calls γ F → List LocalVar
-  | .op d p           => (Δ.get d).reads p
-  | .call _ _ _ _ args => args
+def reads : Stmt Δ γ F → List LocalVar
+  | .op d p => (Δ.get d).reads p
 
 /-- Rename all locals through `ρ`. -/
-def mapVars (ρ : LocalVar → LocalVar) : Stmt Δ calls γ F → Stmt Δ calls γ F
-  | .op d p            => .op d ((Δ.get d).mapVars ρ p)
-  | .call h dst t s args => .call h (dst.map ρ) t s (args.map ρ)
+def mapVars (ρ : LocalVar → LocalVar) : Stmt Δ γ F → Stmt Δ γ F
+  | .op d p => .op d ((Δ.get d).mapVars ρ p)
 
-/--
-Capability of a statement. `call` is `pure` at the statement layer; the
-callee's body kind determines what the call site actually constrains.
--/
-def cap : Stmt Δ calls γ F → Capability
-  | .op d p         => (Δ.get d).cap p
-  | .call _ _ _ _ _ => .pure
+/-- Capability of a statement. -/
+def cap : Stmt Δ γ F → Capability
+  | .op d p => (Δ.get d).cap p
 
-theorem mapVars_id (s : Stmt Δ calls γ F) : s.mapVars id = s := by
+theorem mapVars_id (s : Stmt Δ γ F) : s.mapVars id = s := by
   cases s with
-  | op d p           => simp [mapVars, OpSig.mapVars_id]
-  | call h dst t sel args => simp [mapVars]
+  | op d p => simp [mapVars, OpSig.mapVars_id]
 
-theorem mapVars_comp (ρ σ : LocalVar → LocalVar) (s : Stmt Δ calls γ F) :
+theorem mapVars_comp (ρ σ : LocalVar → LocalVar) (s : Stmt Δ γ F) :
     (s.mapVars σ).mapVars ρ = s.mapVars (ρ ∘ σ) := by
   cases s with
-  | op d p           => simp [mapVars, OpSig.mapVars_comp]
-  | call h dst t sel args => simp [mapVars, Option.map_map, List.map_map]
+  | op d p => simp [mapVars, OpSig.mapVars_comp]
 
-theorem dest_mapVars (ρ : LocalVar → LocalVar) (s : Stmt Δ calls γ F) :
+theorem dest_mapVars (ρ : LocalVar → LocalVar) (s : Stmt Δ γ F) :
     (s.mapVars ρ).dest = s.dest.map ρ := by
   cases s with
-  | op d p           => simp [mapVars, dest, OpSig.dest_mapVars]
-  | call h dst t sel args => simp [mapVars, dest]
+  | op d p => simp [mapVars, dest, OpSig.dest_mapVars]
 
-theorem reads_mapVars (ρ : LocalVar → LocalVar) (s : Stmt Δ calls γ F) :
+theorem reads_mapVars (ρ : LocalVar → LocalVar) (s : Stmt Δ γ F) :
     (s.mapVars ρ).reads = s.reads.map ρ := by
   cases s with
-  | op d p           => simp [mapVars, reads, OpSig.reads_mapVars]
-  | call h dst t sel args => simp [mapVars, reads]
+  | op d p => simp [mapVars, reads, OpSig.reads_mapVars]
 
-theorem cap_mapVars (ρ : LocalVar → LocalVar) (s : Stmt Δ calls γ F) :
+theorem cap_mapVars (ρ : LocalVar → LocalVar) (s : Stmt Δ γ F) :
     (s.mapVars ρ).cap = s.cap := by
   cases s with
-  | op d p           => simp [mapVars, cap, OpSig.cap_mapVars]
-  | call h dst t sel args => simp [mapVars, cap]
-
-/-- A `call`-free statement embeds into a call-enabled one. -/
-def liftCalls : Stmt Δ false γ F → Stmt Δ calls γ F
-  | .op d p               => .op d p
-  | .call h _ _ _ _       => absurd h (by simp)
+  | op d p => simp [mapVars, cap, OpSig.cap_mapVars]
 
 end Stmt
 
@@ -226,8 +193,8 @@ end Stmt
 SSA check for statement lists, parameterized by the initially-defined local set.
 Identical shape to `StructIR.isSSA`; stated once generically.
 -/
-def isSSA {Δ : DialectSet} {calls : Bool} {γ : OpCtx} {F : Type} :
-    (LocalVar → Bool) → List (Stmt Δ calls γ F) → Bool
+def isSSA {Δ : DialectSet} {γ : OpCtx} {F : Type} :
+    (LocalVar → Bool) → List (Stmt Δ γ F) → Bool
   | _,    []      => true
   | init, s :: sl =>
     s.reads.all init &&
@@ -236,8 +203,8 @@ def isSSA {Δ : DialectSet} {calls : Bool} {γ : OpCtx} {F : Type} :
     | none   => isSSA init sl
 
 /-- All statements in `body` fit within function-kind `k`. -/
-def capsLE {Δ : DialectSet} {calls : Bool} {γ : OpCtx} {F : Type}
-    (k : Capability) (body : List (Stmt Δ calls γ F)) : Bool :=
+def capsLE {Δ : DialectSet} {γ : OpCtx} {F : Type}
+    (k : Capability) (body : List (Stmt Δ γ F)) : Bool :=
   body.all (fun s => decide (s.cap ≤ k))
 
 end Dialect

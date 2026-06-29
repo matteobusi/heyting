@@ -5,6 +5,15 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import Heyting.Core.Language
 import Heyting.Core.Pass
 import Heyting.Core.VarIdEncoding
+import Heyting.Core.Dialect
+import Heyting.Core.Semantics
+import Heyting.Core.Module
+import Heyting.Core.DialectPass
+
+import Heyting.Dialects.Felt
+import Heyting.Dialects.ConstrainEq
+import Heyting.Dialects.Call
+import Heyting.Dialects.FeltPass
 
 import Heyting.Languages.FlatIR
 import Heyting.Languages.R1CS

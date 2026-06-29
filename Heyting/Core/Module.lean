@@ -10,22 +10,20 @@ import Heyting.Core.Dialect
 Generic typed module over a `DialectSet`.
 
 Mirrors `StructIR.{StructDef,Module}` but generalized: statements use the
-generic `Stmt Δ calls γ F` type instead of `ConstrainStmt`/`ComputeStmt`.
+generic `Stmt Δ γ F` type instead of `ConstrainStmt`/`ComputeStmt`.
 
 Layers:
 - `MemberType n` — a member is either a felt or a reference to another
   struct (`substruct`, by index `Fin n`). Matches `StructIR.MemberType`.
 - `MemberDecl n` — one struct member declaration.
-- `FuncDef Δ calls n i F kind` — a function body with capability `kind`,
+- `FuncDef Δ n i F kind` — a function body with capability `kind`,
   well-formed by `capsLE` and `isSSA`.
-- `StructDef Δ calls n i F` — one struct: member list, `@compute` body
+- `StructDef Δ n i F` — one struct: member list, `@compute` body
   (capability `.witness`), `@constrain` body (capability `.constraint`).
-- `Module Δ calls n F` — a complete module: array of `n` structs in
-  topological order.
+- `Module Δ n F` — a complete module: array of `n` structs in topological order.
 
-The type parameter `calls : Bool` gates the `Stmt.call` constructor.
-Middle-layer dialect erasure passes are `calls = true` → `calls = true`
-(skeleton-preserving). `EraseCalls` is the pass that flips to `calls = false`.
+Call constructs live in a dedicated call dialect and are erased by normal
+dialect passes.
 -/
 
 namespace Dialect
@@ -60,10 +58,10 @@ Well-formedness:
 - `wf_ssa`: `body` is in SSA form with `numParams` initially-defined locals.
 -/
 structure FuncDef
-    (Δ : DialectSet) (calls : Bool) (n i : Nat) (F : Type) (kind : Capability)
+    (Δ : DialectSet) (n i : Nat) (F : Type) (kind : Capability)
     (numMembers : Nat) where
   numParams : Nat
-  body      : List (Stmt Δ calls ⟨n, i, numMembers⟩ F)
+  body      : List (Stmt Δ ⟨n, i, numMembers⟩ F)
   /-- For `.witness` funcs: the local holding the return value. -/
   returnVar : Option LocalVar
   wf_caps   : capsLE kind body = true
@@ -78,38 +76,38 @@ A struct definition at index `i` in a module of `n` callables.
 - `compute` is the `@compute` / witness-generating body (`kind = .witness`).
 - `constrain` is the `@constrain` / constraint-generating body (`kind = .constraint`).
 
-Calls may only target structs `j < i` (enforced by `Fin i` in `Stmt.call`).
+Call dialect ops may only target structs `j < i` via `Fin i`.
 -/
-structure StructDef (Δ : DialectSet) (calls : Bool) (n : Nat) (i : Fin n) (F : Type) where
+structure StructDef (Δ : DialectSet) (n : Nat) (i : Fin n) (F : Type) where
   name      : String
   members   : List (MemberDecl n)
-  compute   : FuncDef Δ calls n i.val F .witness   members.length
-  constrain : FuncDef Δ calls n i.val F .constraint members.length
+  compute   : FuncDef Δ n i.val F .witness   members.length
+  constrain : FuncDef Δ n i.val F .constraint members.length
 
 /-! ## Module -/
 
 /--
 A complete module: `n` structs in topological order.
 
-`n` is a type parameter (not a field) so Σ-types like `Σ n, Module Δ calls (n + 1) F`
+`n` is a type parameter (not a field) so Σ-types like `Σ n, Module Δ (n + 1) F`
 compose naturally with the pipeline (mirrors `StructIR.Module n F`).
 -/
-structure Module (Δ : DialectSet) (calls : Bool) (n : Nat) (F : Type) where
-  structs : (i : Fin n) → StructDef Δ calls n i F
+structure Module (Δ : DialectSet) (n : Nat) (F : Type) where
+  structs : (i : Fin n) → StructDef Δ n i F
 
 namespace Module
 
-variable {Δ : DialectSet} {calls : Bool} {n : Nat} {F : Type}
+variable {Δ : DialectSet} {n : Nat} {F : Type}
 
 /-- Number of callables in the module (convenient alias). -/
-abbrev size (_ : Module Δ calls n F) : Nat := n
+abbrev size (_ : Module Δ n F) : Nat := n
 
 /-- Retrieve the struct at index `i`. -/
-abbrev struct (m : Module Δ calls n F) (i : Fin n) : StructDef Δ calls n i F :=
+abbrev struct (m : Module Δ n F) (i : Fin n) : StructDef Δ n i F :=
   m.structs i
 
 /-- Member count of struct `i`. -/
-abbrev numMembers (m : Module Δ calls n F) (i : Fin n) : Nat :=
+abbrev numMembers (m : Module Δ n F) (i : Fin n) : Nat :=
   (m.structs i).members.length
 
 end Module
@@ -119,12 +117,12 @@ end Module
 `function.def @f(felts) → felt` at module level (outside any struct) is not
 yet a first-class type in this module structure. Current encoding (usable
 now): represent a free function as a `StructDef` with `members = []` and a
-trivial `constrain` body. `Stmt.call target sel args` with `sel` selecting
+trivial `constrain` body. `CallDialect.call target sel args` with `sel` selecting
 the compute body reaches it. This encoding is provably correct — the
 isomorphism is trivial — and is what Phase 1's iso-bridging will use.
 
 Phase 3 will introduce a unified `Callable` sum type (struct | free function)
-replacing the homogeneous `structs` array, with `sel : Nat` in `Stmt.call`
+replacing the homogeneous `structs` array, with `sel : Nat` in the call dialect
 selecting which body of the target callable is invoked. The `sel` field is
 already present as a placeholder for this upgrade.
 -/

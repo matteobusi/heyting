@@ -17,12 +17,8 @@ Per-dialect `DialectSem` handler interface, a family of handlers for a
 reads-congruence and dest-frame. Rename-commutation laws (needed for T2 and
 `EraseCalls` freshening proofs) are deferred to Phase 2.
 
-The body evaluators are structurally recursive on the statement list and do
-**not** handle `call` directly — call semantics are supplied as an opaque
-`ConstrainCallHandler`/`ComputeCallHandler` continuation. This separation
-keeps the list-level evaluators termination-trivial; the module-level
-evaluator in `Core/Eval.lean` supplies call handlers via well-founded
-recursion on the callable index `i`.
+The body evaluators are structurally recursive on the statement list. Recursive
+constructs such as calls are handled by ordinary dialect semantics.
 
 ## Note on definition style
 
@@ -55,20 +51,42 @@ structure DialectSem (sig : OpSig) (F : Type) [Field F] where
   /-- Compute-context step: updated env or `none` on fault. -/
   computeStep : ∀ {γ : OpCtx}, sig.Op γ F → (LocalVar → F) → Option (LocalVar → F)
 
-  /-- `constrainStep` depends only on `reads op`. -/
-  constrainStep_congr : ∀ {γ : OpCtx} (op : sig.Op γ F) (env₁ env₂ : LocalVar → F),
+  /--
+  Reads congruence for constrain: if two environments agree on `reads op`,
+  (1) the emitted Prop is the same (iff), and
+  (2) the value written to `dest` (if any) is the same.
+
+  Note: the whole output pair is NOT required to be equal — the non-dest
+  components of the output env differ when the input envs differ on those
+  variables. Only `dest` and the Prop are reads-determined.
+  -/
+  constrainStep_reads_congr :
+    ∀ {γ : OpCtx} (op : sig.Op γ F) (env₁ env₂ : LocalVar → F),
     (∀ v ∈ sig.reads op, env₁ v = env₂ v) →
-    constrainStep op env₁ = constrainStep op env₂
+    ((constrainStep op env₁).2 ↔ (constrainStep op env₂).2) ∧
+    ∀ d, sig.dest op = some d →
+      (constrainStep op env₁).1 d = (constrainStep op env₂).1 d
 
   /-- `constrainStep` does not modify variables other than `dest op`. -/
   constrainStep_frame : ∀ {γ : OpCtx} (op : sig.Op γ F) (env : LocalVar → F) (v : LocalVar),
     sig.dest op ≠ some v →
     (constrainStep op env).1 v = env v
 
-  /-- `computeStep` depends only on `reads op`. -/
-  computeStep_congr : ∀ {γ : OpCtx} (op : sig.Op γ F) (env₁ env₂ : LocalVar → F),
+  /--
+  Reads congruence for compute: if two environments agree on `reads op`,
+  the value written to `dest` (if any) is the same (mapping through Option).
+  -/
+  computeStep_reads_congr :
+    ∀ {γ : OpCtx} (op : sig.Op γ F) (env₁ env₂ : LocalVar → F),
     (∀ v ∈ sig.reads op, env₁ v = env₂ v) →
-    computeStep op env₁ = computeStep op env₂
+    ∀ d, sig.dest op = some d →
+      (computeStep op env₁).map (· d) = (computeStep op env₂).map (· d)
+
+  /-- Compute success/failure is determined by reads. -/
+  computeStep_status_congr :
+    ∀ {γ : OpCtx} (op : sig.Op γ F) (env₁ env₂ : LocalVar → F),
+    (∀ v ∈ sig.reads op, env₁ v = env₂ v) →
+      (computeStep op env₁).isSome = (computeStep op env₂).isSome
 
   /-- On success, `computeStep` does not modify variables other than `dest op`. -/
   computeStep_frame : ∀ {γ : OpCtx} (op : sig.Op γ F) (env env' : LocalVar → F) (v : LocalVar),
@@ -80,134 +98,112 @@ structure DialectSem (sig : OpSig) (F : Type) [Field F] where
 abbrev HandlerFamily (Δ : DialectSet) (F : Type) [Field F] :=
   (d : Fin Δ.length) → DialectSem (Δ.get d) F
 
-/-! ## Call handler types -/
-
-/--
-Handler for `call` in constrain context. Returns `(new_env, emitted_Prop)`.
-`dst = none` for void calls; `dst = some d` for value-returning calls.
--/
-abbrev ConstrainCallHandler (γ : OpCtx) (F : Type) :=
-  Option LocalVar → Fin γ.i → Nat → List LocalVar → (LocalVar → F) →
-  (LocalVar → F) × Prop
-
-/-- Handler for `call` in compute context. Returns updated env or `none`. -/
-abbrev ComputeCallHandler (γ : OpCtx) (F : Type) :=
-  Option LocalVar → Fin γ.i → Nat → List LocalVar → (LocalVar → F) →
-  Option (LocalVar → F)
-
 /-! ## Single-step dispatch -/
 
 /-- Execute one statement in constrain context. -/
 @[inline] def evalConstrainStep
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
+    {Δ : DialectSet} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
-    (callHandler : ConstrainCallHandler γ F)
-    (s : Stmt Δ calls γ F)
+    (s : Stmt Δ γ F)
     (env : LocalVar → F) : (LocalVar → F) × Prop :=
   match s with
-  | .op d p                => (handlers d).constrainStep p env
-  | .call _ dst t sel args => callHandler dst t sel args env
+  | .op d p => (handlers d).constrainStep p env
 
 /-- Execute one statement in compute context. -/
 @[inline] def evalComputeStep
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
+    {Δ : DialectSet} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
-    (callHandler : ComputeCallHandler γ F)
-    (s : Stmt Δ calls γ F)
+    (s : Stmt Δ γ F)
     (env : LocalVar → F) : Option (LocalVar → F) :=
   match s with
-  | .op d p                => (handlers d).computeStep p env
-  | .call _ dst t sel args => callHandler dst t sel args env
+  | .op d p => (handlers d).computeStep p env
 
 /-! ## Body evaluators -/
 
 /--
 Constrain body: thread env through statements, conjoin emitted constraints.
-`call` dispatches to `callHandler`. Structurally recursive on `stmts`.
+Structurally recursive on `stmts`.
 -/
 def evalConstrainBody
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
+    {Δ : DialectSet} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
-    (callHandler : ConstrainCallHandler γ F)
-    (stmts : List (Stmt Δ calls γ F))
+    (stmts : List (Stmt Δ γ F))
     (env : LocalVar → F) : Prop :=
   match stmts with
   | []       => True
   | s :: rest =>
-    (evalConstrainStep handlers callHandler s env).2 ∧
-    evalConstrainBody handlers callHandler rest (evalConstrainStep handlers callHandler s env).1
+    (evalConstrainStep handlers s env).2 ∧
+    evalConstrainBody handlers rest (evalConstrainStep handlers s env).1
 
 /--
 Final env after executing a constrain body.
 Companion to `evalConstrainBody` for frame/congruence proofs.
 -/
 def evalConstrainEnv
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
+    {Δ : DialectSet} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
-    (callHandler : ConstrainCallHandler γ F)
-    (stmts : List (Stmt Δ calls γ F))
+    (stmts : List (Stmt Δ γ F))
     (env : LocalVar → F) : LocalVar → F :=
   match stmts with
   | []       => env
   | s :: rest =>
-    evalConstrainEnv handlers callHandler rest (evalConstrainStep handlers callHandler s env).1
+    evalConstrainEnv handlers rest (evalConstrainStep handlers s env).1
 
 /-- Compute body: thread env through statements, fault on `none`. -/
 def evalComputeBody
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
+    {Δ : DialectSet} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
-    (callHandler : ComputeCallHandler γ F)
-    (stmts : List (Stmt Δ calls γ F))
+    (stmts : List (Stmt Δ γ F))
     (env : LocalVar → F) : Option (LocalVar → F) :=
   match stmts with
   | []       => some env
   | s :: rest =>
-    (evalComputeStep handlers callHandler s env).bind
-      (evalComputeBody handlers callHandler rest)
+    (evalComputeStep handlers s env).bind
+      (evalComputeBody handlers rest)
 
 /-! ## Equation lemmas -/
 
 @[simp] theorem evalConstrainBody_nil
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F) (callHandler : ConstrainCallHandler γ F)
+    {Δ : DialectSet} {γ : OpCtx}
+    (handlers : HandlerFamily Δ F)
     (env : LocalVar → F) :
-    evalConstrainBody handlers callHandler ([] : List (Stmt Δ calls γ F)) env = True := rfl
+    evalConstrainBody handlers ([] : List (Stmt Δ γ F)) env = True := rfl
 
 @[simp] theorem evalConstrainBody_cons
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F) (callHandler : ConstrainCallHandler γ F)
-    (s : Stmt Δ calls γ F) (rest : List (Stmt Δ calls γ F)) (env : LocalVar → F) :
-    evalConstrainBody handlers callHandler (s :: rest) env =
-      ((evalConstrainStep handlers callHandler s env).2 ∧
-       evalConstrainBody handlers callHandler rest
-         (evalConstrainStep handlers callHandler s env).1) := rfl
+    {Δ : DialectSet} {γ : OpCtx}
+    (handlers : HandlerFamily Δ F)
+    (s : Stmt Δ γ F) (rest : List (Stmt Δ γ F)) (env : LocalVar → F) :
+    evalConstrainBody handlers (s :: rest) env =
+      ((evalConstrainStep handlers s env).2 ∧
+       evalConstrainBody handlers rest
+         (evalConstrainStep handlers s env).1) := rfl
 
 @[simp] theorem evalConstrainEnv_nil
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F) (callHandler : ConstrainCallHandler γ F)
+    {Δ : DialectSet} {γ : OpCtx}
+    (handlers : HandlerFamily Δ F)
     (env : LocalVar → F) :
-    evalConstrainEnv handlers callHandler ([] : List (Stmt Δ calls γ F)) env = env := rfl
+    evalConstrainEnv handlers ([] : List (Stmt Δ γ F)) env = env := rfl
 
 @[simp] theorem evalConstrainEnv_cons
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F) (callHandler : ConstrainCallHandler γ F)
-    (s : Stmt Δ calls γ F) (rest : List (Stmt Δ calls γ F)) (env : LocalVar → F) :
-    evalConstrainEnv handlers callHandler (s :: rest) env =
-      evalConstrainEnv handlers callHandler rest
-        (evalConstrainStep handlers callHandler s env).1 := rfl
+    {Δ : DialectSet} {γ : OpCtx}
+    (handlers : HandlerFamily Δ F)
+    (s : Stmt Δ γ F) (rest : List (Stmt Δ γ F)) (env : LocalVar → F) :
+    evalConstrainEnv handlers (s :: rest) env =
+      evalConstrainEnv handlers rest
+        (evalConstrainStep handlers s env).1 := rfl
 
 @[simp] theorem evalComputeBody_nil
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F) (callHandler : ComputeCallHandler γ F)
+    {Δ : DialectSet} {γ : OpCtx}
+    (handlers : HandlerFamily Δ F)
     (env : LocalVar → F) :
-    evalComputeBody handlers callHandler ([] : List (Stmt Δ calls γ F)) env = some env := rfl
+    evalComputeBody handlers ([] : List (Stmt Δ γ F)) env = some env := rfl
 
 @[simp] theorem evalComputeBody_cons
-    {Δ : DialectSet} {calls : Bool} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F) (callHandler : ComputeCallHandler γ F)
-    (s : Stmt Δ calls γ F) (rest : List (Stmt Δ calls γ F)) (env : LocalVar → F) :
-    evalComputeBody handlers callHandler (s :: rest) env =
-      (evalComputeStep handlers callHandler s env).bind
-        (evalComputeBody handlers callHandler rest) := rfl
+    {Δ : DialectSet} {γ : OpCtx}
+    (handlers : HandlerFamily Δ F)
+    (s : Stmt Δ γ F) (rest : List (Stmt Δ γ F)) (env : LocalVar → F) :
+    evalComputeBody handlers (s :: rest) env =
+      (evalComputeStep handlers s env).bind
+        (evalComputeBody handlers rest) := rfl
 
 end Dialect
