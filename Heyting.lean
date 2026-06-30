@@ -14,6 +14,7 @@ import Heyting.Core.DialectPass
 import Heyting.Dialects.Felt
 import Heyting.Dialects.ConstrainEq
 import Heyting.Dialects.Call
+import Heyting.Dialects.CallPass
 import Heyting.Dialects.FeltPass
 
 import Heyting.Languages.FlatIR
