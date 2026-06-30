@@ -104,12 +104,12 @@ def sig : OpSig := {
 -- sig.dest = Felt.dest definitionally; used to lift hypotheses in sem proofs.
 private theorem sig_dest_eq (op : Op γ F) : sig.dest op = some (destVar op) := dest_eq op
 
-def sem (F : Type) [Field F] : DialectSem sig F := {
-  constrainStep := fun op env => (applyOp op env, True)
-  computeStep   := fun op env => some (applyOp op env)
+def sem (F : Type) [Field F] : DialectSem (Δ := [sig]) sig F := {
+  constrainStep := fun _ctx op env => (applyOp op env, True)
+  computeStep   := fun _ctx op env => some (applyOp op env)
 
   constrainStep_reads_congr := by
-    intro γ op env₁ env₂ h
+    intro n γ ctx op env₁ env₂ h
     refine ⟨Iff.rfl, fun d hd => ?_⟩
     rw [sig_dest_eq] at hd
     have hd' : d = destVar op := (Option.some.inj hd).symm
@@ -119,12 +119,12 @@ def sem (F : Type) [Field F] : DialectSem sig F := {
     exact evalVal_reads_congr op env₁ env₂ h
 
   constrainStep_frame := by
-    intro γ op env v hv
+    intro n γ ctx op env v hv
     rw [sig_dest_eq] at hv
     exact applyOp_at_other op env v (fun h => hv (congrArg some h.symm))
 
   computeStep_reads_congr := by
-    intro γ op env₁ env₂ h d hd
+    intro n γ ctx op env₁ env₂ h d hd
     rw [sig_dest_eq] at hd
     have hd' : d = destVar op := (Option.some.inj hd).symm
     -- computeStep op env = some (applyOp op env) definitionally
@@ -135,11 +135,11 @@ def sem (F : Type) [Field F] : DialectSem sig F := {
     exact congrArg some (evalVal_reads_congr op env₁ env₂ h)
 
   computeStep_status_congr := by
-    intro γ op env₁ env₂ h
+    intro n γ ctx op env₁ env₂ h
     rfl
 
   computeStep_frame := by
-    intro γ op env env' v hsome hv
+    intro n γ ctx op env env' v hsome hv
     -- computeStep op env = some (applyOp op env) definitionally
     change some (applyOp op env) = some env' at hsome
     have heq : env' = applyOp op env := (Option.some.inj hsome).symm

@@ -54,6 +54,10 @@ def bindParams (args : List F) (default : F) : LocalVar → F :=
 def readReturn (returnVar : Option LocalVar) (env : LocalVar → F) : Option F :=
   returnVar.map env
 
+@[simp] def semCtx [Field F] (m : Module Δ n F) : SemCtx Δ n F where
+  module := m
+
+
 @[simp] theorem readReturn_none (env : LocalVar → F) :
     readReturn (F := F) none env = none := rfl
 
@@ -64,27 +68,30 @@ def readReturn (returnVar : Option LocalVar) (env : LocalVar → F) : Option F :
 def evalFuncCompute
     [Field F]
     (handlers : HandlerFamily Δ F)
+    (m : Module Δ n F)
     (fn : FuncDef Δ n i F .witness numMembers)
     (input : FuncInput F) (default : F) : Option (FuncOutput F) :=
-  (evalComputeBody handlers fn.body (bindParams input.args default)).map
+  (evalComputeBody handlers (semCtx m) fn.body (bindParams input.args default)).map
     (fun env => { env := env, returnValue := readReturn fn.returnVar env })
 
 /-- Evaluate a constraint-generation function against an existing local environment. -/
 def evalFuncConstrain
     [Field F]
     (handlers : HandlerFamily Δ F)
+    (m : Module Δ n F)
     (fn : FuncDef Δ n i F .constraint numMembers)
     (env : LocalVar → F) : Prop :=
-  evalConstrainBody handlers fn.body env
+  evalConstrainBody handlers (semCtx m) fn.body env
 
 /-- Evaluate a struct by computing witness locals, then checking constraints. -/
 def satisfiesStruct
     [Field F]
     (handlers : HandlerFamily Δ F)
+    (m : Module Δ n F)
     {i : Fin n} (s : StructDef Δ n i F)
     (input : FuncInput F) (default : F) : Prop :=
-  ∃ out, evalFuncCompute handlers s.compute input default = some out ∧
-    evalFuncConstrain handlers s.constrain out.env
+  ∃ out, evalFuncCompute handlers m s.compute input default = some out ∧
+    evalFuncConstrain handlers m s.constrain out.env
 
 /-- Evaluate a module at one entry struct. -/
 def satisfiesModuleAt
@@ -93,22 +100,24 @@ def satisfiesModuleAt
     (m : Module Δ n F)
     (entry : Fin n)
     (input : FuncInput F) (default : F) : Prop :=
-  satisfiesStruct handlers (m.structs entry) input default
+  satisfiesStruct handlers m (m.structs entry) input default
 
 @[simp] theorem evalFuncConstrain_eq
     [Field F]
     (handlers : HandlerFamily Δ F)
+    (m : Module Δ n F)
     (fn : FuncDef Δ n i F .constraint numMembers)
     (env : LocalVar → F) :
-    evalFuncConstrain handlers fn env = evalConstrainBody handlers fn.body env := rfl
+    evalFuncConstrain handlers m fn env = evalConstrainBody handlers (semCtx m) fn.body env := rfl
 
 @[simp] theorem evalFuncCompute_eq
     [Field F]
     (handlers : HandlerFamily Δ F)
+    (m : Module Δ n F)
     (fn : FuncDef Δ n i F .witness numMembers)
     (input : FuncInput F) (default : F) :
-    evalFuncCompute handlers fn input default =
-      (evalComputeBody handlers fn.body (bindParams input.args default)).map
+    evalFuncCompute handlers m fn input default =
+      (evalComputeBody handlers (semCtx m) fn.body (bindParams input.args default)).map
         (fun env => { env := env, returnValue := readReturn fn.returnVar env }) := rfl
 
 @[simp] theorem satisfiesModuleAt_eq
@@ -118,6 +127,6 @@ def satisfiesModuleAt
     (entry : Fin n)
     (input : FuncInput F) (default : F) :
     satisfiesModuleAt handlers m entry input default =
-      satisfiesStruct handlers (m.structs entry) input default := rfl
+      satisfiesStruct handlers m (m.structs entry) input default := rfl
 
 end Dialect

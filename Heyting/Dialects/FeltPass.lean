@@ -31,10 +31,10 @@ abbrev feltHandlers (F : Type) [Field F] : HandlerFamily FeltSet F :=
   fun d => by
     have hd : d = feltIx := fin_felt_eq d
     subst d
-    exact Felt.sem F
+    exact (by simpa [FeltSet, feltIx] using (Felt.sem F))
 
 @[simp] theorem feltHandlers_feltIx (F : Type) [Field F] :
-    feltHandlers F feltIx = Felt.sem F := rfl
+    feltHandlers F feltIx = Felt.sem F := by simp [feltHandlers, feltIx, FeltSet]
 
 def lowerNegNoFresh {γ : OpCtx} [Field F]
     (d s : LocalVar) : List (Stmt FeltSet γ F) :=
@@ -67,55 +67,59 @@ private theorem negNoFresh_apply [Field F] {γ : OpCtx} (env : LocalVar → F) {
 
 theorem simple_constrainSim (F : Type) [Field F] :
     SimpleConstrainSim (feltHandlers F) (lowerOp (F := F) ) (feltHandlers F) := by
-  intro γ d op env
+  intro n n' γ ctx ctx' d op env
   have hd : d = feltIx := fin_felt_eq d
   subst d
   cases op with
   | add d s1 s2 | sub d s1 s2 | mul d s1 s2 | div d s1 s2 | inv d s | const d c =>
-      simp [lowerOp, feltHandlers, evalConstrainEnv, evalConstrainBody, evalConstrainStep]
+      simp [lowerOp, feltHandlers, evalConstrainEnv, evalConstrainBody, evalConstrainStep, Felt.sem]
   | neg d s =>
       by_cases h : d = s
       · subst s
         simp [lowerOp, lowerNegNoFresh, feltHandlers, evalConstrainEnv, evalConstrainBody,
-          evalConstrainStep]
-      · simp only [lowerOp, lowerNegNoFresh, h, feltHandlers_feltIx]
+          evalConstrainStep, Felt.sem]
+      · simp only [lowerOp, lowerNegNoFresh, h, feltHandlers_feltIx, Felt.sem]
         constructor
         · exact negNoFresh_apply env h
         · tauto
 
 theorem simple_computeSim (F : Type) [Field F] :
     SimpleComputeSim (feltHandlers F) (lowerOp (F := F) ) (feltHandlers F) := by
-  intro γ d op env
+  intro n n' γ ctx ctx' d op env
   have hd : d = feltIx := fin_felt_eq d
   subst d
   cases op with
   | add d s1 s2 | sub d s1 s2 | mul d s1 s2 | div d s1 s2 | inv d s | const d c =>
-      simp [lowerOp, feltHandlers, evalComputeBody, evalComputeStep]
+      simp [lowerOp, feltHandlers, evalComputeBody, evalComputeStep, Felt.sem]
   | neg d s =>
       by_cases h : d = s
       · subst s
-        simp [lowerOp, lowerNegNoFresh, feltHandlers, evalComputeBody, evalComputeStep]
-      · simp only [lowerOp, lowerNegNoFresh, h, feltHandlers_feltIx]
+        simp [lowerOp, lowerNegNoFresh, feltHandlers, evalComputeBody, evalComputeStep, Felt.sem]
+      · simp only [lowerOp, lowerNegNoFresh, h, feltHandlers_feltIx, Felt.sem]
         exact congrArg some (negNoFresh_apply env h)
 
 /-- Body-level no-fresh constrain preservation for safe `neg` expansion. -/
-theorem simple_constrainBody (F : Type) [Field F] {γ : OpCtx}
+theorem simple_constrainBody (F : Type) [Field F] {n n' : Nat} {γ : OpCtx}
+    (ctx : SemCtx FeltSet n F) (ctx' : SemCtx FeltSet n' F)
     (stmts : List (Stmt FeltSet γ F))
     (env : LocalVar → F) :
-    evalConstrainBody (feltHandlers F)
+    evalConstrainBody (feltHandlers F) ctx'
         (lowerBody (lowerOp (F := F)) stmts) env ↔
-      evalConstrainBody (feltHandlers F) stmts env :=
-  Dialect.simple_constrainBody (feltHandlers F) (feltHandlers F)
+      evalConstrainBody (feltHandlers F) ctx stmts env :=
+  @Dialect.simple_constrainBody F _ FeltSet FeltSet n n' γ
+    (feltHandlers F) ctx (feltHandlers F) ctx'
     (lowerOp (F := F)) (simple_constrainSim F) stmts env
 
 /-- Body-level no-fresh compute preservation for safe `neg` expansion. -/
-theorem simple_computeBody (F : Type) [Field F] {γ : OpCtx}
+theorem simple_computeBody (F : Type) [Field F] {n n' : Nat} {γ : OpCtx}
+    (ctx : SemCtx FeltSet n F) (ctx' : SemCtx FeltSet n' F)
     (stmts : List (Stmt FeltSet γ F))
     (env : LocalVar → F) :
-    evalComputeBody (feltHandlers F)
+    evalComputeBody (feltHandlers F) ctx'
         (lowerBody (lowerOp (F := F)) stmts) env =
-      evalComputeBody (feltHandlers F) stmts env :=
-  Dialect.simple_computeBody (feltHandlers F) (feltHandlers F)
+      evalComputeBody (feltHandlers F) ctx stmts env :=
+  @Dialect.simple_computeBody F _ FeltSet FeltSet n n' γ
+    (feltHandlers F) ctx (feltHandlers F) ctx'
     (lowerOp (F := F)) (simple_computeSim F) stmts env
 
 /-! ## Fresh-temp neg lowering -/
@@ -156,12 +160,13 @@ private theorem negFresh_apply_below [Field F] {γ : OpCtx} (env : LocalVar → 
 
 theorem fresh_constrainSim (F : Type) [Field F] :
     FreshConstrainSim (feltHandlers F) (lowerOpFresh (F := F)) (feltHandlers F) := by
-  intro γ next d op env hfresh
+  intro n n' γ ctx ctx' next d op env hfresh
   have hd : d = feltIx := fin_felt_eq d
   subst d
   cases op with
   | add d s1 s2 | sub d s1 s2 | mul d s1 s2 | div d s1 s2 | inv d s | const d c =>
-      simp [lowerOpFresh, feltHandlers, evalConstrainEnv, evalConstrainBody, evalConstrainStep]
+      simp [lowerOpFresh, feltHandlers, evalConstrainEnv, evalConstrainBody,
+        evalConstrainStep, Felt.sem]
   | neg d s =>
       have hdmem : d ∈ (Stmt.op feltIx (Felt.Op.neg d s) : Stmt FeltSet γ F).vars := by
         change d ∈ (Felt.dest (γ := γ) (F := F) (Felt.Op.neg d s)).toList ++
@@ -175,7 +180,7 @@ theorem fresh_constrainSim (F : Type) [Field F] :
       have hslt : s < next := hfresh s hsmem
       have htmp_d : next ≠ d := fun h => Nat.lt_irrefl next (h ▸ hdlt)
       have htmp_s : next ≠ s := fun h => Nat.lt_irrefl next (h ▸ hslt)
-      simp only [lowerOpFresh, lowerNegFresh, feltHandlers_feltIx]
+      simp only [lowerOpFresh, lowerNegFresh, feltHandlers_feltIx, Felt.sem]
       constructor
       · intro v hv
         exact negFresh_apply_below env hv htmp_s
@@ -183,12 +188,12 @@ theorem fresh_constrainSim (F : Type) [Field F] :
 
 theorem fresh_computeSim (F : Type) [Field F] :
     FreshComputeSim (feltHandlers F) (lowerOpFresh (F := F)) (feltHandlers F) := by
-  intro γ next d op env hfresh
+  intro n n' γ ctx ctx' next d op env hfresh
   have hd : d = feltIx := fin_felt_eq d
   subst d
   cases op with
   | add d s1 s2 | sub d s1 s2 | mul d s1 s2 | div d s1 s2 | inv d s | const d c =>
-      simp only [lowerOpFresh, feltHandlers_feltIx, evalComputeBody_cons, evalComputeStep]
+      simp only [lowerOpFresh, feltHandlers_feltIx, evalComputeBody_cons, evalComputeStep, Felt.sem]
       intro v hv
       rfl
   | neg d s =>
@@ -205,7 +210,7 @@ theorem fresh_computeSim (F : Type) [Field F] :
       have htmp_d : next ≠ d := fun h => Nat.lt_irrefl next (h ▸ hdlt)
       have htmp_s : next ≠ s := fun h => Nat.lt_irrefl next (h ▸ hslt)
       simp only [lowerOpFresh, lowerNegFresh, feltHandlers_feltIx, evalComputeBody_cons,
-        evalComputeStep]
+        evalComputeStep, Felt.sem]
       intro v hv
       exact negFresh_apply_below env hv htmp_s
 
@@ -466,7 +471,7 @@ theorem fresh_lower_ssa {γ : OpCtx} {F : Type} [Field F]
             have hih := ih (fun x => (init x || x == next) || x == d) (next + 1)
               (init_or_eq_high_false_succ init hinit hdlt) hrest_succ htail'
             simp only [lowerBodyFresh_op, lowerOpFresh,
-              lowerNegFresh, feltHandlers_feltIx]
+              lowerNegFresh, feltHandlers_feltIx, Felt.sem]
             change isSSA init (Stmt.op feltIx (Felt.Op.const next 0) ::
               Stmt.op feltIx (Felt.Op.sub d next s) ::
               (lowerBodyFresh (lowerOpFresh (F := F)) (next + 1) rest).1) = true

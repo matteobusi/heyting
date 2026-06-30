@@ -51,19 +51,19 @@ def sig : OpSig where
 private theorem sig_dest_none (s1 s2 : LocalVar) (γ : OpCtx) (F : Type) :
     sig.dest (Op.eq (γ := γ) (F := F) s1 s2) = none := rfl
 
-def sem (F : Type) [Field F] : DialectSem sig F := {
+def sem (F : Type) [Field F] : DialectSem (Δ := [sig]) sig F := {
   -- constrainStep: emit env s1 = env s2, return env unchanged.
-  constrainStep := fun op env =>
+  constrainStep := fun _ctx op env =>
     match op with
     | .eq s1 s2 => (env, env s1 = env s2)
 
   -- computeStep: no-op (wf_caps ensures this is never reached in valid programs).
-  computeStep := fun op env =>
+  computeStep := fun _ctx op env =>
     match op with
     | .eq _ _ => some env
 
   constrainStep_reads_congr := by
-    intro γ op env₁ env₂ h
+    intro n γ ctx op env₁ env₂ h
     cases op with
     | eq s1 s2 =>
       have h1 : env₁ s1 = env₂ s1 := h s1 (by simp [sig, reads])
@@ -78,25 +78,25 @@ def sem (F : Type) [Field F] : DialectSem sig F := {
         cases hd
 
   constrainStep_frame := by
-    intro γ op env v _hv
+    intro n γ ctx op env v _hv
     cases op
     -- constrainStep (.eq s1 s2) env = (env, ...) so .1 = env
     rfl
 
   computeStep_reads_congr := by
-    intro γ op env₁ env₂ _h d hd
+    intro n γ ctx op env₁ env₂ _h d hd
     cases op
     -- sig.dest (.eq s1 s2) = none, premise false
     rw [sig_dest_none _ _ γ F] at hd
     cases hd
 
   computeStep_status_congr := by
-    intro γ op env₁ env₂ _h
+    intro n γ ctx op env₁ env₂ _h
     cases op
     rfl
 
   computeStep_frame := by
-    intro γ op env env' v hsome _hv
+    intro n γ ctx op env env' v hsome _hv
     cases op
     -- computeStep (.eq s1 s2) env = some env definitionally
     change some env = some env' at hsome

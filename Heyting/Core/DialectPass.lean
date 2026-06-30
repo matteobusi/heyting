@@ -161,52 +161,54 @@ theorem Stmt.dest_lt_of_freshAbove
 /-! ## SSA helper lemmas -/
 
 theorem evalConstrainStep_agree_below
-    {Δ : DialectSet} {γ : OpCtx}
+    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (s : Stmt Δ γ F)
     (next : LocalVar)
     (env₁ env₂ : LocalVar → F)
     (hfresh : s.freshAbove next)
     (hagree : ∀ v, v < next → env₁ v = env₂ v) :
-    ((evalConstrainStep handlers s env₁).2 ↔
-      (evalConstrainStep handlers s env₂).2) ∧
+    ((evalConstrainStep handlers ctx s env₁).2 ↔
+      (evalConstrainStep handlers ctx s env₂).2) ∧
     ∀ v, v < next →
-      (evalConstrainStep handlers s env₁).1 v =
-        (evalConstrainStep handlers s env₂).1 v := by
+      (evalConstrainStep handlers ctx s env₁).1 v =
+        (evalConstrainStep handlers ctx s env₂).1 v := by
   cases s with
   | op d p =>
       have hreads : ∀ v, v ∈ (Δ.get d).reads p → env₁ v = env₂ v := by
         intro v hv
         exact hagree v (Stmt.read_lt_of_freshAbove hfresh hv)
-      obtain ⟨hprop, hdest⟩ := (handlers d).constrainStep_reads_congr p env₁ env₂ hreads
+      obtain ⟨hprop, hdest⟩ := (handlers d).constrainStep_reads_congr ctx p env₁ env₂ hreads
       constructor
       · exact hprop
       · intro v hv
         by_cases hd : (Δ.get d).dest p = some v
-        · change ((handlers d).constrainStep p env₁).1 v =
-            ((handlers d).constrainStep p env₂).1 v
+        · change ((handlers d).constrainStep ctx p env₁).1 v =
+            ((handlers d).constrainStep ctx p env₂).1 v
           exact hdest v hd
-        · change ((handlers d).constrainStep p env₁).1 v =
-            ((handlers d).constrainStep p env₂).1 v
-          rw [(handlers d).constrainStep_frame p env₁ v hd,
-            (handlers d).constrainStep_frame p env₂ v hd]
+        · change ((handlers d).constrainStep ctx p env₁).1 v =
+            ((handlers d).constrainStep ctx p env₂).1 v
+          rw [(handlers d).constrainStep_frame ctx p env₁ v hd,
+            (handlers d).constrainStep_frame ctx p env₂ v hd]
           exact hagree v hv
 
 /-! ## Environment agreement helpers -/
 
 /-- Theorems below let suffix proofs ignore fresh temporaries above `next`. -/
 theorem evalConstrainBodyEnv_agree_below
-    {Δ : DialectSet} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F) :
+    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
+    (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F) :
     ∀ (body : List (Stmt Δ γ F)) (next : LocalVar)
       (env₁ env₂ : LocalVar → F),
       bodyFreshAbove next body →
       (∀ v, v < next → env₁ v = env₂ v) →
-      (evalConstrainBody handlers body env₁ ↔
-        evalConstrainBody handlers body env₂) ∧
+      (evalConstrainBody handlers ctx body env₁ ↔
+        evalConstrainBody handlers ctx body env₂) ∧
       (∀ v, v < next →
-        evalConstrainEnv handlers body env₁ v =
-          evalConstrainEnv handlers body env₂ v)
+        evalConstrainEnv handlers ctx body env₁ v =
+          evalConstrainEnv handlers ctx body env₂ v)
   | [], _, env₁, env₂, _, hagree => by
       constructor
       · simp
@@ -214,11 +216,11 @@ theorem evalConstrainBodyEnv_agree_below
   | s :: rest, next, env₁, env₂, hfresh, hagree => by
       obtain ⟨hs, hrest⟩ := bodyFreshAbove_cons.mp hfresh
       obtain ⟨hstepProp, hstepEnv⟩ :=
-        evalConstrainStep_agree_below handlers s next env₁ env₂ hs hagree
+        evalConstrainStep_agree_below handlers ctx s next env₁ env₂ hs hagree
       obtain ⟨hrestProp, hrestEnv⟩ :=
-        evalConstrainBodyEnv_agree_below handlers rest next
-          (evalConstrainStep handlers s env₁).1
-          (evalConstrainStep handlers s env₂).1
+        evalConstrainBodyEnv_agree_below handlers ctx rest next
+          (evalConstrainStep handlers ctx s env₁).1
+          (evalConstrainStep handlers ctx s env₂).1
           hrest hstepEnv
       constructor
       · simp [evalConstrainBody_cons, hstepProp, hrestProp]
@@ -226,41 +228,44 @@ theorem evalConstrainBodyEnv_agree_below
         simp [evalConstrainEnv_cons, hrestEnv v hv]
 
 theorem evalConstrainBody_agree_below
-    {Δ : DialectSet} {γ : OpCtx}
+    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (body : List (Stmt Δ γ F))
     (next : LocalVar)
     (env₁ env₂ : LocalVar → F)
     (hfresh : bodyFreshAbove next body)
     (hagree : ∀ v, v < next → env₁ v = env₂ v) :
-    evalConstrainBody handlers body env₁ ↔
-      evalConstrainBody handlers body env₂ :=
-  (evalConstrainBodyEnv_agree_below handlers body next env₁ env₂ hfresh hagree).1
+    evalConstrainBody handlers ctx body env₁ ↔
+      evalConstrainBody handlers ctx body env₂ :=
+  (evalConstrainBodyEnv_agree_below handlers ctx body next env₁ env₂ hfresh hagree).1
 
 theorem evalConstrainEnv_agree_below
-    {Δ : DialectSet} {γ : OpCtx}
+    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (body : List (Stmt Δ γ F))
     (next : LocalVar)
     (env₁ env₂ : LocalVar → F)
     (hfresh : bodyFreshAbove next body)
     (hagree : ∀ v, v < next → env₁ v = env₂ v) :
     ∀ v, v < next →
-      evalConstrainEnv handlers body env₁ v =
-        evalConstrainEnv handlers body env₂ v :=
-  (evalConstrainBodyEnv_agree_below handlers body next env₁ env₂ hfresh hagree).2
+      evalConstrainEnv handlers ctx body env₁ v =
+        evalConstrainEnv handlers ctx body env₂ v :=
+  (evalConstrainBodyEnv_agree_below handlers ctx body next env₁ env₂ hfresh hagree).2
 
 set_option linter.flexible false in
 theorem evalComputeStep_agree_below
-    {Δ : DialectSet} {γ : OpCtx}
+    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (s : Stmt Δ γ F)
     (next : LocalVar)
     (env₁ env₂ : LocalVar → F)
     (hfresh : s.freshAbove next)
     (hagree : ∀ v, v < next → env₁ v = env₂ v) :
-    match evalComputeStep handlers s env₁,
-        evalComputeStep handlers s env₂ with
+    match evalComputeStep handlers ctx s env₁,
+        evalComputeStep handlers ctx s env₂ with
     | some env₁', some env₂' => ∀ v, v < next → env₁' v = env₂' v
     | none, none => True
     | _, _ => False := by
@@ -269,33 +274,34 @@ theorem evalComputeStep_agree_below
       have hreads : ∀ v, v ∈ (Δ.get d).reads p → env₁ v = env₂ v := by
         intro v hv
         exact hagree v (Stmt.read_lt_of_freshAbove hfresh hv)
-      have hstatus := (handlers d).computeStep_status_congr p env₁ env₂ hreads
-      cases h₁ : (handlers d).computeStep p env₁ <;>
-        cases h₂ : (handlers d).computeStep p env₂
+      have hstatus := (handlers d).computeStep_status_congr ctx p env₁ env₂ hreads
+      cases h₁ : (handlers d).computeStep ctx p env₁ <;>
+        cases h₂ : (handlers d).computeStep ctx p env₂
       · simp [evalComputeStep, h₁, h₂]
       · simp [h₁, h₂] at hstatus
       · simp [h₁, h₂] at hstatus
       · simp [evalComputeStep, h₁, h₂]
         intro v hv
         by_cases hd : (Δ.get d).dest p = some v
-        · have hdest := (handlers d).computeStep_reads_congr p env₁ env₂ hreads v hd
+        · have hdest := (handlers d).computeStep_reads_congr ctx p env₁ env₂ hreads v hd
           simp [h₁, h₂] at hdest
           exact hdest
-        · have hframe₁ := (handlers d).computeStep_frame p env₁ _ v h₁ hd
-          have hframe₂ := (handlers d).computeStep_frame p env₂ _ v h₂ hd
+        · have hframe₁ := (handlers d).computeStep_frame ctx p env₁ _ v h₁ hd
+          have hframe₂ := (handlers d).computeStep_frame ctx p env₂ _ v h₂ hd
           rw [hframe₁, hframe₂]
           exact hagree v hv
 
 set_option linter.flexible false in
 theorem evalComputeBody_agree_below
-    {Δ : DialectSet} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F) :
+    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
+    (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F) :
     ∀ (body : List (Stmt Δ γ F)) (next : LocalVar)
       (env₁ env₂ : LocalVar → F),
       bodyFreshAbove next body →
       (∀ v, v < next → env₁ v = env₂ v) →
-      match evalComputeBody handlers body env₁,
-          evalComputeBody handlers body env₂ with
+      match evalComputeBody handlers ctx body env₁,
+          evalComputeBody handlers ctx body env₂ with
       | some env₁', some env₂' => ∀ v, v < next → env₁' v = env₂' v
       | none, none => True
       | _, _ => False
@@ -303,15 +309,15 @@ theorem evalComputeBody_agree_below
       exact hagree
   | s :: rest, next, env₁, env₂, hfresh, hagree => by
       obtain ⟨hs, hrest⟩ := bodyFreshAbove_cons.mp hfresh
-      have hstep := evalComputeStep_agree_below handlers s next env₁ env₂ hs hagree
+      have hstep := evalComputeStep_agree_below handlers ctx s next env₁ env₂ hs hagree
       simp only [evalComputeBody_cons]
-      cases h₁ : evalComputeStep handlers s env₁ <;>
-        cases h₂ : evalComputeStep handlers s env₂
+      cases h₁ : evalComputeStep handlers ctx s env₁ <;>
+        cases h₂ : evalComputeStep handlers ctx s env₂
       · trivial
       · simp [h₁, h₂] at hstep
       · simp [h₁, h₂] at hstep
       · simp [h₁, h₂] at hstep
-        exact evalComputeBody_agree_below handlers rest next _ _ hrest (by
+        exact evalComputeBody_agree_below handlers ctx rest next _ _ hrest (by
           intro v hv
           exact hstep v hv)
 
@@ -410,12 +416,13 @@ omit [Field F] in
 
 /-- Constrain body over a concatenated list splits into two sequential evaluations. -/
 theorem evalConstrainBody_append
-    {Δ : DialectSet} {γ : OpCtx}
+    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (l1 l2 : List (Stmt Δ γ F)) (env : LocalVar → F) :
-    evalConstrainBody handlers (l1 ++ l2) env ↔
-    evalConstrainBody handlers l1 env ∧
-    evalConstrainBody handlers l2 (evalConstrainEnv handlers l1 env) := by
+    evalConstrainBody handlers ctx (l1 ++ l2) env ↔
+    evalConstrainBody handlers ctx l1 env ∧
+    evalConstrainBody handlers ctx l2 (evalConstrainEnv handlers ctx l1 env) := by
   induction l1 generalizing env with
   | nil => simp
   | cons s rest ih =>
@@ -424,11 +431,12 @@ theorem evalConstrainBody_append
 
 /-- Compute body over a concatenated list faults if the first half faults. -/
 theorem evalComputeBody_append
-    {Δ : DialectSet} {γ : OpCtx}
+    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (l1 l2 : List (Stmt Δ γ F)) (env : LocalVar → F) :
-    evalComputeBody handlers (l1 ++ l2) env =
-    (evalComputeBody handlers l1 env).bind (evalComputeBody handlers l2) := by
+    evalComputeBody handlers ctx (l1 ++ l2) env =
+    (evalComputeBody handlers ctx l1 env).bind (evalComputeBody handlers ctx l2) := by
   induction l1 generalizing env with
   | nil => simp
   | cons s rest ih =>
@@ -449,12 +457,12 @@ def SimpleConstrainSim
     (handlers : HandlerFamily Δ F)
     (lowerOp : ∀ {γ : OpCtx} (d : Fin Δ.length), (Δ.get d).Op γ F → List (Stmt Δ' γ F))
     (handlers' : HandlerFamily Δ' F) : Prop :=
-  ∀ {γ : OpCtx} (d : Fin Δ.length) (op : (Δ.get d).Op γ F)
-    (env : LocalVar → F),
-    evalConstrainEnv handlers' (lowerOp d op) env =
-      ((handlers d).constrainStep op env).1 ∧
-    (evalConstrainBody handlers' (lowerOp d op) env ↔
-      ((handlers d).constrainStep op env).2)
+  ∀ {n n' : Nat} {γ : OpCtx} (ctx : SemCtx Δ n F) (ctx' : SemCtx Δ' n' F)
+    (d : Fin Δ.length) (op : (Δ.get d).Op γ F) (env : LocalVar → F),
+    evalConstrainEnv handlers' ctx' (lowerOp d op) env =
+      ((handlers d).constrainStep ctx op env).1 ∧
+    (evalConstrainBody handlers' ctx' (lowerOp d op) env ↔
+      ((handlers d).constrainStep ctx op env).2)
 
 /--
 Per-op compute-context simulation condition.
@@ -467,10 +475,10 @@ def SimpleComputeSim
     (handlers : HandlerFamily Δ F)
     (lowerOp : ∀ {γ : OpCtx} (d : Fin Δ.length), (Δ.get d).Op γ F → List (Stmt Δ' γ F))
     (handlers' : HandlerFamily Δ' F) : Prop :=
-  ∀ {γ : OpCtx} (d : Fin Δ.length) (op : (Δ.get d).Op γ F)
-    (env : LocalVar → F),
-    evalComputeBody handlers' (lowerOp d op) env =
-      (handlers d).computeStep op env
+  ∀ {n n' : Nat} {γ : OpCtx} (ctx : SemCtx Δ n F) (ctx' : SemCtx Δ' n' F)
+    (d : Fin Δ.length) (op : (Δ.get d).Op γ F) (env : LocalVar → F),
+    evalComputeBody handlers' ctx' (lowerOp d op) env =
+      (handlers d).computeStep ctx op env
 
 /-! ## Fresh pass simulation conditions -/
 
@@ -483,14 +491,14 @@ def FreshConstrainSim
     (handlers : HandlerFamily Δ F)
     (lowerOp : FreshLowerOp Δ Δ' F)
     (handlers' : HandlerFamily Δ' F) : Prop :=
-  ∀ {γ : OpCtx} (next : LocalVar) (d : Fin Δ.length) (op : (Δ.get d).Op γ F)
-    (env : LocalVar → F),
+  ∀ {n n' : Nat} {γ : OpCtx} (ctx : SemCtx Δ n F) (ctx' : SemCtx Δ' n' F)
+    (next : LocalVar) (d : Fin Δ.length) (op : (Δ.get d).Op γ F) (env : LocalVar → F),
     Stmt.freshAbove next (.op d op : Stmt Δ γ F) →
     (∀ v, v < next →
-      evalConstrainEnv handlers' (lowerOp next d op).1 env v =
-        ((handlers d).constrainStep op env).1 v) ∧
-    (evalConstrainBody handlers' (lowerOp next d op).1 env ↔
-      ((handlers d).constrainStep op env).2)
+      evalConstrainEnv handlers' ctx' (lowerOp next d op).1 env v =
+        ((handlers d).constrainStep ctx op env).1 v) ∧
+    (evalConstrainBody handlers' ctx' (lowerOp next d op).1 env ↔
+      ((handlers d).constrainStep ctx op env).2)
 
 /-- Per-op compute-context simulation for a fresh-aware lowering.
 
@@ -500,11 +508,11 @@ def FreshComputeSim
     (handlers : HandlerFamily Δ F)
     (lowerOp : FreshLowerOp Δ Δ' F)
     (handlers' : HandlerFamily Δ' F) : Prop :=
-  ∀ {γ : OpCtx} (next : LocalVar) (d : Fin Δ.length) (op : (Δ.get d).Op γ F)
-    (env : LocalVar → F),
+  ∀ {n n' : Nat} {γ : OpCtx} (ctx : SemCtx Δ n F) (ctx' : SemCtx Δ' n' F)
+    (next : LocalVar) (d : Fin Δ.length) (op : (Δ.get d).Op γ F) (env : LocalVar → F),
     Stmt.freshAbove next (.op d op : Stmt Δ γ F) →
-    match evalComputeBody handlers' (lowerOp next d op).1 env,
-        (handlers d).computeStep op env with
+    match evalComputeBody handlers' ctx' (lowerOp next d op).1 env,
+        (handlers d).computeStep ctx op env with
     | some env', some env₀ => ∀ v, v < next → env' v = env₀ v
     | none, none => True
     | _, _ => False
@@ -521,22 +529,24 @@ def FreshLowerMono {Δ Δ' : DialectSet} (lowerOp : FreshLowerOp Δ Δ' F) : Pro
 preserves the emitted constraint set (iff) for any initial environment.
 -/
 theorem simple_constrainBody
-    {Δ Δ' : DialectSet} {γ : OpCtx}
+    {Δ Δ' : DialectSet} {n n' : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (handlers' : HandlerFamily Δ' F)
+    (ctx' : SemCtx Δ' n' F)
     (lowerOp : ∀ {γ : OpCtx} (d : Fin Δ.length), (Δ.get d).Op γ F → List (Stmt Δ' γ F))
     (sim : SimpleConstrainSim handlers lowerOp handlers')
     (stmts : List (Stmt Δ γ F)) (env : LocalVar → F) :
-    evalConstrainBody handlers' (lowerBody lowerOp stmts) env ↔
-    evalConstrainBody handlers stmts env := by
+    evalConstrainBody handlers' ctx' (lowerBody lowerOp stmts) env ↔
+    evalConstrainBody handlers ctx stmts env := by
   induction stmts generalizing env with
   | nil => simp
   | cons s rest ih =>
     cases s with
     | op d p =>
       simp only [lowerBody_op, evalConstrainBody_cons, evalConstrainStep]
-      rw [evalConstrainBody_append]
-      obtain ⟨env_eq, body_iff⟩ := sim d p env
+      rw [evalConstrainBody_append handlers' ctx']
+      obtain ⟨env_eq, body_iff⟩ := sim ctx ctx' d p env
       rw [env_eq, body_iff]
       exact and_congr Iff.rfl (ih _)
 
@@ -545,29 +555,33 @@ theorem simple_constrainBody
 the `Option (LocalVar → F)` result.
 -/
 theorem simple_computeBody
-    {Δ Δ' : DialectSet} {γ : OpCtx}
+    {Δ Δ' : DialectSet} {n n' : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (handlers' : HandlerFamily Δ' F)
+    (ctx' : SemCtx Δ' n' F)
     (lowerOp : ∀ {γ : OpCtx} (d : Fin Δ.length), (Δ.get d).Op γ F → List (Stmt Δ' γ F))
     (sim : SimpleComputeSim handlers lowerOp handlers')
     (stmts : List (Stmt Δ γ F)) (env : LocalVar → F) :
-    evalComputeBody handlers' (lowerBody lowerOp stmts) env =
-    evalComputeBody handlers stmts env := by
+    evalComputeBody handlers' ctx' (lowerBody lowerOp stmts) env =
+    evalComputeBody handlers ctx stmts env := by
   induction stmts generalizing env with
   | nil => simp
   | cons s rest ih =>
     cases s with
     | op d p =>
       simp only [lowerBody_op, evalComputeBody_cons, evalComputeStep]
-      rw [evalComputeBody_append, sim d p env]
+      rw [evalComputeBody_append handlers' ctx', sim ctx ctx' d p env]
       congr 1; funext e; exact ih e
 
 /-! ## fresh macro-expansion theorem (body level) -/
 
 theorem fresh_constrainBody
-    {Δ Δ' : DialectSet} {γ : OpCtx}
+    {Δ Δ' : DialectSet} {n n' : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (handlers' : HandlerFamily Δ' F)
+    (ctx' : SemCtx Δ' n' F)
     (lowerOp : FreshLowerOp Δ Δ' F)
     (mono : FreshLowerMono lowerOp)
     (sim : FreshConstrainSim handlers lowerOp handlers')
@@ -575,9 +589,9 @@ theorem fresh_constrainBody
     (next : LocalVar)
     (env : LocalVar → F)
     (hfresh : bodyFreshAbove next body) :
-    evalConstrainBody handlers'
+    evalConstrainBody handlers' ctx'
         (lowerBodyFresh lowerOp next body).1 env ↔
-      evalConstrainBody handlers body env := by
+      evalConstrainBody handlers ctx body env := by
   induction body generalizing next env with
   | nil => simp [lowerBodyFresh]
   | cons s rest ih =>
@@ -585,18 +599,18 @@ theorem fresh_constrainBody
       cases s with
       | op d p =>
           simp only [lowerBodyFresh_op, evalConstrainBody_cons]
-          rw [evalConstrainBody_append]
+          rw [evalConstrainBody_append handlers' ctx']
           let r := lowerOp next d p
-          obtain ⟨hbelow, hprop⟩ := sim next d p env hs
+          obtain ⟨hbelow, hprop⟩ := sim ctx ctx' next d p env hs
           have hmono : next ≤ r.2 := mono next d p
           have hrest' : bodyFreshAbove r.2 rest := bodyFreshAbove_mono hrest hmono
-          have hih' := ih r.2 (evalConstrainEnv handlers' r.1 env) hrest'
+          have hih' := ih r.2 (evalConstrainEnv handlers' ctx' r.1 env) hrest'
           have hsrcTail :
-              evalConstrainBody handlers rest (evalConstrainEnv handlers' r.1 env) ↔
-                evalConstrainBody handlers rest ((handlers d).constrainStep p env).1 :=
-            evalConstrainBody_agree_below handlers rest next
-              (evalConstrainEnv handlers' r.1 env)
-              ((handlers d).constrainStep p env).1
+              evalConstrainBody handlers ctx rest (evalConstrainEnv handlers' ctx' r.1 env) ↔
+                evalConstrainBody handlers ctx rest ((handlers d).constrainStep ctx p env).1 :=
+            evalConstrainBody_agree_below handlers ctx rest next
+              (evalConstrainEnv handlers' ctx' r.1 env)
+              ((handlers d).constrainStep ctx p env).1
               hrest hbelow
           simpa [r, evalConstrainStep, hprop] using (and_congr Iff.rfl (hih'.trans hsrcTail))
 
@@ -604,9 +618,11 @@ set_option linter.flexible false in
 set_option linter.unusedSimpArgs false in
 set_option linter.style.longLine false in
 theorem fresh_computeBody
-    {Δ Δ' : DialectSet} {γ : OpCtx}
+    {Δ Δ' : DialectSet} {n n' : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
+    (ctx : SemCtx Δ n F)
     (handlers' : HandlerFamily Δ' F)
+    (ctx' : SemCtx Δ' n' F)
     (lowerOp : FreshLowerOp Δ Δ' F)
     (mono : FreshLowerMono lowerOp)
     (sim : FreshComputeSim handlers lowerOp handlers')
@@ -614,9 +630,9 @@ theorem fresh_computeBody
     (next : LocalVar)
     (env : LocalVar → F)
     (hfresh : bodyFreshAbove next body) :
-    match evalComputeBody handlers'
+    match evalComputeBody handlers' ctx'
             (lowerBodyFresh lowerOp next body).1 env,
-          evalComputeBody handlers body env with
+          evalComputeBody handlers ctx body env with
     | some env', some env₀ => ∀ v, v < next → env' v = env₀ v
     | none, none => True
     | _, _ => False := by
@@ -631,36 +647,36 @@ theorem fresh_computeBody
           let r := lowerOp next d p
           have hmono : next ≤ r.2 := mono next d p
           have hrest' : bodyFreshAbove r.2 rest := bodyFreshAbove_mono hrest hmono
-          have hsim := sim next d p env hs
+          have hsim := sim ctx ctx' next d p env hs
           simp only [lowerBodyFresh_op, evalComputeBody_append, evalComputeBody_cons,
             evalComputeStep]
-          cases hlow : evalComputeBody handlers' r.1 env with
+          cases hlow : evalComputeBody handlers' ctx' r.1 env with
           | none =>
-              cases hsrc : (handlers d).computeStep p env with
+              cases hsrc : (handlers d).computeStep ctx p env with
               | none => simp [r, hlow, hsrc]
               | some envS =>
                   simp [r, hlow, hsrc] at hsim
           | some envT =>
-              cases hsrc : (handlers d).computeStep p env with
+              cases hsrc : (handlers d).computeStep ctx p env with
               | none =>
                   simp [r, hlow, hsrc] at hsim
               | some envS =>
                   simp [r, hlow, hsrc] at hsim
                   have hih := ih r.2 envT hrest'
-                  have hsrcAgree := evalComputeBody_agree_below handlers rest next envT envS hrest hsim
-                  cases htailTarget : evalComputeBody handlers' (lowerBodyFresh lowerOp r.2 rest).1 envT with
+                  have hsrcAgree := evalComputeBody_agree_below handlers ctx rest next envT envS hrest hsim
+                  cases htailTarget : evalComputeBody handlers' ctx' (lowerBodyFresh lowerOp r.2 rest).1 envT with
                   | none =>
-                      cases htailSourceA : evalComputeBody handlers rest envT with
+                      cases htailSourceA : evalComputeBody handlers ctx rest envT with
                       | none =>
-                          cases htailSourceB : evalComputeBody handlers rest envS with
+                          cases htailSourceB : evalComputeBody handlers ctx rest envS with
                           | none => exact by simp [r, htailTarget, htailSourceB]
                           | some envB => simp [htailSourceA, htailSourceB] at hsrcAgree
                       | some envA => simp [htailTarget, htailSourceA] at hih
                   | some envT' =>
-                      cases htailSourceA : evalComputeBody handlers rest envT with
+                      cases htailSourceA : evalComputeBody handlers ctx rest envT with
                       | none => simp [htailTarget, htailSourceA] at hih
                       | some envA =>
-                          cases htailSourceB : evalComputeBody handlers rest envS with
+                          cases htailSourceB : evalComputeBody handlers ctx rest envS with
                           | none => simp [htailSourceA, htailSourceB] at hsrcAgree
                           | some envB =>
                               simp [htailTarget, htailSourceA] at hih
@@ -720,29 +736,31 @@ def lowerModuleBody {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) {γ : Op
     (numParams : Nat) (body : List (Stmt Δ γ F)) : List (Stmt Δ' γ F) :=
   (pass.lowerBody (pass.startFresh numParams body) body).1
 
-theorem constrainBody {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) {γ : OpCtx}
+theorem constrainBody {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) {n n' : Nat} {γ : OpCtx}
+    (ctx : SemCtx Δ n F) (ctx' : SemCtx Δ' n' F)
     (body : List (Stmt Δ γ F))
     (next : LocalVar)
     (env : LocalVar → F)
     (hfresh : bodyFreshAbove next body) :
-    evalConstrainBody pass.handlers' (pass.lowerBody next body).1 env ↔
-      evalConstrainBody pass.handlers body env :=
+    evalConstrainBody pass.handlers' ctx' (pass.lowerBody next body).1 env ↔
+      evalConstrainBody pass.handlers ctx body env :=
   Dialect.fresh_constrainBody
-    pass.handlers pass.handlers' pass.lowerOp pass.next_mono pass.constrain
+    pass.handlers ctx pass.handlers' ctx' pass.lowerOp pass.next_mono pass.constrain
     body next env hfresh
 
-theorem computeBody {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) {γ : OpCtx}
+theorem computeBody {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) {n n' : Nat} {γ : OpCtx}
+    (ctx : SemCtx Δ n F) (ctx' : SemCtx Δ' n' F)
     (body : List (Stmt Δ γ F))
     (next : LocalVar)
     (env : LocalVar → F)
     (hfresh : bodyFreshAbove next body) :
-    match evalComputeBody pass.handlers' (pass.lowerBody next body).1 env,
-          evalComputeBody pass.handlers body env with
+    match evalComputeBody pass.handlers' ctx' (pass.lowerBody next body).1 env,
+          evalComputeBody pass.handlers ctx body env with
     | some env', some env₀ => ∀ v, v < next → env' v = env₀ v
     | none, none => True
     | _, _ => False :=
   Dialect.fresh_computeBody
-    pass.handlers pass.handlers' pass.lowerOp pass.next_mono pass.compute
+    pass.handlers ctx pass.handlers' ctx' pass.lowerOp pass.next_mono pass.compute
     body next env hfresh
 
 theorem lowerBody_next_ge {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) {γ : OpCtx}
@@ -778,49 +796,72 @@ def lowerModule {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
 /-- Constraint-function semantics is preserved and reflected by a dialect pass. -/
 theorem evalFuncConstrain_iff {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
     {n i : Nat} {numMembers : Nat}
+    (m : Module Δ n F)
     (fn : FuncDef Δ n i F .constraint numMembers)
     (env : LocalVar → F) :
-    evalFuncConstrain pass.handlers' (pass.lowerFunc fn) env ↔
-      evalFuncConstrain pass.handlers fn env := by
-  change evalConstrainBody pass.handlers'
+    evalFuncConstrain pass.handlers' (pass.lowerModule m) (pass.lowerFunc fn) env ↔
+      evalFuncConstrain pass.handlers m fn env := by
+  change evalConstrainBody pass.handlers' (semCtx (pass.lowerModule m))
       (pass.lowerModuleBody fn.numParams fn.body) env ↔
-    evalConstrainBody pass.handlers fn.body env
-  exact pass.constrainBody fn.body (pass.startFresh fn.numParams fn.body) env
+    evalConstrainBody pass.handlers (semCtx m) fn.body env
+  exact pass.constrainBody (semCtx m) (semCtx (pass.lowerModule m)) fn.body
+    (pass.startFresh fn.numParams fn.body) env
     (pass.startFresh_above fn.numParams fn.body)
 
 /-- Compute-function execution status is preserved by a dialect pass. -/
 theorem evalFuncCompute_status {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
     {n i : Nat} {numMembers : Nat}
+    (m : Module Δ n F)
     (fn : FuncDef Δ n i F .witness numMembers)
     (input : FuncInput F) (default : F) :
-    (evalFuncCompute pass.handlers' (pass.lowerFunc fn) input default).isSome =
-      (evalFuncCompute pass.handlers fn input default).isSome := by
+    (evalFuncCompute pass.handlers' (pass.lowerModule m) (pass.lowerFunc fn) input default).isSome =
+      (evalFuncCompute pass.handlers m fn input default).isSome := by
   unfold evalFuncCompute
   simp only [Option.isSome_map]
-  have h := pass.computeBody fn.body (pass.startFresh fn.numParams fn.body)
+  have h := pass.computeBody (semCtx m) (semCtx (pass.lowerModule m)) fn.body
+    (pass.startFresh fn.numParams fn.body)
     (bindParams input.args default) (pass.startFresh_above fn.numParams fn.body)
-  cases ht : evalComputeBody pass.handlers'
+  change (evalComputeBody pass.handlers' (semCtx (pass.lowerModule m))
+      (pass.lowerBody (pass.startFresh fn.numParams fn.body) fn.body).1
+      (bindParams input.args default)).isSome =
+    (evalComputeBody pass.handlers (semCtx m) fn.body (bindParams input.args default)).isSome
+  cases ht : evalComputeBody pass.handlers' (semCtx (pass.lowerModule m))
       (pass.lowerBody (pass.startFresh fn.numParams fn.body) fn.body).1
       (bindParams input.args default) <;>
-    cases hs : evalComputeBody pass.handlers fn.body (bindParams input.args default)
-  · simp [DialectPass.lowerFunc, DialectPass.lowerModuleBody, ht]
-  · simp [ht, hs] at h
-  · simp [ht, hs] at h
-  · simp [DialectPass.lowerFunc, DialectPass.lowerModuleBody, ht]
+    cases hs : evalComputeBody pass.handlers (semCtx m) fn.body (bindParams input.args default)
+  case none.none => rfl
+  case none.some envS =>
+    exfalso
+    have ht' : evalComputeBody pass.handlers' { module := pass.lowerModule m }
+        (pass.lowerBody (pass.startFresh fn.numParams fn.body) fn.body).1
+        (bindParams input.args default) = none := by simpa [semCtx] using ht
+    have hs' : evalComputeBody pass.handlers { module := m } fn.body
+        (bindParams input.args default) = some envS := by simpa [semCtx] using hs
+    simp [ht', hs'] at h
+  case some.none envT =>
+    exfalso
+    have ht' : evalComputeBody pass.handlers' { module := pass.lowerModule m }
+        (pass.lowerBody (pass.startFresh fn.numParams fn.body) fn.body).1
+        (bindParams input.args default) = some envT := by simpa [semCtx] using ht
+    have hs' : evalComputeBody pass.handlers { module := m } fn.body
+        (bindParams input.args default) = none := by simpa [semCtx] using hs
+    simp [ht', hs'] at h
+  case some.some envT envS => rfl
 
 /-- Constraint part of struct satisfaction is preserved for any target compute output. -/
 theorem lowerStruct_constrain_iff {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
-    {n : Nat} {i : Fin n} (s : StructDef Δ n i F) (env : LocalVar → F) :
-    evalFuncConstrain pass.handlers' (pass.lowerStruct s).constrain env ↔
-      evalFuncConstrain pass.handlers s.constrain env :=
-  pass.evalFuncConstrain_iff s.constrain env
+    {n : Nat} {i : Fin n} (m : Module Δ n F) (s : StructDef Δ n i F) (env : LocalVar → F) :
+    evalFuncConstrain pass.handlers' (pass.lowerModule m) (pass.lowerStruct s).constrain env ↔
+      evalFuncConstrain pass.handlers m s.constrain env :=
+  pass.evalFuncConstrain_iff m s.constrain env
 
 /-- Module entry constraint semantics is preserved for any target compute output. -/
 theorem lowerModule_entryConstrain_iff {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
     {n : Nat} (m : Module Δ n F) (entry : Fin n) (env : LocalVar → F) :
-    evalFuncConstrain pass.handlers' ((pass.lowerModule m).structs entry).constrain env ↔
-      evalFuncConstrain pass.handlers (m.structs entry).constrain env :=
-  pass.lowerStruct_constrain_iff (m.structs entry) env
+    evalFuncConstrain pass.handlers' (pass.lowerModule m)
+        ((pass.lowerModule m).structs entry).constrain env ↔
+      evalFuncConstrain pass.handlers m (m.structs entry).constrain env :=
+  pass.lowerStruct_constrain_iff m (m.structs entry) env
 
 end DialectPass
 
@@ -830,8 +871,8 @@ structure ModuleConstraintPass (Δ Δ' : DialectSet) (F : Type) [Field F] where
   handlers' : HandlerFamily Δ' F
   lowerModule : {n : Nat} → Module Δ n F → Module Δ' n F
   constrain_iff : ∀ {n : Nat} (m : Module Δ n F) (entry : Fin n) (env : LocalVar → F),
-    evalFuncConstrain handlers' ((lowerModule m).structs entry).constrain env ↔
-      evalFuncConstrain handlers (m.structs entry).constrain env
+    evalFuncConstrain handlers' (lowerModule m) ((lowerModule m).structs entry).constrain env ↔
+      evalFuncConstrain handlers m (m.structs entry).constrain env
 
 namespace ModuleConstraintPass
 
