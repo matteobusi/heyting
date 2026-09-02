@@ -32,7 +32,6 @@ import Heyting.Dialects.R1CSLikePass
 
 import Heyting.Languages.FlatIR
 import Heyting.Languages.R1CS
-import Heyting.Languages.StructIR
 
 import Heyting.Core.TrinitaryCC
 import Heyting.Core.WitnessCodec
@@ -40,11 +39,8 @@ import Heyting.Core.WitnessSemantics
 
 import Heyting.Passes.FlatIRToR1CS
 import Heyting.Passes.FlatIRWitnessCodec
-import Heyting.Passes.FlatIRCompact
-import Heyting.Passes.StructIRToFlatIR
-import Heyting.Legacy.Pipeline
 import Heyting.Passes.Tactics
-import Heyting.Passes.Lowering
+import Heyting.Parsers.ASTAnalysis
 import Heyting.Passes.ASTToDialect
 import Heyting.Passes.DialectPipeline
 

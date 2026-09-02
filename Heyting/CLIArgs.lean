@@ -24,10 +24,6 @@ structure Options where
   output? : Option String := none
   json : Bool := false
   auto : Bool := false
-  /-- Explicitly use the default dialect-native pipeline. -/
-  dialect : Bool := false
-  /-- Explicitly select the quarantined StructIR reference pipeline. -/
-  legacy : Bool := false
   /-- Path to a JSON file of public circuit inputs (field elements). -/
   input? : Option String := none
   /-- Path to a JSON array supplying `llzk.nondet` values. -/
@@ -82,8 +78,6 @@ partial def parse (rawArgs : List String) : Except String Options :=
         match tok with
         | "--json" => loop { acc with json := true } positional rest
         | "--auto" => loop { acc with auto := true } positional rest
-        | "--dialect" => loop { acc with dialect := true } positional rest
-        | "--legacy" => loop { acc with legacy := true } positional rest
         | "--input" =>
           match parseOptionWithValue rest with
           | .error e => .error s!"{tok}: {e}"

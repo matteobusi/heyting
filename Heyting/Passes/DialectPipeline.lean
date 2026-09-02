@@ -636,8 +636,7 @@ def witnessAST {F : Type} [Field F] [DecidableEq F] [IntCast F]
   let targetWitness ← artifact.forward sourceWitness
   pure (artifact.target, targetWitness)
 
-/-- Lower a parsed AST and compile the last topologically sorted struct as the
-entry circuit, matching the legacy frontend convention. -/
+/-- Lower parsed AST and compile last topologically sorted struct as entry circuit. -/
 def compileAST {F : Type} [Field F] [IntCast F] (ast : LLZK.Module) :
     Except String (R1CS.System F) := do
   let ⟨k, full⟩ ← LLZK.DialectLowering.lowerFull (F := F) ast

@@ -8,15 +8,13 @@ import Mathlib.Algebra.Field.Basic
 /-!
 # Input JSON Parsing
 
-Parses a public-input JSON file of the form `{"signal_name": "value", ...}` into a
-positional `List F` suitable for `StructIR.computeWitness` /
-`Legacy.Pipeline.pipelineWitness`.
+Parses public-input JSON `{"signal_name": "value", ...}` into positional
+`List F` for dialect witness executor.
 
 ## Signal-name convention
 
-The `@compute` function of the main LLZK struct has params `[self, a, b, ...]` at
-positions 0, 1, 2, …  Position 0 (`%self`) represents the circuit struct itself and
-should be skipped; the remaining names are the user-visible signal names.
+Names follow top-level `@compute` parameter order exactly. Missing named values
+default to zero.
 
 ## Error policy
 

@@ -21,13 +21,11 @@ then `w` satisfies `m`) is not bundled into the typeclass. It is stated as a
 separate theorem for each instance, allowing instances to carry proof stubs
 during development.
 
-## Usage in the executable pipeline
+## Usage
 
-If `computeWitness m inputs = some w`, then `w` is a candidate StructIR witness.
-Current executable path lifts that witness to FlatIR via `VarIdEncoding.decode`,
-then to R1CS via `FlatIRToR1CS.compileWitness`.
-
-Proof-carrying end-to-end witness correctness is not currently bundled here.
+This generic interface does not prescribe source dialect state or witness
+transport. Active pipeline uses modular source execution plus explicit
+`WitnessCodec`; proof-carrying correctness remains external to this class.
 -/
 
 class ComputingLanguage (V : Type) (F : Type) [Field F] extends Language V F where

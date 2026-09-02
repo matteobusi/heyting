@@ -68,8 +68,7 @@ def Witness.update (witness : Witness F) (key : InstancePath × Nat)
     (value : F) : Witness F :=
   fun x => if x = key then value else witness x
 
-/-- State required by struct-object operations, matching the legacy StructIR
-interpreter without coupling the new dialect to StructIR. -/
+/-- State required by struct-object operations. -/
 structure State (F : Type) where
   values : LocalVar → F
   objects : ObjEnv

@@ -2,15 +2,14 @@
 Copyright (c) 2025 Heyting Authors. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
-import Heyting.Languages.StructIR
 import Mathlib.Data.Nat.Pairing
 import Mathlib.Logic.Equiv.List
 
 /-!
-# StructIR Variable-ID Encoding
+# Object-coordinate encoding
 
-Bijective encoding between concrete `StructIR.VarId = (path, member)` pairs and
-natural numbers.
+Bijective encoding between concrete `(instance path, member)` pairs and natural
+numbers.
 
 This encoding is used by executable passes to represent witness coordinates as
 flat register ids while keeping a proven inverse pair `encode`/`decode`.
@@ -18,19 +17,19 @@ flat register ids while keeping a proven inverse pair `encode`/`decode`.
 
 namespace VarIdEncoding
 
-open StructIR
+abbrev Coordinate := List Nat × Nat
 
-/-- Encode a StructIR variable id `(path, member)` as a natural number. -/
-def encode : StructIR.VarId -> Nat
+/-- Encode an object coordinate `(path, member)` as a natural number. -/
+def encode : Coordinate → Nat
   | (path, member) => Nat.pair (Equiv.listNatEquivNat path) member
 
-/-- Decode a natural number into a StructIR variable id `(path, member)`. -/
-def decode (k : Nat) : StructIR.VarId :=
+/-- Decode a natural number into an object coordinate `(path, member)`. -/
+def decode (k : Nat) : Coordinate :=
   let p := Nat.unpair k
   (Equiv.listNatEquivNat.symm p.1, p.2)
 
 /-- `decode` is a left inverse of `encode`. -/
-theorem decode_encode (v : StructIR.VarId) : decode (encode v) = v := by
+theorem decode_encode (v : Coordinate) : decode (encode v) = v := by
   rcases v with ⟨path, member⟩
   simp [encode, decode, Nat.unpair_pair]
 

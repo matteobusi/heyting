@@ -6,24 +6,19 @@ import Mathlib.Algebra.Field.ZMod
 import Mathlib.Tactic.NormNum.Prime
 import Heyting.Parsers.Main
 import Heyting.CLIArgs
-import Heyting.Passes.Lowering
-import Heyting.Legacy.Pipeline
 import Heyting.Passes.DialectPipeline
 import Heyting.Backends.R1CSJSON
 import Heyting.Backends.WitnessJSON
 import Heyting.Backends.R1CSBinary
 import Heyting.Backends.WitnessBinary
 import Heyting.Parsers.InputJSON
-import Heyting.Languages.StructIR
 
 /-!
 # Command-Line Interface
 
 Executable entry point for `hey`.
 
-The CLI parses LLZK source files and selects either the primary dialect-native
-pipeline or the quarantined `Legacy.Pipeline` reference path. Both produce
-constraints and witnesses independently.
+The CLI parses LLZK source files and runs the dialect-native pipeline.
 -/
 
 namespace Heyting.CLI
@@ -97,17 +92,10 @@ private instance : FieldBytes (ZMod KOALABEAR_p) where
 
 /-! ## Commands and argument handling -/
 
-/-- Explicit compiler architecture selection. -/
-inductive PipelineMode where
-  | legacy
-  | dialect
-  deriving Repr, DecidableEq
-
 /-- Supported top-level CLI commands. -/
 inductive Command where
   | compile (llzk : String) (output : String) (json : Bool)
       (auto : Bool) (input oracle : Option String) (prime : Option String)
-      (pipeline : PipelineMode)
   | help
   deriving Repr
 
@@ -125,9 +113,6 @@ def usage : String :=
   "  --input <path>     JSON file of public circuit inputs (field elements)\n" ++
   "                       (keys are signal names; missing signals default to 0)\n" ++
   "  --oracle <path>    JSON array of values consumed by llzk.nondet\n" ++
-  "  --dialect          explicitly use the dialect-native pipeline (default)\n" ++
-  "  --legacy           explicitly use the StructIR reference pipeline\n" ++
-  "                       (verified reference escape hatch)\n" ++
   "  --prime-field <p>  use a specific prime field, " ++
     " supported: bn128, bn254 (default), babybear, goldilocks, mersenne31, and koalabear\n" ++
   "  --output <path>    alternative way to specify output path\n"
@@ -142,15 +127,11 @@ def parseArgs (args : List String) : Except String Command :=
     else if opts.cmd == "help" then
       .ok .help
     else if opts.cmd == "compile" then
-      if opts.dialect && opts.legacy then
-        .error "--dialect and --legacy are mutually exclusive"
-      else
-        let pipeline := if opts.legacy then PipelineMode.legacy else PipelineMode.dialect
-        match opts.llzk?, opts.output? with
-        | some i, some o =>
-          .ok (.compile i o opts.json opts.auto opts.input? opts.oracle? opts.prime? pipeline)
-        | some _, none => .error "compile requires an output path"
-        | none, _ => .error "compile requires an input file"
+      match opts.llzk?, opts.output? with
+      | some i, some o =>
+        .ok (.compile i o opts.json opts.auto opts.input? opts.oracle? opts.prime?)
+      | some _, none => .error "compile requires an output path"
+      | none, _ => .error "compile requires an input file"
     else
       .error s!"unknown command: {opts.cmd}. Try 'hey help'."
 
@@ -181,14 +162,13 @@ def compileAndSave
     (fieldName : String)
     (inputPath : String) (outputPath : String)
     (useJson : Bool) (autoWitness : Bool) (inputsPath : Option String)
-    (oraclePath : Option String)
-    (pipeline : PipelineMode) : IO Unit := do
+    (oraclePath : Option String) : IO Unit := do
   let (mod, _warnings) ← LLZK.parseFile inputPath
   -- Extract param names from the original AST before lowering discards them.
   -- The main struct is the last in topological order; its @compute params are
   -- [ signal_1, signal_2, ...].  Differently from @constrain we do not skip index 0.
   let computeParamNames : List String :=
-    match LLZK.Lowering.topoSort mod.structs with
+    match LLZK.ASTAnalysis.topoSort mod.structs with
     | .error _ => []
     | .ok sorted =>
       match sorted.getLast? with
@@ -217,71 +197,47 @@ def compileAndSave
       | .error e => throw (IO.userError s!"Failed to parse oracle JSON: {e}")
       | .ok values => pure values
     else pure []
-  if oraclePath.isSome && pipeline == .legacy then
-    throw (IO.userError "--oracle is supported only by the dialect pipeline")
   if oraclePath.isSome && witnessInputs.isNone then
     throw (IO.userError "--oracle requires --auto or --input")
-  if pipeline == .dialect then
-    let artifact ← match witnessInputs with
-      | none =>
-        match Dialect.Pipeline.compileAST (F := F) mod with
-        | .error e => throw (IO.userError s!"Dialect lowering failed: {e}")
-        | .ok system => pure (system, none)
-      | some inputs =>
-        match Dialect.Pipeline.witnessAST (F := F) mod inputs oracleValues with
-        | .error e => throw (IO.userError s!"Dialect witness generation failed: {e}")
-        | .ok (system, witness) => pure (system, some witness)
-    saveR1CS F fieldName outputPath useJson artifact.1
-    if let some witness := artifact.2 then
-      if useJson then
-        let witnessPath := outputPath ++ ".witness.json"
-        WitnessJSON.saveWitnessJson (F:=F) artifact.1 witness witnessPath
-        IO.println s!"Wrote witness JSON to {witnessPath}"
-      else
-        let witnessPath := outputPath ++ ".wtns"
-        WitnessBinary.saveWitnessBinary (F:=F) artifact.1 witness witnessPath
-        IO.println s!"Wrote witness binary to {witnessPath}"
-  else
-    match LLZK.Lowering.LLZK.lower (F:=F) mod with
-    | .error e => throw (IO.userError s!"Lowering failed: {e}")
-    | .ok ⟨_, sirMod⟩ =>
-    -- Use the pipeline pass to compile StructIR → FlatIR → R1CS in one step.
-      let r1csSystem := Legacy.Pipeline.compileProgram (F:=F) sirMod
-      saveR1CS F fieldName outputPath useJson r1csSystem
-      if let some inputs := witnessInputs then
-        match Legacy.Pipeline.pipelineWitness (F:=F) sirMod inputs with
-        | none =>
-          IO.eprintln "Warning: witness generation failed (division by zero in @compute body)"
-          IO.eprintln "  Skipping witness output."
-        | some wr =>
-          if useJson then
-            let witnessPath := outputPath ++ ".witness.json"
-            WitnessJSON.saveWitnessJson (F:=F) r1csSystem wr witnessPath
-            IO.println s!"Wrote witness JSON to {witnessPath}"
-          else
-            let witnessPath := outputPath ++ ".wtns"
-            WitnessBinary.saveWitnessBinary (F:=F) r1csSystem wr witnessPath
-            IO.println s!"Wrote witness binary to {witnessPath}"
+  let artifact ← match witnessInputs with
+    | none =>
+      match Dialect.Pipeline.compileAST (F := F) mod with
+      | .error e => throw (IO.userError s!"Dialect lowering failed: {e}")
+      | .ok system => pure (system, none)
+    | some inputs =>
+      match Dialect.Pipeline.witnessAST (F := F) mod inputs oracleValues with
+      | .error e => throw (IO.userError s!"Dialect witness generation failed: {e}")
+      | .ok (system, witness) => pure (system, some witness)
+  saveR1CS F fieldName outputPath useJson artifact.1
+  if let some witness := artifact.2 then
+    if useJson then
+      let witnessPath := outputPath ++ ".witness.json"
+      WitnessJSON.saveWitnessJson (F:=F) artifact.1 witness witnessPath
+      IO.println s!"Wrote witness JSON to {witnessPath}"
+    else
+      let witnessPath := outputPath ++ ".wtns"
+      WitnessBinary.saveWitnessBinary (F:=F) artifact.1 witness witnessPath
+      IO.println s!"Wrote witness binary to {witnessPath}"
 
 /-- Resolve a parsed command to its executable `IO` action. -/
 def runCommand : Command → Except String (IO Unit)
   | .help => .ok (IO.println usage)
-  | .compile llzk output json auto inputs oracle field pipeline => .ok do
+  | .compile llzk output json auto inputs oracle field => .ok do
     match field with
-    | none => compileAndSave (F:=ZMod BN254_p) "bn254" llzk output json auto inputs oracle pipeline
+    | none => compileAndSave (F:=ZMod BN254_p) "bn254" llzk output json auto inputs oracle
     | some field =>
       if field == "bn128" then
-        compileAndSave (F:=ZMod BN128_p) field llzk output json auto inputs oracle pipeline
+        compileAndSave (F:=ZMod BN128_p) field llzk output json auto inputs oracle
       else if field == "bn254" then
-        compileAndSave (F:=ZMod BN254_p) field llzk output json auto inputs oracle pipeline
+        compileAndSave (F:=ZMod BN254_p) field llzk output json auto inputs oracle
       else if field == "babybear" then
-        compileAndSave (F:=ZMod BABYBEAR_p) field llzk output json auto inputs oracle pipeline
+        compileAndSave (F:=ZMod BABYBEAR_p) field llzk output json auto inputs oracle
       else if field == "goldilocks" then
-        compileAndSave (F:=ZMod GOLDILOCKS_p) field llzk output json auto inputs oracle pipeline
+        compileAndSave (F:=ZMod GOLDILOCKS_p) field llzk output json auto inputs oracle
       else if field == "mersenne31" then
-        compileAndSave (F:=ZMod MERSENNE31_p) field llzk output json auto inputs oracle pipeline
+        compileAndSave (F:=ZMod MERSENNE31_p) field llzk output json auto inputs oracle
       else if field == "koalabear" then
-        compileAndSave (F:=ZMod KOALABEAR_p) field llzk output json auto inputs oracle pipeline
+        compileAndSave (F:=ZMod KOALABEAR_p) field llzk output json auto inputs oracle
       else
         throw (.userError s!"unsupported prime field: {field}. \
           Supported: bn128, bn254 (default), babybear, goldilocks, mersenne31, and koalabear")
@@ -294,9 +250,11 @@ def main (args : List String) : IO Unit := do
     | .ok res => res
     | .error e => do
       IO.eprintln s!"Error: {e}"
-      IO.eprintln usage)
+      IO.eprintln usage
+      IO.Process.exit 1)
   | .error e => do
     IO.eprintln s!"Error: {e}"
     IO.eprintln usage
+    IO.Process.exit 1
 
 end Heyting.CLI

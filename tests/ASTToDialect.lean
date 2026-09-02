@@ -1,5 +1,4 @@
 import Heyting.Passes.DialectPipeline
-import Heyting.Legacy.Pipeline
 import Mathlib.Algebra.Field.Rat
 
 namespace LLZK.DialectLowering.Tests
@@ -32,19 +31,11 @@ def oneStruct : LLZK.Module where
 def dialectCount (ast : LLZK.Module) : Option Nat :=
   (Dialect.Pipeline.compileAST (F := F) ast).toOption.map (·.constraints.length)
 
-def legacyCount (ast : LLZK.Module) : Option Nat :=
-  match LLZK.Lowering.LLZK.lower (F := F) ast with
-  | .error _ => none
-  | .ok ⟨_, m⟩ =>
-    some (Legacy.Pipeline.compileProgram (F := F) m).constraints.length
-
 def failed : Except String α → Bool
   | .error _ => true
   | .ok _ => false
 
 #guard dialectCount oneStruct == some 3
--- The legacy StructIR route adds two main-parameter binding constraints.
-#guard legacyCount oneStruct == some 5
 
 def calledModule : LLZK.Module where
   structs := [
@@ -68,8 +59,6 @@ def calledModule : LLZK.Module where
 
 -- The root is topologically sorted last and its call is erased by inlining.
 #guard dialectCount calledModule == some 2
--- Legacy call/object plumbing contributes two additional constraints.
-#guard legacyCount calledModule == some 4
 
 def unsupportedStructOp : LLZK.Module where
   structs := [{

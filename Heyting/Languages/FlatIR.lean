@@ -7,7 +7,7 @@ import Heyting.Core.Language
 /-!
 # FlatIR
 
-Flat intermediate language used between `StructIR` and `R1CS`.
+Flat backend instruction language immediately above `R1CS`.
 
 `FlatIR` is register-based and SSA-like. It keeps only felt arithmetic and
 equality constraints, with calls and structured object operations already
@@ -21,7 +21,7 @@ namespace FlatIR
   abbrev VarId := Nat
 
   /--
-  Flat instruction language used after inlining/flattening StructIR.
+  Flat instruction language used after structural dialect erasure.
 
   Instructions are SSA-like equations over registers, except `assertEq`, which
   records a constraint without producing a destination.

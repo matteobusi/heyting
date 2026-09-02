@@ -191,7 +191,7 @@ end Stmt
 
 /--
 SSA check for statement lists, parameterized by the initially-defined local set.
-Identical shape to `StructIR.isSSA`; stated once generically.
+Generic SSA checker shared by all typed dialect functions.
 -/
 def isSSA {Δ : DialectSet} {γ : OpCtx} {F : Type} :
     (LocalVar → Bool) → List (Stmt Δ γ F) → Bool

@@ -191,20 +191,17 @@ All ops carry `NotFieldNative` trait.
 
 | LLZK Concept | Current Heyting | Status |
 |--------------|-----------------|--------|
-| `felt.add` | `FlatIR.assignAdd` / `StructIR.feltAdd` | Done |
-| `felt.sub` | `FlatIR.assignSub` / `StructIR.feltSub` | Done |
-| `felt.mul` | `FlatIR.assignMul` / `StructIR.feltMul` | Done |
-| `felt.div` | `FlatIR.assignDiv` / `StructIR.feltDiv` | Done |
-| `felt.neg` | `FlatIR.assignNeg` / `StructIR.feltNeg` | Done |
-| `felt.const` | `FlatIR.assignConst` / `StructIR.feltConst` | Done |
-| `constrain.eq` | `FlatIR.assertEq` / `StructIR.constrainEq` | Done |
-| `struct.def` | `StructIR.StructDef` | Done |
-| `struct.readm` | `StructIR.readMember` | Done (with objEnv tracking) |
-| `struct.writem` | `StructIR.ComputeStmt.writeMember` | Done (compute only) |
-| `struct.new` | `StructIR.ComputeStmt.newStruct` | Done (compute only) |
-| `function.def` | `StructIR.ConstrainFunc/ComputeFunc` | Done |
-| `function.call` | `StructIR.ConstrainStmt.call` | Done (with Fin i typing) |
+| `felt.add/sub/mul/div/neg/inv/const` | `Dialect.Felt` → `R1CSLike` | Done |
+| `constrain.eq` | `Dialect.ConstrainEq` | Done |
+| `struct.def` / `struct.member` | `Dialect.Module` / `MemberDecl` | Done |
+| `struct.readm` | `Dialect.StructObject.readMember` | Done |
+| `struct.writem` | `Dialect.StructObject.writeMember` | Done (compute only) |
+| `struct.new` | `Dialect.StructObject.newStruct` | Done (compute only) |
+| `function.def` | typed `compute` / `constrain` fields | Done, one pair per struct |
+| `function.call` | `Dialect.Call.call` | Done, selector 0 and decreasing targets |
+| `llzk.nondet` | `Dialect.Oracle.next` | Done (compute only) |
+| `llzk.pub` member attribute | typed `MemberDecl.isPublic` | Done |
 | `array.*` | — | Planned |
 | R1CS backend | `R1CS.lean` | Done (core) |
-| StructIR → FlatIR pass | `StructIRToFlatIR.lean` | Done (fully verified) |
+| Typed dialect → R1CS artifact | `DialectPipeline.lean` | Done (certified boundary) |
 | FlatIR → R1CS pass | `FlatIRToR1CS.lean` | Done (fully verified) |

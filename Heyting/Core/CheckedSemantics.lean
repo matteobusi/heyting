@@ -10,8 +10,8 @@ import Heyting.Core.Language
 Generic datatypes and relations for deterministic checked execution.
 
 These definitions let a semantics return either a full successful trace or the
-first failing step together with the checked prefix. They are reused by the
-substitution-based checked semantics for `StructIR` and `FlatIR`.
+first failing step together with checked prefix. They support checked dialect
+and backend semantics without committing to one source language.
 -/
 
 namespace CheckedSemantics

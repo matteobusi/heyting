@@ -1,240 +1,103 @@
-# Languages in Heyting
+# Languages and Stages
 
-The dialect-native architecture is the primary migration target:
-
-```text
-parser AST
-  ---> Module [Call, StructObject, Oracle, Felt, ConstrainEq]
-  ---> Oracle erasure (constraint projection)
-  ---> Module [Call, StructObject, Felt, ConstrainEq]
-  ---> call erasure
-  ---> Module [StructObject, Felt, ConstrainEq]
-  ---> StructObject erasure
-  ---> Module [Felt, ConstrainEq]
-  ---> [R1CSLike]
-  ---> FlatIR/R1CS backend adapter
-```
-
-It is the default executable `hey compile` pipeline. The quarantined reference
-pipeline remains available through `--legacy`:
+## Pipeline
 
 ```text
-StructIR  --->  FlatIR  --->  FlatIR(compact)  --->  R1CS
+LLZK text
+  → AST
+  → Module [Call, StructObject, Oracle, Felt, ConstrainEq]
+  → Module [Call, StructObject, Felt, ConstrainEq]
+  → Module [StructObject, Felt, ConstrainEq]
+  → Module [Felt, ConstrainEq]
+  → R1CSLike → FlatIR → R1CS
 ```
 
-The dialect path compiles Felt operations, equality constraints, typed calls,
-objects, and nondeterministic witness reads. `--auto` and `--input` execute the
-typed compute module; `--oracle` supplies the positional Oracle stream. Skipped
-parser operations remain rejected at the typed frontend boundary. The reference
-composition is available as `Legacy.Pipeline` through
-`Heyting.Legacy.Pipeline`.
+Proof-bearing languages and passes are generic over `F : Type [Field F]`.
 
-## Oracle dialect
+## Untyped LLZK AST
 
-Files:
+Files: `Heyting/Parsers/AST.lean`, `ASTAnalysis.lean`, `Parser.lean`.
 
-- `Heyting/Dialects/Oracle.lean`
-- `Heyting/Dialects/OracleErasure.lean`
-- `Heyting/Dialects/WitnessExecution.lean`
+Parser keeps source names, positions, unsupported markers. AST analysis sorts
+struct dependencies and assigns SSA indices. Boundary not yet verified.
 
-`Oracle.next` is witness-only syntax for `llzk.nondet`. Its runtime state is a
-typed list plus cursor, threaded through nested calls. Source execution reports
-`oracleUnderflow` when the stream is exhausted. Constraint compilation
-explicitly projects Oracle away before Call erasure; compute execution uses the
-un-erased module.
+## Typed dialect module
 
-## Structural-prefix correspondence
+File: `Heyting/Core/Dialect.lean`.
 
-File: `Heyting/Dialects/ObjectCallSemantics.lean`
+`OpSig` packages context-indexed operation syntax plus destination, reads,
+renaming, capability metadata. `Stmt Δ γ F` is finite dialect sum.
+`FuncDef` carries intrinsic capability and SSA proofs. `Module Δ n F` indexes
+structs and calls using finite topological indices.
 
-Certified constraint bodies contain no Oracle operation, so Oracle projection
-preserves direct selected-entry execution. Successful hygienic Call expansion
-then preserves direct object-aware truth plus field, witness-cursor, and object
-freshness invariants. `PrefixCertificate` composes both steps, and
-`structuralPrefix_satisfies_iff` proves equivalence between original typed-source
-satisfaction and call-free `[StructObject, Felt, ConstrainEq]` satisfaction.
+## Oracle
 
-## Constructive witness artifacts
+Files: `Oracle.lean`, `OracleErasure.lean`, `WitnessExecution.lean`.
 
-Files:
+`Oracle.next` is compute-only nondeterministic input. Source execution threads
+typed stream/cursor. Constraint projection removes Oracle before structural
+lowering. Exhaustion is explicit runtime fault.
 
-- `Heyting/Core/WitnessSemantics.lean`
-- `Heyting/Core/WitnessCodec.lean`
-- `Heyting/Passes/FlatIRWitnessCodec.lean`
-- `Heyting/Passes/DialectPipeline.lean`
+## Call
 
-Source compute execution dispatches leaf operations through per-dialect
-handlers. It projects transient state to `SourceWitness`, containing finite
-input and reachable-object coordinates. `TypedEntryCompilationArtifact`
-retains original typed module plus Oracle, Call, StructObject, leaf, and backend
-certificates. Its `EntryCompilationArtifact.forward` applies pass-owned object
-layout, leaf materialization, and backend auxiliary construction. Direct and
-artifact checkers agree on canonical witnesses; original typed-source/R1CS
-satisfaction iff and exact canonical readback are proved.
+Files: `Call.lean`, `CallErasure.lean`, `ObjectCallSemantics.lean`.
 
-## Core abstractions
+Call is structural head dialect. Erasure recursively inlines topologically
+decreasing calls, renames locals hygienically, binds returns, and is polymorphic
+over residual syntax. Object-aware protocol transports field locals and object
+aliases while threading witness/allocation state.
 
-All languages and passes are generic over `F : Type [Field F]`.
+## StructObject
 
-### `Language`
+Files: `StructObject.lean`, `ObjectResidualSemantics.lean`,
+`StructObjectPass.lean`.
 
-`Language` pairs:
+State contains field locals, object paths, witness store, next allocation.
+Erasure executes paths statically, maps observable `(path, member)` coordinates
+to injective slots, and shifts ordinary SSA locals outside witness range. Object
+paths never become field values.
 
-- program syntax
-- witness type
-- satisfaction relation `w |= p`
+## Felt and ConstrainEq
 
-### `Pass` / `PresReflPass`
+Files: `Felt.lean`, `ConstrainEq.lean`, `R1CSLikePass.lean`.
 
-`Pass` gives `compile` and `witnessRel`.
+Felt supplies arithmetic assignments. ConstrainEq supplies Boolean equality
+observation. Leaf materialization builds exact FlatIR program and witness locals.
+Zero-divisor backend validity is explicit.
 
-`PresReflPass` adds:
+## R1CSLike
 
-- preservation: source sat -> related target sat
-- reflection: target sat -> related source sat
+Files: `R1CSLike.lean`, `R1CSLikePass.lean`.
 
-### Structural module stages
-
-File: `Heyting/Core/StructuralPass.lean`
-
-`ModuleStage Δ n F` gives a module stage one statically known semantic state
-type. `StructuralPass` is an explicit partial transformation between two such
-stages, with a source/target-module-indexed state relation and conditional
-preservation/reflection.
-
-`EraseDialect removed residual` specializes this to canonical head erasure:
-
-```text
-Module (removed :: residual) → Module residual
-```
-
-Structural pass selection and ordering are explicit. There is no runtime
-effect registry or heterogeneous state list. Witness-backed stages bridge to
-the existing `Language`/`PresReflPass` framework, so total structural passes
-compose with established leaf and backend proofs.
-
-## StructIR
-
-File: `Heyting/Languages/StructIR.lean`
-
-Highest-level IR.
-
-- hierarchical structs
-- `readMember`
-- cross-struct `call`
-- intrinsic well-formedness via dependent types
-- witness indexed by `VarId = InstancePath × Nat`
-
-Key semantic channels:
-
-- value channel: local arithmetic environment
-- object-path channel: `ObjEnv` for nested member reads and calls
+Call/object-free constraint dialect mirrors backend instructions. It isolates
+dialect semantics from FlatIR representation and supports pass-local proof.
 
 ## FlatIR
 
-File: `Heyting/Languages/FlatIR.lean`
+File: `Heyting/Languages/FlatIR.lean`.
 
-Flat instruction list over `Nat` variable IDs.
-
-Instructions:
-
-- `assignAdd`
-- `assignSub`
-- `assignMul`
-- `assignDiv`
-- `assignNeg`
-- `assignConst`
-- `assertEq`
-
-No calls, no struct hierarchy.
+Flat instructions over natural variable IDs: add, sub, mul, div, neg, const,
+assert equality. No calls, objects, or Oracle.
 
 ## R1CS
 
-File: `Heyting/Languages/R1CS.lean`
+Files: `Heyting/Languages/R1CS.lean`, `Heyting/Passes/FlatIRToR1CS.lean`.
 
-Rank-1 Constraint Systems.
+Constraints have `A * B = C`. Variable IDs distinguish constant one, ordinary
+wires, auxiliaries. Backend is full `PresReflPass`; division emits relation plus
+inverse/nonzero constraint.
 
-- constraints have shape `A * B = C`
-- variable IDs are `varOne | var n | aux n`
-- target of fully verified `FlatIR -> R1CS` pass
+## Source witness and artifact
 
-## R1CSLike dialect
+Files: `WitnessSemantics.lean`, `WitnessCodec.lean`,
+`FlatIRWitnessCodec.lean`, `DialectPipeline.lean`.
 
-Files:
+Compute execution projects transient state to finite source witness containing
+inputs and reachable object coordinates. `TypedEntryCompilationArtifact`
+retains every structural certificate and exact target. Codec performs forward
+materialization and exact readback.
 
-- `Heyting/Dialects/R1CSLike.lean`
-- `Heyting/Dialects/R1CSLikePass.lean`
+## Retired languages
 
-The dialect-native, call-free instruction boundary above the existing backend.
-Arithmetic assignments and equality assertions map directly to `FlatIR.Instr`.
-The `[Felt, ConstrainEq] -> [R1CSLike]` module pass preserves constraint
-semantics and well-formedness. The FlatIR/R1CS division backend has a
-nonzero-divisor precondition, named by `Felt.backendValid`. Dialect witness
-execution rejects zero divisors rather than emitting an invalid backend witness.
-Equality assertions do not make transport partial; they remain observable to
-the proved source checker.
-
-## StructObject dialect
-
-File: `Heyting/Dialects/StructObject.lean`
-
-Typed source operations:
-
-- object allocation (`newStruct`)
-- typed member reads (`readMember` with `Fin numMembers`)
-- typed member writes (`writeMember` with `Fin numMembers`)
-
-The dialect provides executable state semantics over field locals, object
-paths, witness storage, and fresh paths. `ObjectResidualSemantics.lean`
-interprets the call-free `[StructObject, Felt, ConstrainEq]` stage with that
-single static state and supplies the target of the certified object-aware Call
-erasure. `StructObjectPass.lean` then lowers member reads to an injectively
-encoded witness-local range, shifts ordinary non-parameter SSA locals above
-that range, and removes object syntax before the leaf/backend passes. Object
-paths are never encoded as field values.
-
-## FlatIR compaction pass
-
-File: `Heyting/Passes/FlatIRCompact.lean`
-
-This is not a new user-facing language. It is a semantics-preserving FlatIR to
-FlatIR renaming pass that:
-
-- collects all used FlatIR variables
-- assigns them dense IDs `0 .. k - 1` in first-occurrence order
-- preserves satisfiability via a proved `PresReflPass`
-- reduces emitted R1CS wire counts when upstream FlatIR variable IDs are sparse
-
-The legacy reference pipeline uses this pass before `FlatIR -> R1CS` lowering.
-
-## Helper semantic layers
-
-These are proof-support files, not separate user-facing IRs in active compiler pipeline.
-
-### StructIR freshening support
-
-Files:
-
-- `Heyting/Core/SubstSemantics.lean`
-- `Heyting/Languages/StructIRFreshen.lean`
-
-Purpose:
-
-- freshening and renaming support for constrain bodies
-- environment-agreement lemmas used by `StructIR -> FlatIR` full correctness proof
-
-### Active pass proof file
-
-Files:
-
-- `Heyting/Passes/StructIRToFlatIR.lean`
-
-Purpose:
-
-- executable `StructIR -> FlatIR` lowering
-- direct `PresReflPass` proof for `StructIR -> FlatIR`
-
-## Historical note
-
-Older docs may mention `StructInlineIR` and `MemberlessIR`. Those intermediate
-languages are not part of either current executable pipeline.
+StructIR pipeline is preserved only on Git branch `legacy-infrastructure`.
+Active modules must not import it.

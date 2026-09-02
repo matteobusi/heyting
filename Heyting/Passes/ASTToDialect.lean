@@ -3,7 +3,7 @@ Copyright (c) 2025 Heyting Authors. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import Std.Data.HashMap
-import Heyting.Passes.Lowering
+import Heyting.Parsers.ASTAnalysis
 import Heyting.Dialects.CallPass
 import Heyting.Dialects.StructObject
 import Heyting.Dialects.Oracle
@@ -122,7 +122,7 @@ def lowerMembers (n : Nat) (structIndex : HashMap String Nat)
 
 private def requireCallTarget (kind : String) (target : String) :
     Except String String := do
-  let (structName, functionName) := LLZK.Lowering.parseCallTarget target
+  let (structName, functionName) := LLZK.ASTAnalysis.parseCallTarget target
   if structName.isEmpty then
     throw s!"bare call target in {kind} body: {target}"
   if functionName != kind then
@@ -297,13 +297,13 @@ def lowerStruct {Δ : DialectSet} (builder : Builder Δ)
     | none => pure ([], none)
     | some fn =>
       lowerComputeBody (F := F) builder n i structIndex memberIndex
-        (LLZK.Lowering.buildSSAMap fn.params fn.body) members.length fn.body
+        (LLZK.ASTAnalysis.buildSSAMap fn.params fn.body) members.length fn.body
   let constrainRaw : List (Dialect.Stmt Δ ⟨n, i, members.length⟩ F) ←
     match constrainAst with
     | none => pure []
     | some fn =>
       lowerConstrainBody builder n i structIndex memberIndex
-        (LLZK.Lowering.buildSSAMap fn.params fn.body) members.length fn.body
+        (LLZK.ASTAnalysis.buildSSAMap fn.params fn.body) members.length fn.body
   let compute ← certifyFunc (kind := .witness) s!"{sd.name}::compute"
     computeNumParams computeRaw.1 computeRaw.2
   let constrain ← certifyFunc (kind := .constraint) s!"{sd.name}::constrain"
@@ -354,13 +354,13 @@ def lowerWith {Δ : DialectSet} (builder : Builder Δ)
     throw "module-level free functions parsed but not lowered yet"
   if m.structs.isEmpty then
     throw "empty module: nothing to lower"
-  let sorted ← LLZK.Lowering.topoSort m.structs
+  let sorted ← LLZK.ASTAnalysis.topoSort m.structs
   if hzero : sorted.length = 0 then
     throw "internal: topoSort returned an empty module"
   else
     let n := sorted.length
     have hn : 0 < n := Nat.pos_of_ne_zero hzero
-    let structIndex := LLZK.Lowering.buildStructIndex sorted
+    let structIndex := LLZK.ASTAnalysis.buildStructIndex sorted
     let structs ← buildStructsFn builder n sorted structIndex
     let result : Dialect.Module Δ n F := { structs := structs }
     have hshape : n - 1 + 1 = n := Nat.succ_pred_eq_of_pos hn

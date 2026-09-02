@@ -81,16 +81,12 @@ the expansion site, which `simp` cannot resolve. The workaround (passing the
 identifier as a parameter) doesn't save enough boilerplate to justify the
 extra syntax.
 
-### Why no induction skeleton tactic
+### Structural proofs use explicit local lemmas
 
-The `(i, stmts.length)` well-founded induction + 9-way case split pattern
-appears in 10+ theorems in `StructIRToFlatIR.lean`. However, the felt-op
-cases are nearly identical *within* each theorem but differ significantly
-*between* theorems (preservation vs reflection vs reflection_direct), making
-a generic skeleton no simpler than the current code. The real deduplication
-comes from the pass-internal helper lemmas (`witnessCoherent_update_felt`,
-`witnessCoherent_update_from_sat`, `varMapBound_update`,
-`preservation_body_peel_binop`, etc.).
+Call and StructObject proofs recurse over typed statements and static state.
+Keep pass-specific unfolding and frame/simulation lemmas near each pass.
+Generic macros should not hide structural state transitions or exact lowering
+equations needed by whole-artifact composition.
 
 ## Adding a new FlatIR instruction
 

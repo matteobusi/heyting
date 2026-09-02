@@ -103,17 +103,17 @@ The arXiv paper describes a Rust eDSL targeting Plonkish circuits with informal 
 | Dimension | Clap-lean | Heyting |
 |---|---|---|
 | Source language | Clap's own Circuit eDSL | LLZK IR (Veridise/Boa upstream) |
-| Target | `Cs` + `Wg` (own format) | FlatIR → R1CS (Circom-compatible binary) |
+| Target | `Cs` + `Wg` (own format) | R1CS (Circom-compatible binary) |
 | Correctness notion | `wrBisim` (asymmetric) | `PresReflPass` (symmetric preservation + reflection) |
-| Pipeline depth | 1 pass (Circuit → Cs) | 3 passes (StructIR → FlatIR → R1CS), composed |
+| Pipeline depth | 1 pass (Circuit → Cs) | Oracle/Call/Object/leaf/backend stages, composed |
 | Field-generic | yes (`ZMod p`) | yes (`F : Type [Field F]`) |
-| Circuit operations | `isZero`, `num2bits`, `share` | felt ops, struct calls, readMember |
+| Circuit operations | `isZero`, `num2bits`, `share` | Felt ops, objects, calls, Oracle reads |
 | Proof assistant | Lean 4 + Mathlib | Lean 4 + Mathlib |
 | Sorry status | unknown | 0 (audited) |
 | Axiom footprint | unknown | `propext`, `Classical.choice`, `Quot.sound` |
 | Source: real upstream IR | no | yes (LLZK from independent team) |
 
-**Differentiator narrative for the paper**: Clap-lean is concurrent work in the same Lean 4 space proving similar properties. Heyting differs in (1) compiling a real upstream IR designed by an independent team, not a co-designed eDSL; (2) proving a symmetric preservation+reflection equivalence rather than an asymmetric bisimulation; (3) a three-pass composed pipeline whose correctness is itself composed; (4) explicitly audited zero-sorry, standard-axioms-only guarantees.
+**Differentiator narrative for the paper**: Clap-lean is concurrent work in the same Lean 4 space proving similar properties. Heyting differs in (1) compiling a real upstream IR designed by an independent team, not a co-designed eDSL; (2) proving symmetric preservation+reflection equivalence rather than asymmetric bisimulation; (3) composing dialect-local structural and leaf certificates into exact whole-entry typed-source/R1CS theorem; (4) explicitly audited zero-sorry, standard-axioms-only guarantees.
 
 ---
 
@@ -221,7 +221,7 @@ These are cited in QED² and directly motivate compiler-level guarantees:
 ## Related Work
 
 **Verified compilers for cryptographic constraint systems.**
-The closest prior work is Clap-lean [CITE], a concurrent Lean 4 formalization of a ZKP circuit compiler. Clap-lean proves soundness via a right-weak bisimulation (`wrBisim`) and completeness via a wrap-based equivalence for a co-designed circuit eDSL. Our work differs in three ways. First, we compile LLZK, an IR designed independently by the Veridise/Boa team; Clap-lean compiles its own eDSL, making our correctness claim extrinsic to the compiler's design. Second, our correctness notion is symmetric: `PresReflPass` requires both preservation (source sat → target sat) and reflection (target sat → source sat) with explicit witness relations, whereas `wrBisim` is asymmetric by design. Third, our pipeline composes three passes (StructIR → FlatIR → R1CS) using `PresReflPass.compose`, proving end-to-end correctness structurally.
+The closest prior work is Clap-lean [CITE], a concurrent Lean 4 formalization of a ZKP circuit compiler. Clap-lean proves soundness via a right-weak bisimulation (`wrBisim`) and completeness via a wrap-based equivalence for a co-designed circuit eDSL. Our work differs in three ways. First, we compile LLZK, an IR designed independently by the Veridise/Boa team; Clap-lean compiles its own eDSL, making our correctness claim extrinsic to the compiler's design. Second, our correctness notion is symmetric: `PresReflPass` requires both preservation (source sat → target sat) and reflection (target sat → source sat) with explicit witness relations, whereas `wrBisim` is asymmetric by design. Third, our whole-entry artifact composes Oracle, Call, StructObject, leaf, and backend certificates into exact typed-source/R1CS satisfaction equivalence with constructive witness readback.
 
 An earlier verified compiler for cryptographic circuits is CircGen [CITE], which targets Boolean circuits for Yao's garbled-circuit protocol and is verified using EasyCrypt and CompCert. CircGen targets MPC, not ZK proof systems, and the target is Boolean rather than arithmetic. CirC [CITE] provides compiler infrastructure for proof systems (R1CS, SMT, ILP) and achieves good performance, but carries no machine-checked correctness proofs.
 

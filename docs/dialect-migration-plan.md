@@ -1,18 +1,22 @@
 # Dialect-Based Pass Migration Plan
 
-**Branch:** `dialect-based-passes`  
-**Current committed baseline:** `7494d50 refactor: unify dialect pass core`  
-**Plan status:** active  
-**Current point:** Phase 14 complete — typed-source-to-R1CS correctness  
+**Branch:** `dialect-based-passes`
+
+**Completion checkpoint:** `b608671 feat(compiler): complete dialect migration`
+
+**Archive branch:** `legacy-infrastructure` at checkpoint `b608671`
+
+**Plan status:** complete
+
+**Current point:** Phase 15 complete — legacy infrastructure extracted
 
 ## Ground rules
 
-- Keep this file uncommitted until explicitly asked otherwise.
-- After each phase starts, update **Current point** and phase status in this file.
-- After each phase finishes and builds, commit that phase alone to `dialect-based-passes`.
-- Each phase must leave `lake build` green before commit.
-- Prefer one conceptual change per commit. If proof repair forces helper lemmas, include them in same phase commit only when they are local prerequisites.
-- Do not commit generated `graphify-out/*`, `llzk-lib`, or unrelated docs unless explicitly requested.
+- Historical phase descriptions below record incremental migration.
+- Completed phases left `lake build`, Lean tests, CLI smoke, zero-sorry, and
+  standard-axiom gates green.
+- Active branch no longer carries retired StructIR implementation.
+- Branch `legacy-infrastructure` preserves exact final compatibility checkpoint.
 
 ## Status legend
 
@@ -1475,6 +1479,34 @@ Result:
 - Existing nested-call, StructObject, and nonzero-Oracle fixtures exercise the
   differential path; full build, integration, backend, axiom, sorry, and graph
   gates pass.
+
+---
+
+## Phase 15 — Legacy extraction and adversarial gate `[done]`
+
+Files: active imports/CLI, parser AST analysis, tests, all current docs.
+
+1. Commit Phase-14 completion as `b608671`.
+2. Create `legacy-infrastructure` branch at exact checkpoint.
+3. Remove StructIR language, lowering, compaction, composition, CLI selector,
+   and legacy-only tests from active branch.
+4. Extract topology, call-target parsing, struct indexing, and SSA numbering
+   from old lowering into dialect-agnostic `Parsers/ASTAnalysis.lean`.
+5. Add full-feature adversarial LLZK fixture with valid and deliberately invalid
+   Oracle cases.
+6. Update all active project documentation and smoke gates.
+
+Gate: no active source imports removed architecture; valid adversarial witness
+passes snarkjs; altered Oracle fails direct typed-source checker; retired CLI
+selectors fail; full Lean/build/smoke/sorry/axiom gates pass.
+
+Result:
+
+- Active compiler has one executable dialect-native path.
+- Retired implementation remains recoverable from named branch, not source tree.
+- Frontend no longer depends on StructIR lowering for shared AST analysis.
+- Integration suite exercises nested compute/constrain calls, object storage,
+  public members, every Felt operation, two Oracle reads, and negative checking.
 
 ---
 

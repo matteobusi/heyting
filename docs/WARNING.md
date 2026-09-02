@@ -1,238 +1,66 @@
 # Warnings, Assumptions, Known Limitations
 
-Trade-offs, assumptions, incomplete guarantees.
+## 1. Parser and typed lowering unverified
 
----
+Tokenizer, parser, AST analysis, and `ASTToDialect` are executable but lack
+kernel-checked correctness theorem. Strong compiler theorem begins at successful
+typed dialect module. Unsupported parsed operations are rejected at typed
+boundary; parser warnings are not proof.
 
-## Resolved Issues (archived)
+## 2. Partial LLZK coverage
 
-Fully resolved. Kept for history.
+Supported: Felt arithmetic, equality, objects, topologically decreasing calls,
+Oracle reads, public members. Unsupported: arrays, booleans, casts, globals,
+templates, control flow, includes, most non-native ops. Free functions rejected.
 
-| # | Issue | File | Resolution |
-|---|-------|------|------------|
-| 1 | `assignDiv` reflection — single constraint conditional on `src2 ≠ 0` | `FlatIRToR1CS.lean` | Two-constraint encoding: `src2 * dest = src1` + `src2 * aux(src2) = 1`. `aux` added to `R1CS.VarId`; `compileWitness` maps `aux v` → `(w v)⁻¹`. Proof unconditional. |
-| 2 | Fuel-bounded recursion in `evalConstrainBody` — fuel=0 vacuously `True` | `StructIR.lean` | Intrinsic well-formedness: structs indexed topologically, `call` targets typed `Fin i`, members typed `Fin numMembers`. Termination by structural recursion on `(i, stmts.length)`. |
-| 3 | `witnessRel = True` — reflection vacuous | `StructIRToFlatIR.lean` | Meaningful relation `∀ vid, varAlloc vid ≠ 0 → ws vid = wt (varAlloc vid)` via `buildVarAlloc`. Added `readPositions`/`noDupReads`. Zero-init prefix for reflection. |
-| 4 | `readMember` didn't update `objEnv[dest]` — nested struct calls used wrong path | `StructIR.lean`, `StructIRToFlatIR.lean` | All 4 functions (`evalConstrainBody`, `readPositions`, `compileWitness`, `buildVarAlloc`) do `objEnv.update dest (path ++ [member.val])`. `readPositions` restructured from `let` bindings to direct case-split for reliable `simp` reduction. |
+## 3. Callable restriction
 
----
+Each struct has one `compute` and one `constrain`; call selector must be `0` and
+target matching function kind in earlier topological struct. Same-struct helpers
+and arbitrary named functions unsupported.
 
-## 5. NoDuplicateReads assumption
+## 4. Division validity
 
-**Date:** 2026-04-07
-**Status:** Active
-**Affects:** `Heyting/Languages/StructIR.lean`, `Heyting/Passes/StructIRToFlatIR.lean`
+Field division is mathematically total at zero, but R1CS encoding requires
+nonzero divisor and inverse witness. Source witness execution rejects zero
+divisors. Correctness uses successful materialization/forwarding boundary.
 
-Module carries `noDupReads` field requiring `readPositions` (list of all `(path, member)` read during `@constrain` body traversal) has no duplicates. SSA-like well-formedness: each struct member read at most once.
+## 5. Witness generation theorem is pointwise
 
-**Why needed:** Reflection requires `buildVarAlloc` assigns each `(path, member)` to exactly one FlatIR variable. Without NoDuplicateReads, member could be read twice into different FlatIR variables, and `buildVarAlloc_preserves_absent` (ensures later allocations don't overwrite earlier) would fail.
+Compiler proves generated candidate satisfies source iff transported candidate
+satisfies exact R1CS. It does not claim every input/Oracle candidate satisfies
+source constraints. CLI checks and rejects false candidates.
 
-**Scope:** Reasonable assumption for well-formed LLZK programs (struct members typically read once into local). Reads same member twice can be trivially transformed to read once and reuse local.
+## 6. Oracle is positional
 
-**Impact:** Programs violating NoDuplicateReads cannot be `Module` — fail at construction (`noDupReads` proof obligation unsatisfiable).
+`llzk.nondet` consumes values sequentially. Missing values cause
+`oracleUnderflow`; unused suffix has no source meaning. Oracle file is trusted
+input, not inferred witness completion.
 
----
+## 7. CLI primality axioms
 
-## 6. `lake cache get` fails on macOS 15 (darwin24.6.0) — Active
+Supported field primality facts are `private axiom` declarations in
+`Heyting/CLI.lean`, isolated from proof-bearing passes. Pass theorems remain
+generic over `F : Type [Field F]` and audit to standard axioms only.
 
-**Date:** 2026-04-10
-**Status:** Active — upstream Lake/Reservoir bug
-**Affects:** Fresh checkouts; `lake build hey` on machines without pre-built oleans
+## 8. Parser skips before typed rejection
 
-**Symptom:**
-```
-error: failed to GET URL, error 400; received:
-{"error":{"status":400,"message":"Invalid platform: Unexpected characters in platform"}}
-```
+AST has `.skipped` nodes so parser can report unsupported generic operations.
+Typed lowering rejects each `.skipped` body operation. Parser acceptance without
+matching typed lowering must remain error.
 
-**Cause:** Lake 5.0.0 sends full `uname -r`-based platform string (`arm64-apple-darwin24.6.0`) verbatim to Reservoir API. Dots in minor version (`24.6.0`) rejected by Reservoir input validation. Lake bug — fixed in later releases but not in v4.28.0's bundled Lake.
+## 9. macOS Lake cache issue
 
-**Impact:** `lake cache get` silently falls back to source build. First full `lake build` (library only) takes ~30 min on modern Mac. Incremental builds fast.
+Some macOS 15/Lake combinations reject Reservoir platform string during
+`lake cache get`. Full source build remains correct but slow.
 
-**Workaround:** None needed for library. For `lake build hey`, native compilation of all transitively imported Mathlib modules required. Cache doesn't deliver `.c.o` files (only oleans), so linker may fail with `undefined symbol: initialize_mathlib_Mathlib_Tactic_*`. See fix below.
+## 10. External artifact trust
 
----
+Lean proves internal R1CS semantics. JSON/binary serializers and snarkjs parsing
+are tested executable boundaries, not currently proved faithful byte encodings.
 
-## 7. `private axiom` for large CLI prime fields — Active
+## Archived issues
 
-**Date:** 2026-04-13
-**Status:** Active — intentional design
-**Affects:** `Heyting/CLI.lean` only
-
-CLI supports 6 prime fields. For `bn254`/`bn128`, CLI now uses BN128 scalar field modulus so emitted `.r1cs` / `.wtns` files are accepted by Circom/snarkjs tooling. Primality for `bn254`/`bn128` (254-bit) and `goldilocks` (Pseudo-Mersenne, not form `norm_num` handles) can't be verified at elaboration by `native_decide`/`norm_num`. Declared via `private axiom`:
-
-```lean
-private axiom BN254_prime : Fact (Nat.Prime BN254_p)
-private axiom GOLDILOCKS_prime : Fact (Nat.Prime GOLDILOCKS_p)
--- etc.
-```
-
-**Axiom isolation:** All 6 prime axioms `private` in `CLI.lean`, never imported into `PresReflPass` proof files. `lean_verify` on any pass theorem shows only 3 standard axioms (`propext`, `Classical.choice`, `Quot.sound`).
-
-**Fields with axiomatic primality:**
-- `bn254` / `bn128`: same 254-bit prime — too large for `native_decide`
-- `goldilocks`: 2⁶⁴ − 2³² + 1 — not recognized by `norm_num`'s Mersenne extension
-
-**Fields with decidable primality:**
-- `babybear`: 2013265921 — `native_decide`/`norm_num` work
-- `mersenne31`: 2147483647 — 2³¹ − 1 Mersenne prime
-- `koalabear`: 2130706433 — `native_decide`/`norm_num` work
-
-For uniformity, all 6 use `private axiom` in CLI. Keeps code uniform, avoids two-tier treatment with separate proofs for smaller fields.
-
-**Impact on verified theorems:** None. Pass correctness theorems generic over `F : Type [Field F]`, independent of specific prime.
-
----
-
-## 8. StructIR does not support helper functions within same struct — Active
-
-**Date:** 2026-05-27
-**Status:** Active — language limitation
-**Affects:** `Heyting/Languages/StructIR.lean`, `Heyting/Parsers/Lowering.lean`
-
-StructIR models each struct as having exactly two functions: `@compute` and `@constrain`. There is no support for additional helper functions within the same struct.
-
-**Why this limitation exists:**
-- StructIR `call` statements target structs by index (`call (target : Fin i)`), not individual functions
-- Topological ordering `j < i` prevents cyclic dependencies between structs
-- Helper functions within same struct would require `j = i`, but `Fin i` type excludes this
-- Calls implicitly target matching function: `ComputeStmt.call` calls target's `@compute`, `ConstrainStmt.call` calls target's `@constrain`
-
-**LLZK parsing vs lowering:**
-- LLZK parser accepts arbitrary `function.def` inside structs (stored in `AST.StructDef.funcs : List FuncDef`)
-- Lowering (`Lowering.lean` lines 406-407) only processes functions named "compute" and "constrain"
-- Additional functions (like `@helper`) parse successfully but are silently dropped during lowering
-- Calls to `@MyStruct::@helper` fail at lowering: "call to MyStruct (index i) is not < caller index i" (same-struct call) or function name ignored and wrong function called (cross-struct)
-
-**Impact:** LLZK programs with helper functions like:
-```llzk
-struct.def @MyStruct {
-  function.def @compute(...) {
-    %result = function.call @MyStruct::@helper(...)  // FAILS: same-struct call
-  }
-  function.def @helper(...) { ... }  // Silently dropped by lowering
-}
-```
-will fail lowering with "call to MyStruct (index i) is not < caller index i".
-
-**Workaround:**
-1. Inline helper logic directly into `@compute`/`@constrain` bodies, OR
-2. Factor helpers into separate structs in topological order (see `tests/nested_calls.llzk`)
-
-**Why adding function support is non-trivial:**
-
-The limitation is deeply embedded in StructIR's semantic model, not just a surface-level restriction:
-
-1. **StructDef structure** (`StructIR.lean` lines 151-156):
-   ```lean
-   structure StructDef (n : Nat) (i : Fin n) (F : Type) where
-     name : String
-     members : List (MemberDecl n)
-     compute : ComputeFunc n i F members.length    -- Exactly one
-     constrain : ConstrainFunc n i F members.length -- Exactly one
-   ```
-   Not `functions : List FuncDef`, but two named fields.
-
-2. **Call semantics hardcoded** (`StructIR.lean` lines 383-384, 524):
-   - `evalConstrainBody` line 384: `evalConstrainBody m w j calleeEnv calleeObjEnv sd.constrain.body`
-   - `evalComputeBody` line 524: `evalComputeBody m j calleeState sd.compute.body`
-   - Calls from compute always invoke target's compute; calls from constrain always invoke target's constrain
-   - No function selector in call semantics — the calling context determines which function is invoked
-
-3. **Proof architecture assumes exactly 2 functions**:
-   - 156+ references to `.constrain` across pass proofs
-   - Preservation/reflection theorems reference `(m.structs i).constrain.body` directly
-   - SSA and object-safety checks iterate over `constrain.body` specifically
-   - Pass compilation logic extracts `sd.constrain.numParams`, `sd.compute.returnVar`, etc.
-
-**Extending to multiple functions would require:**
-
-**Option A: Full function support with explicit selector**
-- Change `StructDef` to `functions : List (FuncDef n i F members.length)`
-- Add `FuncDef` type with name, body, params, return type
-- Change call statements: `call (target : Fin i) (funcIdx : Nat) (args : List LocalVar)`
-- Rewrite `evalConstrainBody`/`evalComputeBody` to index `sd.functions[funcIdx]`
-- Update all 156+ proof references to iterate over function list
-- Rewrite lowering to build function index per struct
-- **Estimated effort:** 2-3 weeks, touches every proof
-
-**Option B: Function pairs (preserves symmetry)**
-- Change `StructDef` to `functionPairs : List (FuncPair n i F members.length)`
-- `FuncPair` has `(name, compute, constrain)` — maintains compute↔constrain symmetry
-- Call statements: `call (target : Fin i) (pairIdx : Nat) (args : List LocalVar)`
-- Semantics: compute calls target's `pairs[pairIdx].compute`, constrain calls `pairs[pairIdx].constrain`
-- Still requires rewriting all proofs but preserves semantic structure
-- **Estimated effort:** 1-2 weeks
-
-**Option C: Single "main" function per struct (simplest)**
-- Keep current `compute`/`constrain` as "main" pair
-- Add `helpers : List (HelperFunc n i F members.length)` to StructDef
-- Helpers are pure compute-only (no witness ops, no constraint emission)
-- Helper calls inlined during Pass 1 (before FlatIR)
-- Main functions can call helpers within same struct
-- **Estimated effort:** 3-5 days, minimal proof changes
-
----
-
-**Linker fix for `undefined symbol: initialize_mathlib_Mathlib_Tactic_HigherOrder` (and similar):**
-
-If `lake build hey` fails with `ld64.lld: error: undefined symbol: initialize_mathlib_Mathlib_Tactic_*`, cause is cache stub `.c.o.export` file with no symbols. Compile minimal stub and overwrite:
-
-```bash
-# Find missing module's .c.o.export path, e.g. for HigherOrder:
-EXPORT=.lake/packages/mathlib/.lake/build/ir/Mathlib/Tactic/HigherOrder.c.o.export
-MODULE=initialize_mathlib_Mathlib_Tactic_HigherOrder
-
-cat > /tmp/stub.c << EOF
-#include <stdint.h>
-typedef struct lean_object lean_object;
-lean_object* ${MODULE}(uint8_t builtin) {
-  extern lean_object* lean_io_result_mk_ok(lean_object*);
-  extern lean_object* lean_box(size_t);
-  return lean_io_result_mk_ok(lean_box(0));
-}
-EOF
-
-xcrun clang -target arm64-apple-macos12 -o "$EXPORT" -c /tmp/stub.c \
-  -I "$(lean --print-prefix)/include"
-
-lake build hey
-```
-
-Replace `HigherOrder` and `initialize_mathlib_Mathlib_Tactic_HigherOrder` with whatever module name appears in linker error. Repeat for each missing symbol.
-
----
-
-## 8. Pass 2 semantic gap: `readMember` → `constrainEq` — Historical (resolved by removal)
-
-**Date:** 2026-04-29
-**Status:** Historical — intermediate pipeline (`StructInlineIR`, `MemberlessIR`) removed from codebase
-**Affects:** removed files only; does not affect active executable pipeline
-
-### Issue
-
-`StructInlineIRToMemberlessIR.compileStmt` compiles:
-
-```
-readMember dest self member  →  constrainEq dest (Nat.pair self member)
-```
-
-In StructInlineIR, `readMember dest self member` reads `w(objEnv self, member)` into `env[dest]` (reads from witness at path tracked by `objEnv self`) and updates `objEnv[dest] := objEnv self ++ [member]`. Path given by `objEnv self`, not value of local `self`.
-
-In MemberlessIR, `constrainEq dest k` asserts `menv[dest] = menv[k]`. So `constrainEq dest (Nat.pair self member)` asserts witness at `dest` equals witness at `Nat.pair self member` — treats `self` (local var ID, `Nat`) as if it *encodes the path*.
-
-This is only correct if `objEnv self` equals `VarIdEncoding.decode (Nat.pair self 0).1` — i.e., `self` encodes its ObjEnv path. After call inlining (Pass 1), StructInlineIR local var IDs not necessarily contiguous or path-encoding.
-
-### Impact
-
-This blocked old intermediate pipeline. It does not block current active direct executable path.
-
-### Options
-
-1. **Redesign Pass 2 compilation.** Instead of `constrainEq dest (Nat.pair self member)`, pre-compute concrete `InstancePath` for each `readMember` site during compilation and encode as `VarIdEncoding.encode (path, member)`. Requires threading `objEnv` state through compilation (as `compileWitness` already does). `constrainEq` target becomes concrete `Nat` constant, not variable lookup.
-
-2. **Strengthen StructInlineIR well-formedness.** Add module-level invariant: after inlining, each local variable's ObjEnv path determined by its ID. Strong structural property may not hold generally.
-
-3. **Change MemberlessIR semantics.** Add `readSlot` notion mapping `(selfVarId, memberIdx)` to slot, matching StructInlineIR semantics more directly. Changes MemberlessIR language design.
-
-Option 1 most straightforward: compilation mirrors `compileWitness` (threads `ObjEnv` state), encoding becomes static embedding rather than variable reference.
+Retired StructIR-specific assumptions and proofs live on branch
+`legacy-infrastructure`. They do not apply to active compiler. Migration history
+remains in `docs/dialect-migration-plan.md`.

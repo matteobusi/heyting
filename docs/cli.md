@@ -2,109 +2,56 @@
 title: Hey CLI
 ---
 
-## Overview
-
-The Heyting compiler provides `hey`, a small CLI for compiling LLZK to R1CS and,
-optionally, generating a witness by running dialect `@compute` bodies. The
-StructIR reference implementation remains available with `--legacy`.
+# Hey CLI
 
 ## Usage
 
-```
+```text
 hey compile [options] <input.llzk> <output>
 hey help
 ```
 
+CLI exposes one dialect-native compiler pipeline. Retired `--legacy` and
+redundant `--dialect` selectors are errors.
+
 ## Options
 
-- `--json`
-  Produce human-readable JSON output.
-  Without this flag, `compile` writes Circom-compatible binary `.r1cs` output.
+- `--json`: write `<output>.r1cs.json`; otherwise Circom-compatible `<output>.r1cs`.
+- `--auto`: execute compute body with default-zero public inputs and write witness.
+- `--input <path>`: named JSON public inputs, reordered to top-level compute parameters.
+- `--oracle <path>`: positional JSON array consumed by `llzk.nondet`; requires witness generation.
+- `--prime-field <name>`: `bn254`, `bn128`, `babybear`, `goldilocks`, `mersenne31`, `koalabear`.
+- `--output <path>`: alternative output path syntax.
 
-- `--prime-field <name>`
-  Select the prime field for arithmetic. Supported values:
-
-  | Name | Prime | Used by |
-  |------|-------|---------|
-  | `bn254` *(default)* | 21888242871839275222246405745257275088548364400416034343698204186575808495617 | circom/snarkjs |
-  | `bn128` | same as bn254 (alias) | circom |
-  | `babybear` | 2013265921 (15 · 2²⁷ + 1) | zirgen |
-  | `goldilocks` | 18446744069414584321 (2⁶⁴ − 2³² + 1) | plonky2 |
-  | `mersenne31` | 2147483647 (2³¹ − 1) | Plonky3 |
-  | `koalabear` | 2130706433 (2³¹ − 2²⁴ + 1) | Plonky3 |
-
-  These are Heyting's supported CLI fields. For `bn254` / `bn128`, Heyting uses
-  the BN128 scalar field modulus expected by Circom/snarkjs binary `.r1cs` /
-  `.wtns` tooling. If `--prime-field` is omitted, `bn254` is used.
-
-- `--input <path>`
-  JSON file of public circuit inputs (field elements) to pass to the circuit's `@compute`
-  bodies. Parsed by signal name and reordered to match top-level `@compute` parameters.
-
-- `--auto`
-  Automatically run compute bodies to produce a witness, using empty public inputs unless
-  `--input` is also provided.
-  Writes `<output>.witness.json` with `--json`, or `<output>.wtns` otherwise.
-
-- `--oracle <path>`
-  JSON array of decimal strings consumed positionally by `llzk.nondet`, for
-  example `["3", "-1"]`. Requires `--auto` or `--input` and is dialect-only.
-  Supplying fewer values than the program consumes reports oracle exhaustion;
-  missing private values are never silently replaced by zero.
-
-- `--dialect`
-  Explicitly select the dialect-native pipeline, which is already the default.
-  Witness generation checks original typed-source constraints before transport,
-  then runs erased artifact checker as an internal differential assertion.
-  Source constraint failures are reported separately from execution,
-  materialization, and backend transport faults.
-
-- `--legacy`
-  Select the quarantined, proved StructIR reference pipeline.
-
-- `--output <path>`
-  Alternative way to specify the output path (useful when paths contain spaces or when scripting).
+`--input` triggers witness generation without `--auto`. `--oracle` requires
+`--auto` or `--input`. Missing Oracle values fail with `oracleUnderflow`.
 
 ## Examples
 
 ```bash
-# Default field (bn254, matches circom), binary output
 lake exe hey compile circuit.llzk out/system
-
-# JSON R1CS
 lake exe hey compile --json circuit.llzk out/system
-
-# JSON R1CS + auto witness
 lake exe hey compile --json --auto circuit.llzk out/system
-
-# Explicit field
+lake exe hey compile --input inputs.json --oracle oracle.json circuit.llzk out/system
 lake exe hey compile --prime-field babybear circuit.llzk out/system
-lake exe hey compile --prime-field goldilocks circuit.llzk out/system
-lake exe hey compile --prime-field mersenne31 circuit.llzk out/system
-
-# Typed nondeterministic input
-lake exe hey compile --auto --oracle oracle.json circuit.llzk out/system
 ```
 
-## Field selection and correctness
+Witness generation checks original typed-source constraints first, erased
+artifact constraints second as differential assertion, then transports to R1CS.
+Failure messages distinguish runtime/lowering faults from constraint rejection.
+Argument, lowering, runtime, and constraint errors return nonzero process status.
 
-All compiler passes and verified theorems are **generic over `F : Type [Field F]`** — the
-correctness proofs hold for any field. The `--prime-field` flag selects the field at the
-CLI boundary only; no proof-bearing code is parameterized on a specific prime.
+## Field boundary
 
-The primality facts for `bn254`/`bn128` and `goldilocks` are declared via `private axiom`
-in `Heyting/CLI.lean` — they cannot be verified by `native_decide` or `norm_num` (primes
-are too large / not Mersenne-form for norm_num). These axioms are CLI-only and never appear
-in any `PresReflPass` proof. See `docs/WARNING.md` §7 for the full axiom policy.
+Default `bn254` uses BN128 scalar modulus expected by Circom/snarkjs. All pass
+theorems are generic over `F : Type [Field F]`; field selection happens only in
+CLI. Large primality facts are isolated private CLI axioms.
 
-## Notes on features not yet implemented
+## Outputs
 
-- User-supplied witness loading (i.e. providing a pre-computed witness directly, bypassing
-  `@compute` bodies) is not currently exposed via any flag.
+| Mode | Constraints | Witness |
+|---|---|---|
+| default | `.r1cs` | `.wtns` when generated |
+| `--json` | `.r1cs.json` | `.witness.json` when generated |
 
-## Where to find the CLI code
-
-```
-Heyting/CLI.lean       -- compileToJson, runCommand, main
-Heyting/CLIArgs.lean   -- argument parsing (Options, parse)
-```
+User-supplied precomputed witness loading is not exposed.

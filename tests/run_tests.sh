@@ -60,30 +60,19 @@ run_test() {
         fi
       fi
       
-      # Differential reference coverage: every fixture must also compile via
-      # the quarantined legacy pipeline.
-      if ! "$BIN" compile --legacy "$test_file" "$out_dir/$test_name.legacy" \
-          >"$out_dir/legacy.log" 2>&1; then
-        echo -e "${RED}  ✗${NC} Legacy differential compilation failed"
-        cat "$out_dir/legacy.log"
-        FAILED=$((FAILED + 1))
-        echo
-        return
-      fi
-
       # Constraint-only fixtures have no compute program from which to derive
       # a witness. Felt division needs explicit nonzero inputs. All other
       # fixtures are valid under default-zero inputs.
       if [ "$test_name" != "dialect_subset" ]; then
         local witness_args=(--auto)
-        local legacy_witness_args=(--auto)
         if [ "$test_name" = "felt_ops" ]; then
           witness_args=(--input "$ROOT/tests/felt_ops.input.json")
-          legacy_witness_args=(--input "$ROOT/tests/felt_ops.input.json")
         elif [ "$test_name" = "nondet" ]; then
           witness_args=(--input "$ROOT/tests/nondet.input.json" \
             --oracle "$ROOT/tests/nondet.oracle.json")
-          legacy_witness_args=(--input "$ROOT/tests/nondet.input.json")
+        elif [ "$test_name" = "adversarial_full" ]; then
+          witness_args=(--input "$ROOT/tests/adversarial_full.input.json" \
+            --oracle "$ROOT/tests/adversarial_full.oracle.json")
         fi
         if ! "$BIN" compile "${witness_args[@]}" "$test_file" \
             "$out_dir/$test_name.witness" >"$out_dir/dialect_witness.log" 2>&1; then
@@ -93,26 +82,10 @@ run_test() {
           echo
           return
         fi
-        if [ "$test_name" != "nondet" ]; then
-          if ! "$BIN" compile --legacy "${legacy_witness_args[@]}" "$test_file" \
-              "$out_dir/$test_name.legacy_witness" >"$out_dir/legacy_witness.log" 2>&1; then
-            echo -e "${RED}  ✗${NC} Legacy witness generation failed"
-            cat "$out_dir/legacy_witness.log"
-            FAILED=$((FAILED + 1))
-            echo
-            return
-          fi
-        fi
         if command -v snarkjs >/dev/null 2>&1; then
           snarkjs wtns check "$out_dir/$test_name.witness.r1cs" \
             "$out_dir/$test_name.witness.wtns" >/dev/null
-          if [ "$test_name" = "nondet" ]; then
-            echo -e "${GREEN}  ✓${NC} Dialect oracle witness validated"
-          else
-            snarkjs wtns check "$out_dir/$test_name.legacy_witness.r1cs" \
-              "$out_dir/$test_name.legacy_witness.wtns" >/dev/null
-            echo -e "${GREEN}  ✓${NC} Dialect/legacy witnesses validated"
-          fi
+          echo -e "${GREEN}  ✓${NC} Witness validated"
         fi
       fi
 

@@ -9,12 +9,9 @@ import Heyting.Core.Dialect
 
 Generic typed module over a `DialectSet`.
 
-Mirrors `StructIR.{StructDef,Module}` but generalized: statements use the
-generic `Stmt Δ γ F` type instead of `ConstrainStmt`/`ComputeStmt`.
-
 Layers:
-- `MemberType n` — a member is either a felt or a reference to another
-  struct (`substruct`, by index `Fin n`). Matches `StructIR.MemberType`.
+- `MemberType n` — a member is either a felt or reference to another
+  struct (`substruct`, by index `Fin n`).
 - `MemberDecl n` — one struct member declaration.
 - `FuncDef Δ n i F kind` — a function body with capability `kind`,
   well-formed by `capsLE` and `isSSA`.
@@ -30,8 +27,7 @@ namespace Dialect
 
 /-! ## Member types -/
 
-/-- A struct member is either a field element or a reference to another
-    struct by index. Matches `StructIR.MemberType`. -/
+/-- A struct member is either a field element or reference to another struct by index. -/
 inductive MemberType (n : Nat) where
   | felt      : MemberType n
   | substruct : Fin n → MemberType n
@@ -90,7 +86,7 @@ structure StructDef (Δ : DialectSet) (n : Nat) (i : Fin n) (F : Type) where
 A complete module: `n` structs in topological order.
 
 `n` is a type parameter (not a field) so Σ-types like `Σ n, Module Δ (n + 1) F`
-compose naturally with the pipeline (mirrors `StructIR.Module n F`).
+compose naturally with pipeline.
 -/
 structure Module (Δ : DialectSet) (n : Nat) (F : Type) where
   structs : (i : Fin n) → StructDef Δ n i F
@@ -115,16 +111,9 @@ end Module
 /-! ## Free functions
 
 `function.def @f(felts) → felt` at module level (outside any struct) is not
-yet a first-class type in this module structure. Current encoding (usable
-now): represent a free function as a `StructDef` with `members = []` and a
-trivial `constrain` body. `CallDialect.call target sel args` with `sel` selecting
-the compute body reaches it. This encoding is provably correct — the
-isomorphism is trivial — and is what Phase 1's iso-bridging will use.
-
-Phase 3 will introduce a unified `Callable` sum type (struct | free function)
-replacing the homogeneous `structs` array, with `sel : Nat` in the call dialect
-selecting which body of the target callable is invoked. The `sel` field is
-already present as a placeholder for this upgrade.
+yet a first-class type in this module structure, so AST lowering rejects free
+functions. Future callable model may replace homogeneous `structs` array with
+named callable space. Call selector field remains placeholder for this upgrade.
 -/
 
 end Dialect

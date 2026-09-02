@@ -1,5 +1,5 @@
 // Test repeated computation pattern (simulates helper function via inlining)
-// NOTE: StructIR does not support helper functions within same struct.
+// NOTE: typed callable model does not support helper functions within same struct.
 // This test inlines the helper logic directly.
 module attributes {llzk.lang, llzk.main = !struct.type<@FuncCall::@FuncCall<[]>>} {
   module @FuncCall {

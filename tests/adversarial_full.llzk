@@ -1,0 +1,81 @@
+// Adversarial integration fixture: nested calls, objects, Oracle, every Felt op,
+// public output, and constraints that reject a plausible but wrong witness.
+module attributes {llzk.lang, llzk.main = !struct.type<@Adversarial::@Main<[]>>} {
+  module @Adversarial {
+    struct.def @Leaf {
+      function.def @compute(%x: !felt.type<"bn128">, %y: !felt.type<"bn128">) -> !felt.type<"bn128"> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %two = felt.const 2 : !felt.type<"bn128">
+        %sum = felt.add %x, %y : !felt.type<"bn128">, !felt.type<"bn128">
+        %scaled = felt.mul %sum, %two : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return %scaled : !felt.type<"bn128">
+      }
+      function.def @constrain(%x: !felt.type<"bn128">, %y: !felt.type<"bn128">, %expected: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %two = felt.const 2 : !felt.type<"bn128">
+        %sum = felt.add %x, %y : !felt.type<"bn128">, !felt.type<"bn128">
+        %scaled = felt.mul %sum, %two : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %scaled, %expected : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+
+    struct.def @Middle {
+      function.def @compute(%x: !felt.type<"bn128">, %y: !felt.type<"bn128">) -> !felt.type<"bn128"> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %leaf = function.call @Leaf::@compute(%x, %y) : (!felt.type<"bn128">, !felt.type<"bn128">) -> !felt.type<"bn128">
+        %quotient = felt.div %leaf, %y : !felt.type<"bn128">, !felt.type<"bn128">
+        %negative = felt.neg %x : !felt.type<"bn128">
+        %combined = felt.add %quotient, %negative : !felt.type<"bn128">, !felt.type<"bn128">
+        %inverse = felt.inv %y : !felt.type<"bn128">
+        %result = felt.mul %combined, %inverse : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return %result : !felt.type<"bn128">
+      }
+      function.def @constrain(%x: !felt.type<"bn128">, %y: !felt.type<"bn128">, %expected: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %two = felt.const 2 : !felt.type<"bn128">
+        %sum = felt.add %x, %y : !felt.type<"bn128">, !felt.type<"bn128">
+        %leaf = felt.mul %sum, %two : !felt.type<"bn128">, !felt.type<"bn128">
+        function.call @Leaf::@constrain(%x, %y, %leaf) : (!felt.type<"bn128">, !felt.type<"bn128">, !felt.type<"bn128">) -> ()
+        %quotient = felt.div %leaf, %y : !felt.type<"bn128">, !felt.type<"bn128">
+        %negative = felt.neg %x : !felt.type<"bn128">
+        %combined = felt.add %quotient, %negative : !felt.type<"bn128">, !felt.type<"bn128">
+        %inverse = felt.inv %y : !felt.type<"bn128">
+        %result = felt.mul %combined, %inverse : !felt.type<"bn128">, !felt.type<"bn128">
+        constrain.eq %result, %expected : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+
+    struct.def @Main {
+      struct.member @secret_a : !felt.type<"bn128">
+      struct.member @secret_b : !felt.type<"bn128">
+      struct.member @core : !felt.type<"bn128">
+      struct.member @output : !felt.type<"bn128"> {llzk.pub}
+      function.def @compute(%x: !felt.type<"bn128">, %y: !felt.type<"bn128">) -> !struct.type<@Adversarial::@Main> attributes {function.allow_non_native_field_ops, function.allow_witness} {
+        %self = struct.new : <@Adversarial::@Main>
+        %secret_a = llzk.nondet : !felt.type<"bn128">
+        %secret_b = llzk.nondet : !felt.type<"bn128">
+        %core = function.call @Middle::@compute(%x, %y) : (!felt.type<"bn128">, !felt.type<"bn128">) -> !felt.type<"bn128">
+        %product = felt.mul %secret_a, %secret_b : !felt.type<"bn128">, !felt.type<"bn128">
+        %output = felt.add %core, %product : !felt.type<"bn128">, !felt.type<"bn128">
+        struct.writem %self[@secret_a] = %secret_a : <@Adversarial::@Main>, !felt.type<"bn128">
+        struct.writem %self[@secret_b] = %secret_b : <@Adversarial::@Main>, !felt.type<"bn128">
+        struct.writem %self[@core] = %core : <@Adversarial::@Main>, !felt.type<"bn128">
+        struct.writem %self[@output] = %output : <@Adversarial::@Main>, !felt.type<"bn128">
+        function.return %self : !struct.type<@Adversarial::@Main>
+      }
+      function.def @constrain(%self: !struct.type<@Adversarial::@Main>, %x: !felt.type<"bn128">, %y: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %secret_a = struct.readm %self[@secret_a] : <@Adversarial::@Main>, !felt.type<"bn128">
+        %secret_b = struct.readm %self[@secret_b] : <@Adversarial::@Main>, !felt.type<"bn128">
+        %core = struct.readm %self[@core] : <@Adversarial::@Main>, !felt.type<"bn128">
+        %output = struct.readm %self[@output] : <@Adversarial::@Main>, !felt.type<"bn128">
+        function.call @Middle::@constrain(%x, %y, %core) : (!felt.type<"bn128">, !felt.type<"bn128">, !felt.type<"bn128">) -> ()
+        %product = felt.mul %secret_a, %secret_b : !felt.type<"bn128">, !felt.type<"bn128">
+        %twelve = felt.const 12 : !felt.type<"bn128">
+        constrain.eq %product, %twelve : !felt.type<"bn128">, !felt.type<"bn128">
+        %expected = felt.add %core, %product : !felt.type<"bn128">, !felt.type<"bn128">
+        %difference = felt.sub %output, %expected : !felt.type<"bn128">, !felt.type<"bn128">
+        %zero = felt.const 0 : !felt.type<"bn128">
+        constrain.eq %difference, %zero : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}

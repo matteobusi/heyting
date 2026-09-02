@@ -8,9 +8,9 @@ import Heyting.Parsers.Tokenizer
 # LLZK Parser
 
 Recursive descent parser converting a token stream into the LLZK AST.
-Parses the subset of LLZK MLIR textual IR that maps to `StructIR`:
+Parses subset of LLZK MLIR textual IR accepted by typed dialect frontend:
 modules, struct definitions, member declarations, compute/constrain
-functions, felt operations, constraint equations, and struct operations.
+functions, Felt operations, constraints, calls, Oracle reads, and objects.
 
 Unsupported constructs are skipped with warnings when possible, or
 rejected with errors when they appear in critical positions.

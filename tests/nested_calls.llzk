@@ -1,5 +1,5 @@
 // Test cross-struct function calls (demonstrates topological ordering)
-// NOTE: StructIR requires called structs to appear earlier in dependency order
+// NOTE: typed Call dialect requires called structs to appear earlier in dependency order
 module attributes {llzk.lang, llzk.main = !struct.type<@NestedCalls::@Main<[]>>} {
   module @NestedCalls {
     // Helper struct: computes z + 1

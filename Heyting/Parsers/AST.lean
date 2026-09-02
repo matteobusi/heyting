@@ -5,12 +5,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 /-!
 # LLZK AST — Untyped Parse Tree
 
-Lightweight AST for the subset of LLZK MLIR textual IR that maps to
-`StructIR.Module`. This is the output of parsing and the input to lowering.
+Lightweight AST for the supported LLZK MLIR subset. This is parser output and
+input to typed dialect lowering.
 
 The AST is deliberately untyped: names are strings, variables are strings,
-indices are not yet `Fin`. The lowering pass (`Lowering.lean`) resolves
-names, assigns indices, and constructs the dependently-typed `StructIR.Module`.
+indices are not yet `Fin`. `ASTToDialect.lean` resolves names, assigns indices,
+and constructs a typed dialect module.
 
 ## Supported constructs
 

@@ -695,8 +695,7 @@ noncomputable def callToR1CSLike (F : Type) [Field F] :
     (CallSemantics.moduleConstraintPass (F := F))
     (moduleConstraintPass F) rfl
 
-/-- Compile one lowered module entry's constraint body with the verified legacy
-FlatIR-to-R1CS backend. -/
+/-- Compile one lowered module entry through verified FlatIR-to-R1CS backend. -/
 def compileEntryConstrain (F : Type) [Field F] {n : Nat}
     (m : Module TargetSet n F) (entry : Fin n) : R1CS.System F :=
   R1CSLike.toR1CS (m.structs entry).constrain.body

@@ -142,8 +142,7 @@ def sem (F : Type) [Field F] (Δ : DialectSet := [sig]) : DialectSem Δ sig F wh
       subst env'
       rfl
 
-/-- Direct adapter to the legacy flat instruction consumed by the verified
-R1CS compiler. -/
+/-- Direct adapter to FlatIR instruction consumed by verified R1CS compiler. -/
 def toFlatInstr : Op γ F → FlatIR.Instr F
   | .assign (.add d a b) => .assignAdd d a b
   | .assign (.sub d a b) => .assignSub d a b
