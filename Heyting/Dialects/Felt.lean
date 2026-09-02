@@ -8,9 +8,9 @@ import Heyting.Core.Semantics
 # Felt Arithmetic Dialect
 
 Pure field-element operations: add, sub, mul, div, neg, inv, const.
-All ops are `.pure`, always write exactly one dest, never fault
-(field arithmetic is total: `x/0 = 0`, `0⁻¹ = 0`).
-In constrain context every op emits `True`.
+All ops are `.pure`, always write exactly one dest, and use total field
+arithmetic (`x/0 = 0`, `0⁻¹ = 0`). Backend lowering separately exposes the
+nonzero side condition required by R1CS division.
 -/
 
 namespace Dialect.Felt
@@ -68,6 +68,55 @@ def evalVal [Field F] (op : Op γ F) (env : LocalVar → F) : F :=
 def applyOp [Field F] (op : Op γ F) (env : LocalVar → F) : LocalVar → F :=
   fun v => if v = destVar op then evalVal op env else env v
 
+/-- Validity condition required by the R1CS encoding. Unlike field division,
+the backend's division instruction is intentionally partial at zero. -/
+def backendValid [Field F] (op : Op γ F) (env : LocalVar → F) : Prop :=
+  match op with
+  | .div _ _ src2 => env src2 ≠ 0
+  | _ => True
+
+/-- Executable form of `backendValid`. Keeping operation match outside
+`decide` lets instance synthesis see equality as only nontrivial case. -/
+def backendValidBool [Field F] [DecidableEq F]
+    (op : Op γ F) (env : LocalVar → F) : Bool :=
+  match op with
+  | .div _ _ src2 => decide (env src2 ≠ 0)
+  | _ => true
+
+theorem backendValidBool_eq_true [Field F] [DecidableEq F]
+    (op : Op γ F) (env : LocalVar → F) :
+    backendValidBool op env = true ↔ backendValid op env := by
+  cases op <;> simp [backendValidBool, backendValid]
+
+theorem backendValidBool_mapVars [Field F] [DecidableEq F]
+    (rename : LocalVar → LocalVar) (op : Op γ F)
+    (source target : LocalVar → F)
+    (hagrees : ∀ v ∈ reads op, target (rename v) = source v) :
+    backendValidBool (mapVars rename op) target = backendValidBool op source := by
+  cases op with
+  | div _ _ denominator =>
+      simp only [mapVars, backendValidBool]
+      rw [hagrees denominator (by simp [reads])]
+  | add | sub | mul | neg | inv | const => rfl
+
+theorem backendValid_mapVars [Field F]
+    (rename : LocalVar → LocalVar) (op : Op γ F)
+    (source target : LocalVar → F)
+    (hagrees : ∀ v ∈ reads op, target (rename v) = source v) :
+    backendValid (mapVars rename op) target ↔ backendValid op source := by
+  cases op with
+  | div _ _ denominator =>
+      simp only [mapVars, backendValid]
+      rw [hagrees denominator (by simp [reads])]
+  | add | sub | mul | neg | inv | const => simp [mapVars, backendValid]
+
+theorem backendValid_reads_congr [Field F] (op : Op γ F) (env₁ env₂ : LocalVar → F)
+    (h : ∀ v ∈ reads op, env₁ v = env₂ v) :
+    backendValid op env₁ ↔ backendValid op env₂ := by
+  cases op with
+  | div _ _ s2 => simp only [backendValid]; rw [h s2 (by simp [reads])]
+  | add | sub | mul | neg | inv | const => simp [backendValid]
+
 theorem applyOp_at_dest [Field F] (op : Op γ F) (env : LocalVar → F) :
     applyOp op env (destVar op) = evalVal op env := by simp [applyOp]
 
@@ -104,7 +153,7 @@ def sig : OpSig := {
 -- sig.dest = Felt.dest definitionally; used to lift hypotheses in sem proofs.
 private theorem sig_dest_eq (op : Op γ F) : sig.dest op = some (destVar op) := dest_eq op
 
-def sem (F : Type) [Field F] : DialectSem (Δ := [sig]) sig F := {
+def sem (F : Type) [Field F] (Δ : DialectSet := [sig]) : DialectSem Δ sig F := {
   constrainStep := fun _ctx op env => (applyOp op env, True)
   computeStep   := fun _ctx op env => some (applyOp op env)
 

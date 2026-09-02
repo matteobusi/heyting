@@ -15,9 +15,22 @@ Compiler organized around 2 core abstractions:
 
 Together, these give equisatisfiability for passes with full proofs.
 
-### Active pipeline
+### Compiler pipelines
 
-Current executable compiler path is:
+The architecture under active development is dialect-native:
+
+```text
+LLZK AST -> [Call, StructObject, Oracle, Felt, ConstrainEq]
+         -> oracle erasure -> [Call, StructObject, Felt, ConstrainEq]
+         -> call erasure -> [StructObject, Felt, ConstrainEq]
+         -> object erasure -> [Felt, ConstrainEq] -> R1CSLike -> R1CS
+```
+
+Struct-object and oracle operations survive the typed frontend boundary.
+Compute execution threads field locals, object paths, witness storage,
+allocation state, and the oracle cursor. Constraint compilation explicitly
+erases Oracle before Call and StructObject. The unflagged CLI uses this
+dialect-native path; the quarantined reference remains available explicitly:
 
 ```text
 StructIR  --->  FlatIR  --->  FlatIR(compact)  --->  R1CS
@@ -26,12 +39,22 @@ StructIR  --->  FlatIR  --->  FlatIR(compact)  --->  R1CS
 | Stage | Status | File |
 |------|--------|------|
 | **StructIR** | hierarchical source IR | `Heyting/Languages/StructIR.lean` |
-| **StructIR -> FlatIR** | active executable lowering; full `PresReflPass` (`CorrectPass`) | `Heyting/Passes/StructIRToFlatIR.lean` |
+| **StructIR -> FlatIR** | legacy reference lowering; full `PresReflPass` (`CorrectPass`) | `Heyting/Passes/StructIRToFlatIR.lean` |
 | **FlatIR** | flat instruction IR | `Heyting/Languages/FlatIR.lean` |
 | **FlatIR -> FlatIR(compact)** | dense variable renaming; proved `PresReflPass` | `Heyting/Passes/FlatIRCompact.lean` |
 | **FlatIR -> R1CS** | fully verified `PresReflPass` | `Heyting/Passes/FlatIRToR1CS.lean` |
 | **R1CS** | backend constraint system | `Heyting/Languages/R1CS.lean` |
-| **Pipeline** | active executable composition; full `PresReflPass` (`CorrectPass`) | `Heyting/Passes/Pipeline.lean` |
+| **Legacy pipeline** | compatibility composition; full `PresReflPass` (`CorrectPass`) | `Heyting/Legacy/Pipeline.lean` |
+
+Dialect witness generation supports `--auto`, `--input`, and positional
+`llzk.nondet` values from `--oracle`. Use `--legacy` to select the proved
+StructIR reference pipeline explicitly.
+
+The dialect path now returns a proof-carrying whole-entry artifact. It retains
+original typed module, selected entry, structural erasure certificates, exact
+leaf program, witness layout, and R1CS auxiliary construction. Lean proves
+original typed-source/R1CS satisfaction equivalence, executable checker
+agreement, and exact canonical witness readback for every successful transport.
 
 ### Current proof status
 
@@ -39,6 +62,9 @@ StructIR  --->  FlatIR  --->  FlatIR(compact)  --->  R1CS
 - `FlatIR -> R1CS` is fully verified as a `PresReflPass`.
 - `StructIR -> FlatIR` is fully verified as a `PresReflPass`.
 - `StructIR -> FlatIR -> FlatIR(compact) -> R1CS` pipeline is fully verified as a `PresReflPass`.
+- Dialect whole-entry compilation has constructive typed-source/R1CS
+  satisfaction iff, direct/artifact checker agreement, and exact finite
+  readback; this supplements existential pass proofs.
 - Current active support file for pass-1 proofs is `Heyting/Languages/StructIRFreshen.lean`.
 
 See `docs/GUARANTEES.md` for current status.
@@ -75,6 +101,9 @@ lake build hey
 lake build hey
 lake exe hey help
 lake exe hey compile [--prime-field <field>] <input.llzk> <output>
+lake exe hey compile --dialect <input.llzk> <output>
+lake exe hey compile --legacy <input.llzk> <output>
+lake exe hey compile --auto --oracle <oracle.json> <input.llzk> <output>
 ```
 
 Or invoke binary directly at `.lake/build/bin/hey`.
@@ -109,14 +138,18 @@ lake exe hey compile --json circuit.llzk out/system
 # JSON R1CS + witness generation
 lake exe hey compile --json --auto circuit.llzk out/system
 
+# Nondeterministic values are a JSON array of decimal strings
+lake exe hey compile --auto --oracle oracle.json circuit.llzk out/system
+
 # Explicit field selection
 lake exe hey compile --prime-field babybear circuit.llzk out/system
 ```
 
 All pass theorems are generic over `F : Type [Field F]`; CLI field selection happens only at boundary.
 
-Compaction matters for emitted artifacts: sparse witness-coordinate variables from
-`StructIR -> FlatIR` are now renamed densely before R1CS lowering. For example,
+On the legacy path, compaction matters for emitted artifacts: sparse
+witness-coordinate variables from `StructIR -> FlatIR` are renamed densely
+before R1CS lowering. For example,
 `scripts/multiply.llzk` drops from `994` wires to `15` wires with identical
 constraints and a valid `snarkjs` witness check.
 
@@ -147,8 +180,9 @@ Run test suite:
 
 Each test verifies:
 - Parsing succeeds
-- Compilation produces R1CS output
-- Optional: `snarkjs r1cs info` validates constraint system structure
+- Dialect and legacy compilation produce R1CS output
+- Witness-capable fixtures validate both witnesses with `snarkjs`
+- Nonzero oracle and division-validity boundaries are exercised by smoke tests
 
 - [x] FlatIR -> R1CS proof
 - [x] StructIR language with intrinsic well-formedness

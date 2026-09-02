@@ -170,6 +170,92 @@ def compileWitness (w : FlatIR.Witness F) : R1CS.Witness F :=
 def extractWitness (w : R1CS.Witness F) : FlatIR.Witness F :=
   fun v => w (.var v)
 
+@[simp] theorem extract_compileWitness (w : FlatIR.Witness F) :
+    extractWitness F (compileWitness (F := F) w) = w := by
+  funext v
+  rfl
+
+/-- The executable backend witness constructor preserves satisfaction for the
+exact witness it returns, rather than merely for an existentially related one. -/
+theorem compileWitness_preservation (w : FlatIR.Witness F) (p : FlatIR.Program F)
+    (h : FlatIR.satisfies w p) :
+    R1CS.satisfies (compileWitness (F := F) w) (compileProgram F p) := by
+  simp only [FlatIR.satisfies] at h
+  constructor
+  · simp [compileWitness]
+  · intro c hc
+    simp only [compileProgram, List.mem_flatMap] at hc
+    obtain ⟨instr, hinstr, hc_mem⟩ := hc
+    have h_instr := h instr hinstr
+    cases instr with
+    | assignAdd dest src1 src2 =>
+      simp only [compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
+      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+        compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
+      r1cs_arith
+    | assignSub dest src1 src2 =>
+      simp only [compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
+      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+        compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
+      r1cs_arith
+    | assignMul dest src1 src2 =>
+      simp only [compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
+      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+        compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
+      r1cs_arith
+    | assignDiv dest src1 src2 =>
+      simp only [compileInstr, List.mem_cons, List.mem_nil_iff, or_false] at hc_mem
+      obtain ⟨h_nz, h_eq⟩ := h_instr
+      rcases hc_mem with rfl | rfl
+      · simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+          compileWitness, List.foldl]
+        rw [h_eq]
+        field_simp
+        simp_all only [ne_eq, zero_add, zero_mul]
+      · simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+          compileWitness, List.foldl]
+        field_simp
+        simp_all only [ne_eq, zero_add, zero_mul, mul_one]
+    | assignNeg dest src =>
+      simp only [compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
+      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+        compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
+      r1cs_arith
+    | assignInv dest src =>
+      simp only [compileInstr, List.mem_cons, List.mem_nil_iff, or_false] at hc_mem
+      simp only [FlatIR.satisfiesInstr] at h_instr
+      rcases hc_mem with rfl | rfl | rfl
+      · simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb,
+          compileVar, compileWitness, List.foldl]
+        rw [h_instr]
+        ring
+      · simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb,
+          compileVar, compileWitness, List.foldl]
+        by_cases hs : w src = 0
+        · simp [hs]
+        · have hmul : w src * (w src)⁻¹ = 1 := mul_inv_cancel₀ hs
+          simp only [one_mul, zero_add]
+          rw [hmul]
+          ring
+      · simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb,
+          compileVar, compileWitness, List.foldl]
+        by_cases hs : w src = 0
+        · simp [hs, h_instr]
+        · have hmul : w src * (w src)⁻¹ = 1 := mul_inv_cancel₀ hs
+          simp only [one_mul, zero_add]
+          rw [h_instr, hmul]
+          ring
+    | assignConst dest value =>
+      simp only [compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
+      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+        compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
+      r1cs_arith
+    | assertEq src1 src2 =>
+      simp only [compileInstr, List.mem_singleton] at hc_mem; subst hc_mem
+      simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
+        compileWitness, FlatIR.satisfiesInstr, List.foldl] at *
+      r1cs_arith
+
 /-! ## Correctness instance -/
 
 instance CorrectPass : PresReflPass (FlatIR.Language F) (R1CS.Language F) where
@@ -351,5 +437,19 @@ instance CorrectPass : PresReflPass (FlatIR.Language F) (R1CS.Language F) where
         simp only [R1CS.satisfiesLinComb, R1CS.evalLinComb, compileVar,
               extractWitness, FlatIR.satisfiesInstr, List.foldl] at *
         r1cs_arith
+
+theorem compileWitness_satisfies_iff (w : FlatIR.Witness F)
+    (p : FlatIR.Program F) :
+    R1CS.satisfies (compileWitness (F := F) w) (compileProgram F p) ↔
+      FlatIR.satisfies w p := by
+  constructor
+  · intro htarget
+    obtain ⟨source, hrel, hsource⟩ :=
+      (CorrectPass (F := F)).reflection (compileWitness (F := F) w) p htarget
+    have hsourceEq : source = w := by
+      funext v
+      exact (hrel v).symm
+    simpa [hsourceEq] using hsource
+  · exact compileWitness_preservation F w p
 
 end FlatIRToR1CS

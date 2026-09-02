@@ -13,11 +13,14 @@ import Heyting.Passes.FlatIRCompact
 import Heyting.Passes.FlatIRToR1CS
 
 /-!
-# Executable Compiler Pipeline
+# Legacy executable compiler pipeline
 
-Top-level executable composition used by the CLI.
+Verified StructIR reference composition used by the compatibility CLI path.
+The public import boundary is `Heyting.Legacy.Pipeline`, and all declarations
+live under `Legacy.Pipeline` to prevent new dialect code from depending on the
+old source representation accidentally.
 
-Current path:
+Reference path:
 
 `StructIR -> FlatIR -> FlatIR(compact) -> R1CS`
 
@@ -25,13 +28,13 @@ This file contains only executable composition and witness plumbing. Proofs of
 individual pass correctness live in the pass-specific files.
 -/
 
-namespace Pipeline
+namespace Legacy.Pipeline
 
 variable {n : Nat} {F : Type} [Field F]
 
-/-! ## Active pipeline
+/-! ## Reference pipeline
 
-Current executable pipeline:
+Legacy executable pipeline:
 
 ```
 StructIR --[StructIRToFlatIR]--> FlatIR --[FlatIRCompact]--> FlatIR --[FlatIRToR1CS]--> R1CS
@@ -180,4 +183,4 @@ def pipelineWitness (m : StructIR.Module (n + 1) F) (inputs : List F)
       let compactW := compactFlatWitness (StructIRToFlatIR.compileProgram m) wt
       FlatIRToR1CS.compileWitness (F := F) compactW
 
-end Pipeline
+end Legacy.Pipeline

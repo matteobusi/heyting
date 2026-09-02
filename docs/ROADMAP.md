@@ -8,15 +8,38 @@ constraint-system backends.
 
 ## 1. Where we are
 
-Heyting today verifies a **fixed pipeline** over a small LLZK fragment:
+Heyting retains a fully verified fixed pipeline as a quarantined reference:
 
 ```
 LLZK AST  --(unverified Lowering)-->  StructIR  --✓-->  FlatIR  --✓(compact)--✓-->  R1CS
 ```
 
-Both IR-level passes (`StructIRToFlatIR`, `FlatIRToR1CS`, plus compaction) are
-fully proved `PresReflPass` instances, composed via `PresReflPass.compose`
-(`Heyting/Core/Pass.lean`).
+This composition now lives under `Legacy.Pipeline`. In parallel, the
+dialect-native pipeline is executable from AST through Oracle, Call, and
+StructObject erasure, R1CSLike, and R1CS. Struct-object operations have typed
+dialect syntax, standalone state semantics, frontend lowering, and an encoded
+witness-local backend erasure. Typed compute execution and oracle-stream
+nondeterminism now generate backend witnesses, and the dialect path is the CLI
+default. `--legacy` retains the proved reference composition.
+
+Phase 13 replaced the operational witness bridge with modular source-level
+generation and a proof-carrying entry artifact. The artifact owns finite source
+observables, structural layout metadata, leaf materialization, the exact R1CS,
+pointwise source/R1CS satisfaction equivalence, and exact canonical readback.
+Phase 14 lifts that result to original typed module. Direct
+call-aware typed-source constraint semantics and canonical initialization are
+implemented. Oracle projection and hygienic Call expansion correspondence are
+proved and packaged as pointwise structural-prefix certificates. StructObject
+correspondence, canonical object encoding/readback, exact leaf materialization,
+and source-artifact satisfaction equivalence are proved. Whole typed-entry
+artifact retains every structural certificate and exact backend target;
+typed-source/R1CS equivalence, generated specialization, checker agreement,
+and finite readback are complete. CLI validates direct source semantics before
+artifact differential checking and transport.
+
+Both legacy IR-level passes (`StructIRToFlatIR`, `FlatIRToR1CS`, plus
+compaction) remain fully proved `PresReflPass` instances, composed via
+`PresReflPass.compose` (`Heyting/Core/Pass.lean`).
 
 ### Gap assessment (summary)
 
@@ -25,7 +48,7 @@ fully proved `PresReflPass` instances, composed via `PresReflPass.compose`
 | Free functions / same-struct helpers | Rejected at lowering. `docs/WARNING.md` §8 — 156+ proof references assume the exactly-two-functions (`@compute`/`@constrain`) model. |
 | Feature dialects | No arrays, bool ops, globals, casts, templates (`poly`), `scf` loops, `include`. |
 | Front half unverified | Parser → AST → StructIR lowering has no correctness statement. |
-| `llzk.nondet` | Placeholder semantics. |
+| `llzk.nondet` | Typed Oracle handler with explicit stream exhaustion; constraint projection is explicit. |
 | Single backend | R1CS only; no CCS, no Plonkish. |
 | Proof scalability | `StructIRToFlatIR` is a 7188-line monolith; per-op proof reuse is poor. |
 

@@ -207,4 +207,11 @@ def capsLE {Δ : DialectSet} {γ : OpCtx} {F : Type}
     (k : Capability) (body : List (Stmt Δ γ F)) : Bool :=
   body.all (fun s => decide (s.cap ≤ k))
 
+theorem cap_le_of_capsLE {Δ : DialectSet} {γ : OpCtx} {F : Type}
+    {kind : Capability} {body : List (Stmt Δ γ F)}
+    (hcap : capsLE kind body = true) {stmt : Stmt Δ γ F}
+    (hmem : stmt ∈ body) : stmt.cap ≤ kind := by
+  apply of_decide_eq_true
+  exact (List.all_eq_true.mp hcap) stmt hmem
+
 end Dialect

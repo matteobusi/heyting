@@ -34,6 +34,7 @@ def checkStep (w : FlatIR.Witness F) (instr : FlatIR.Instr F) : Bool :=
   | .assignMul dest src1 src2 => decide (w dest = w src1 * w src2)
   | .assignDiv dest src1 src2 => decide (w src2 ≠ 0 ∧ w dest = w src1 * (w src2)⁻¹)
   | .assignNeg dest src       => decide (w dest = -(w src))
+  | .assignInv dest src       => decide (w dest = (w src)⁻¹)
   | .assignConst dest c       => decide (w dest = c)
   | .assertEq src1 src2       => decide (w src1 = w src2)
 
@@ -42,6 +43,29 @@ theorem checkStep_true_iff_satisfiesInstr (w : FlatIR.Witness F)
     (instr : FlatIR.Instr F) :
     checkStep w instr = true ↔ FlatIR.satisfiesInstr w instr := by
   cases instr <;> simp [checkStep, FlatIR.satisfiesInstr]
+
+/-- Direct boolean checker used at serialization boundaries. -/
+def checkProgram (w : FlatIR.Witness F) (program : FlatIR.Program F) : Bool :=
+  program.all (checkStep w)
+
+theorem checkProgram_true_iff_satisfies (w : FlatIR.Witness F)
+    (program : FlatIR.Program F) :
+    checkProgram w program = true ↔ FlatIR.satisfies w program := by
+  induction program with
+  | nil => simp [checkProgram, FlatIR.satisfies]
+  | cons instr rest ih =>
+    simp only [checkProgram, List.all_cons, Bool.and_eq_true]
+    have ih' : rest.all (checkStep w) = true ↔ FlatIR.satisfies w rest := by
+      simpa [checkProgram] using ih
+    rw [checkStep_true_iff_satisfiesInstr, ih']
+    constructor
+    · rintro ⟨hinstr, hrest⟩ candidate hmem
+      rcases List.mem_cons.mp hmem with rfl | htail
+      · exact hinstr
+      · exact hrest candidate htail
+    · intro hall
+      exact ⟨hall instr (by simp), fun candidate hmem =>
+        hall candidate (by simp [hmem])⟩
 
 /-- Deterministic checked execution over a whole FlatIR program. -/
 def evalChecked (w : FlatIR.Witness F) (prog : FlatIR.Program F) :

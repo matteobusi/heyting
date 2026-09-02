@@ -51,7 +51,7 @@ def sig : OpSig where
 private theorem sig_dest_none (s1 s2 : LocalVar) (γ : OpCtx) (F : Type) :
     sig.dest (Op.eq (γ := γ) (F := F) s1 s2) = none := rfl
 
-def sem (F : Type) [Field F] : DialectSem (Δ := [sig]) sig F := {
+def sem (F : Type) [Field F] (Δ : DialectSet := [sig]) : DialectSem Δ sig F := {
   -- constrainStep: emit env s1 = env s2, return env unchanged.
   constrainStep := fun _ctx op env =>
     match op with

@@ -9,7 +9,8 @@ import Mathlib.Algebra.Field.Basic
 # Input JSON Parsing
 
 Parses a public-input JSON file of the form `{"signal_name": "value", ...}` into a
-positional `List F` suitable for `StructIR.computeWitness` / `Pipeline.pipelineWitness`.
+positional `List F` suitable for `StructIR.computeWitness` /
+`Legacy.Pipeline.pipelineWitness`.
 
 ## Signal-name convention
 
@@ -78,5 +79,16 @@ def parseInputsJson (F : Type) [Field F] [IntCast F]
       match Json.getStr? jval with
       | .error _ => .error s!"value for signal {repr name} must be a JSON string, got: {jval}"
       | .ok s    => parseFieldElem F s
+
+/-- Parse a positional oracle stream from a JSON array of decimal strings,
+for example `["3", "-1"]`. -/
+def parseOracleJson (F : Type) [Field F] [IntCast F]
+    (jsonStr : String) : Except String (List F) := do
+  let json ← Json.parse jsonStr
+  let values ← json.getArr?
+  values.toList.mapM fun value =>
+    match Json.getStr? value with
+    | .error _ => .error s!"oracle values must be decimal strings, got: {value}"
+    | .ok raw => parseFieldElem F raw
 
 end InputJSON

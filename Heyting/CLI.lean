@@ -7,7 +7,8 @@ import Mathlib.Tactic.NormNum.Prime
 import Heyting.Parsers.Main
 import Heyting.CLIArgs
 import Heyting.Passes.Lowering
-import Heyting.Passes.Pipeline
+import Heyting.Legacy.Pipeline
+import Heyting.Passes.DialectPipeline
 import Heyting.Backends.R1CSJSON
 import Heyting.Backends.WitnessJSON
 import Heyting.Backends.R1CSBinary
@@ -20,9 +21,9 @@ import Heyting.Languages.StructIR
 
 Executable entry point for `hey`.
 
-The CLI parses LLZK source files, lowers them to `StructIR`, compiles through
-the active pipeline to `R1CS`, and optionally emits witness files by running the
-executable witness generator.
+The CLI parses LLZK source files and selects either the primary dialect-native
+pipeline or the quarantined `Legacy.Pipeline` reference path. Both produce
+constraints and witnesses independently.
 -/
 
 namespace Heyting.CLI
@@ -96,10 +97,17 @@ private instance : FieldBytes (ZMod KOALABEAR_p) where
 
 /-! ## Commands and argument handling -/
 
+/-- Explicit compiler architecture selection. -/
+inductive PipelineMode where
+  | legacy
+  | dialect
+  deriving Repr, DecidableEq
+
 /-- Supported top-level CLI commands. -/
 inductive Command where
   | compile (llzk : String) (output : String) (json : Bool)
-      (auto : Bool) (input : Option String) (prime : Option String)
+      (auto : Bool) (input oracle : Option String) (prime : Option String)
+      (pipeline : PipelineMode)
   | help
   deriving Repr
 
@@ -116,6 +124,10 @@ def usage : String :=
   "                       (writes <output>.wtns binary, or .witness.json with --json)\n" ++
   "  --input <path>     JSON file of public circuit inputs (field elements)\n" ++
   "                       (keys are signal names; missing signals default to 0)\n" ++
+  "  --oracle <path>    JSON array of values consumed by llzk.nondet\n" ++
+  "  --dialect          explicitly use the dialect-native pipeline (default)\n" ++
+  "  --legacy           explicitly use the StructIR reference pipeline\n" ++
+  "                       (verified reference escape hatch)\n" ++
   "  --prime-field <p>  use a specific prime field, " ++
     " supported: bn128, bn254 (default), babybear, goldilocks, mersenne31, and koalabear\n" ++
   "  --output <path>    alternative way to specify output path\n"
@@ -130,21 +142,47 @@ def parseArgs (args : List String) : Except String Command :=
     else if opts.cmd == "help" then
       .ok .help
     else if opts.cmd == "compile" then
-      match opts.llzk?, opts.output? with
-      | some i, some o =>
-        .ok (.compile i o opts.json opts.auto opts.input? opts.prime?)
-      | some _, none => .error "compile requires an output path"
-      | none, _ => .error "compile requires an input file"
+      if opts.dialect && opts.legacy then
+        .error "--dialect and --legacy are mutually exclusive"
+      else
+        let pipeline := if opts.legacy then PipelineMode.legacy else PipelineMode.dialect
+        match opts.llzk?, opts.output? with
+        | some i, some o =>
+          .ok (.compile i o opts.json opts.auto opts.input? opts.oracle? opts.prime? pipeline)
+        | some _, none => .error "compile requires an output path"
+        | none, _ => .error "compile requires an input file"
     else
       .error s!"unknown command: {opts.cmd}. Try 'hey help'."
 
+
+/-- Write an R1CS system in the selected format. -/
+private def saveR1CS
+    (F : Type) [Field F] [Repr F] [FieldBytes F]
+    (fieldName outputPath : String) (useJson : Bool)
+    (system : R1CS.System F) : IO Unit := do
+  let pathParts := outputPath.splitOn "/"
+  let outDir := String.intercalate "/" pathParts.dropLast
+  if outDir != "" then
+    IO.FS.createDirAll outDir
+  if useJson then
+    let r1csPath := outputPath ++ ".r1cs.json"
+    R1CSJSON.saveR1CSJson (F := F) system r1csPath
+    IO.println s!"Wrote R1CS JSON to {r1csPath} (field: {fieldName})"
+  else
+    let r1csPath := outputPath ++ ".r1cs"
+    R1CSBinary.saveR1CSBinary (F := F) system r1csPath
+    IO.println s!"Wrote R1CS binary to {r1csPath} (field: {fieldName})"
+  IO.println s!"  Constraints: {system.constraints.length}"
+  IO.println s!"  Wires: {R1CSJSON.countTotalVars system.constraints}"
 
 /-- Compile one LLZK input file under a chosen field and write requested outputs. -/
 def compileAndSave
     (F : Type) [Field F] [DecidableEq F] [IntCast F] [Repr F] [FieldBytes F]
     (fieldName : String)
     (inputPath : String) (outputPath : String)
-    (useJson : Bool) (autoWitness : Bool) (inputsPath : Option String) : IO Unit := do
+    (useJson : Bool) (autoWitness : Bool) (inputsPath : Option String)
+    (oraclePath : Option String)
+    (pipeline : PipelineMode) : IO Unit := do
   let (mod, _warnings) ← LLZK.parseFile inputPath
   -- Extract param names from the original AST before lowering discards them.
   -- The main struct is the last in topological order; its @compute params are
@@ -159,76 +197,91 @@ def compileAndSave
         match mainSd.funcs.find? (fun f => f.name == "compute") with
         | none => []
         | some computeFn => computeFn.params.map (·.name)
-  match LLZK.Lowering.LLZK.lower (F:=F) mod with
-  | .error e => throw (IO.userError s!"Lowering failed: {e}")
-  | .ok ⟨_, sirMod⟩ =>
-    -- Use the pipeline pass to compile StructIR → FlatIR → R1CS in one step.
-    let r1csSystem := Pipeline.compileProgram (F:=F) sirMod
-    -- Ensure output directory exists
-    let pathParts := outputPath.splitOn "/"
-    let outDir := String.intercalate "/" pathParts.dropLast
-    if outDir != "" then
-      IO.FS.createDirAll outDir
-    -- Write R1CS: binary by default, JSON if --json.
-    if useJson then
-      let r1csPath := outputPath ++ ".r1cs.json"
-      R1CSJSON.saveR1CSJson (F:=F) r1csSystem r1csPath
-      IO.println s!"Wrote R1CS JSON to {r1csPath} (field: {fieldName})"
+  -- Determine inputs for witness generation (--auto or --input).
+  let witnessInputs : Option (List F) ←
+    if let some jsonPath := inputsPath then
+      let jsonStr ← IO.FS.readFile jsonPath
+      match InputJSON.parseInputsJson F computeParamNames jsonStr with
+      | .error e => throw (IO.userError s!"Failed to parse inputs JSON: {e}")
+      | .ok inputs =>
+        IO.eprintln s!"inputs: { repr inputs }"
+        pure (some inputs)
+    else if autoWitness then
+      pure (some ([] : List F))
     else
-      let r1csPath := outputPath ++ ".r1cs"
-      R1CSBinary.saveR1CSBinary (F:=F) r1csSystem r1csPath
-      IO.println s!"Wrote R1CS binary to {r1csPath} (field: {fieldName})"
-    IO.println s!"  Constraints: {r1csSystem.constraints.length}"
-    IO.println s!"  Wires: {R1CSJSON.countTotalVars r1csSystem.constraints}"
-    -- Determine inputs for witness generation (--auto or --input).
-    let witnessInputs : Option (List F) ←
-      if let some jsonPath := inputsPath then
-        -- --input: load and parse the JSON inputs file
-        let jsonStr ← IO.FS.readFile jsonPath
-        match InputJSON.parseInputsJson F computeParamNames jsonStr with
-        | .error e => throw (IO.userError s!"Failed to parse inputs JSON: {e}")
-        | .ok inputs =>
-          IO.eprintln s!"inputs: { repr inputs }"
-          pure (some inputs)
-      else if autoWitness then
-        -- --auto: run with empty inputs (all signals default to 0)
-        pure (some ([] : List F))
-      else
-        pure none
-    if let some inputs := witnessInputs then
-      match Pipeline.pipelineWitness (F:=F) sirMod inputs with
+      pure none
+  let oracleValues : List F ←
+    if let some jsonPath := oraclePath then
+      let jsonStr ← IO.FS.readFile jsonPath
+      match InputJSON.parseOracleJson F jsonStr with
+      | .error e => throw (IO.userError s!"Failed to parse oracle JSON: {e}")
+      | .ok values => pure values
+    else pure []
+  if oraclePath.isSome && pipeline == .legacy then
+    throw (IO.userError "--oracle is supported only by the dialect pipeline")
+  if oraclePath.isSome && witnessInputs.isNone then
+    throw (IO.userError "--oracle requires --auto or --input")
+  if pipeline == .dialect then
+    let artifact ← match witnessInputs with
       | none =>
-        IO.eprintln "Warning: witness generation failed (division by zero in @compute body)"
-        IO.eprintln "  Skipping witness output."
-      | some wr =>
-        if useJson then
-          let witnessPath := outputPath ++ ".witness.json"
-          WitnessJSON.saveWitnessJson (F:=F) r1csSystem wr witnessPath
-          IO.println s!"Wrote witness JSON to {witnessPath}"
-        else
-          let witnessPath := outputPath ++ ".wtns"
-          WitnessBinary.saveWitnessBinary (F:=F) r1csSystem wr witnessPath
-          IO.println s!"Wrote witness binary to {witnessPath}"
+        match Dialect.Pipeline.compileAST (F := F) mod with
+        | .error e => throw (IO.userError s!"Dialect lowering failed: {e}")
+        | .ok system => pure (system, none)
+      | some inputs =>
+        match Dialect.Pipeline.witnessAST (F := F) mod inputs oracleValues with
+        | .error e => throw (IO.userError s!"Dialect witness generation failed: {e}")
+        | .ok (system, witness) => pure (system, some witness)
+    saveR1CS F fieldName outputPath useJson artifact.1
+    if let some witness := artifact.2 then
+      if useJson then
+        let witnessPath := outputPath ++ ".witness.json"
+        WitnessJSON.saveWitnessJson (F:=F) artifact.1 witness witnessPath
+        IO.println s!"Wrote witness JSON to {witnessPath}"
+      else
+        let witnessPath := outputPath ++ ".wtns"
+        WitnessBinary.saveWitnessBinary (F:=F) artifact.1 witness witnessPath
+        IO.println s!"Wrote witness binary to {witnessPath}"
+  else
+    match LLZK.Lowering.LLZK.lower (F:=F) mod with
+    | .error e => throw (IO.userError s!"Lowering failed: {e}")
+    | .ok ⟨_, sirMod⟩ =>
+    -- Use the pipeline pass to compile StructIR → FlatIR → R1CS in one step.
+      let r1csSystem := Legacy.Pipeline.compileProgram (F:=F) sirMod
+      saveR1CS F fieldName outputPath useJson r1csSystem
+      if let some inputs := witnessInputs then
+        match Legacy.Pipeline.pipelineWitness (F:=F) sirMod inputs with
+        | none =>
+          IO.eprintln "Warning: witness generation failed (division by zero in @compute body)"
+          IO.eprintln "  Skipping witness output."
+        | some wr =>
+          if useJson then
+            let witnessPath := outputPath ++ ".witness.json"
+            WitnessJSON.saveWitnessJson (F:=F) r1csSystem wr witnessPath
+            IO.println s!"Wrote witness JSON to {witnessPath}"
+          else
+            let witnessPath := outputPath ++ ".wtns"
+            WitnessBinary.saveWitnessBinary (F:=F) r1csSystem wr witnessPath
+            IO.println s!"Wrote witness binary to {witnessPath}"
 
 /-- Resolve a parsed command to its executable `IO` action. -/
 def runCommand : Command → Except String (IO Unit)
   | .help => .ok (IO.println usage)
-  | .compile llzk output json auto inputs field => .ok do
+  | .compile llzk output json auto inputs oracle field pipeline => .ok do
     match field with
-    | none => compileAndSave (F:=ZMod BN254_p) "bn254" llzk output json auto inputs
+    | none => compileAndSave (F:=ZMod BN254_p) "bn254" llzk output json auto inputs oracle pipeline
     | some field =>
       if field == "bn128" then
-        compileAndSave (F:=ZMod BN128_p) field llzk output json auto inputs
+        compileAndSave (F:=ZMod BN128_p) field llzk output json auto inputs oracle pipeline
       else if field == "bn254" then
-        compileAndSave (F:=ZMod BN254_p) field llzk output json auto inputs
+        compileAndSave (F:=ZMod BN254_p) field llzk output json auto inputs oracle pipeline
       else if field == "babybear" then
-        compileAndSave (F:=ZMod BABYBEAR_p) field llzk output json auto inputs
+        compileAndSave (F:=ZMod BABYBEAR_p) field llzk output json auto inputs oracle pipeline
       else if field == "goldilocks" then
-        compileAndSave (F:=ZMod GOLDILOCKS_p) field llzk output json auto inputs
+        compileAndSave (F:=ZMod GOLDILOCKS_p) field llzk output json auto inputs oracle pipeline
       else if field == "mersenne31" then
-        compileAndSave (F:=ZMod MERSENNE31_p) field llzk output json auto inputs
+        compileAndSave (F:=ZMod MERSENNE31_p) field llzk output json auto inputs oracle pipeline
       else if field == "koalabear" then
-        compileAndSave (F:=ZMod KOALABEAR_p) field llzk output json auto inputs
+        compileAndSave (F:=ZMod KOALABEAR_p) field llzk output json auto inputs oracle pipeline
       else
         throw (.userError s!"unsupported prime field: {field}. \
           Supported: bn128, bn254 (default), babybear, goldilocks, mersenne31, and koalabear")

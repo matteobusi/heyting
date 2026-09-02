@@ -5,7 +5,8 @@ title: Hey CLI
 ## Overview
 
 The Heyting compiler provides `hey`, a small CLI for compiling LLZK to R1CS and,
-optionally, generating a witness by running StructIR `@compute` bodies.
+optionally, generating a witness by running dialect `@compute` bodies. The
+StructIR reference implementation remains available with `--legacy`.
 
 ## Usage
 
@@ -45,6 +46,22 @@ hey help
   `--input` is also provided.
   Writes `<output>.witness.json` with `--json`, or `<output>.wtns` otherwise.
 
+- `--oracle <path>`
+  JSON array of decimal strings consumed positionally by `llzk.nondet`, for
+  example `["3", "-1"]`. Requires `--auto` or `--input` and is dialect-only.
+  Supplying fewer values than the program consumes reports oracle exhaustion;
+  missing private values are never silently replaced by zero.
+
+- `--dialect`
+  Explicitly select the dialect-native pipeline, which is already the default.
+  Witness generation checks original typed-source constraints before transport,
+  then runs erased artifact checker as an internal differential assertion.
+  Source constraint failures are reported separately from execution,
+  materialization, and backend transport faults.
+
+- `--legacy`
+  Select the quarantined, proved StructIR reference pipeline.
+
 - `--output <path>`
   Alternative way to specify the output path (useful when paths contain spaces or when scripting).
 
@@ -64,6 +81,9 @@ lake exe hey compile --json --auto circuit.llzk out/system
 lake exe hey compile --prime-field babybear circuit.llzk out/system
 lake exe hey compile --prime-field goldilocks circuit.llzk out/system
 lake exe hey compile --prime-field mersenne31 circuit.llzk out/system
+
+# Typed nondeterministic input
+lake exe hey compile --auto --oracle oracle.json circuit.llzk out/system
 ```
 
 ## Field selection and correctness

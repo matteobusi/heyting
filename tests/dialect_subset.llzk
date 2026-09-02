@@ -1,0 +1,13 @@
+// Phase-8 fixture representable by [Call, Felt, ConstrainEq].
+module attributes {llzk.lang, llzk.main = !struct.type<@DialectSubset::@DialectSubset<[]>>} {
+  module @DialectSubset {
+    struct.def @DialectSubset {
+      function.def @constrain(%a: !felt.type<"bn128">, %b: !felt.type<"bn128">) attributes {function.allow_constraint, function.allow_non_native_field_ops} {
+        %sum = felt.add %a, %b : !felt.type<"bn128">, !felt.type<"bn128">
+        %five = felt.const 5 : !felt.type<"bn128">
+        constrain.eq %sum, %five : !felt.type<"bn128">, !felt.type<"bn128">
+        function.return
+      }
+    }
+  }
+}
