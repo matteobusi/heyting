@@ -12,6 +12,18 @@ import Heyting.Dialects.CallSemantics
 This file relates direct recursive constraint execution over
 `[Call, StructObject, Felt, ConstrainEq]` to hygienic Call expansion into
 `[StructObject, Felt, ConstrainEq]`.
+
+## Main results and proof sketch
+
+`structuralPrefix_check_eq` and `structuralPrefix_satisfies_iff` connect the direct
+typed checker to successful Oracle projection and certified Call expansion.
+The recursive simulation tracks agreement of defined field locals, object aliases,
+witness storage, and allocation counters. Freshness prevents the expanded callee
+from overwriting caller locals; parameter and return bindings establish the call
+case. Residual cases use operation-specific frame and renaming laws.
+
+Helper lemmas about `DestinationsAbove`, `DestinationsBelow`, and `StateAgreesOn`
+maintain these invariants; they are not independent whole-compiler guarantees.
 -/
 
 namespace Dialect.ObjectCallSemantics

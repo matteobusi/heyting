@@ -204,4 +204,4 @@ All ops carry `NotFieldNative` trait.
 | `array.*` | — | Planned |
 | R1CS backend | `R1CS.lean` | Done (core) |
 | Typed dialect → R1CS artifact | `DialectPipeline.lean` | Done (certified boundary) |
-| FlatIR → R1CS pass | `FlatIRToR1CS.lean` | Done (fully verified) |
+| R1CSLike → R1CS pass | `R1CSLike.lean` | Done (direct, fully verified) |

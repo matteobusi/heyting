@@ -13,6 +13,14 @@ Constraint compilation explicitly projects that module to
 inside witness bodies. This value cannot affect emitted constraints because
 constraint bodies reject witness-capability operations. Concrete witnesses are
 produced from the un-erased module by `WitnessExecution`.
+
+## Main result and proof sketch
+
+`checkAt_eq_checkProjectedAt` equates direct and projected selected-entry checkers.
+First, `constrain_body_no_oracle` derives a contradiction from the capability proof
+for an Oracle operation in a constraint body. Induction over recursive constraint
+execution then matches residual operations and callees after projection. The theorem
+does not preserve compute results of the projected module.
 -/
 
 namespace Dialect.OracleErasure

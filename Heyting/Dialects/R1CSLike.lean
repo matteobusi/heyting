@@ -4,16 +4,37 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import Heyting.Dialects.Felt
 import Heyting.Dialects.ConstrainEq
-import Heyting.Languages.FlatIR
-import Heyting.Passes.FlatIRToR1CS
+import Heyting.Core.WitnessCodec
+import Heyting.Languages.R1CS
+import Heyting.Passes.Tactics
 
 /-!
 # R1CS-like instruction dialect
 
-Single-dialect, SSA instruction form immediately above the existing FlatIR/R1CS
-backend. Arithmetic instructions update the semantic environment; equality
-instructions constrain it. Every operation has a direct `FlatIR.Instr`
-encoding and therefore reuses the verified FlatIR-to-R1CS compiler.
+Single-dialect, SSA instruction form immediately above R1CS. Arithmetic
+instructions update semantic environment; equality instructions constrain it.
+Every operation has direct constraint, witness, materialization, and checking
+semantics.
+
+## Semantic boundaries
+
+`sem` is the sequential handler interpretation used by generic dialect lowering.
+`satisfies` instead checks all equations against a fixed terminal witness.
+`materializeBody` constructs that witness; `R1CSLikePass` relates the two views.
+
+## Main results and proof sketch
+
+- `check_true_iff` proves that the Boolean checker decides terminal satisfaction.
+- `compileWitness_satisfies_iff` proves equivalence for constructed auxiliary wires.
+- `toR1CS_reflection` reflects an arbitrary satisfying R1CS witness by `readback`.
+- `CorrectPass` packages existential preservation and reflection; `compilationArtifact`
+  additionally supplies constructive forwarding and exact readback.
+
+The arithmetic proofs split on the operation and normalize its linear combinations.
+Division uses both quotient and nonzero-denominator equations. Inverse splits on
+zero input and uses all three equations to force the output, even when auxiliary
+wires were chosen by an arbitrary prover. List induction lifts the operation results
+to programs. No parser or serializer is covered by these theorems.
 -/
 
 namespace Dialect.R1CSLike
@@ -142,57 +163,415 @@ def sem (F : Type) [Field F] (Δ : DialectSet := [sig]) : DialectSem Δ sig F wh
       subst env'
       rfl
 
-/-- Direct adapter to FlatIR instruction consumed by verified R1CS compiler. -/
-def toFlatInstr : Op γ F → FlatIR.Instr F
-  | .assign (.add d a b) => .assignAdd d a b
-  | .assign (.sub d a b) => .assignSub d a b
-  | .assign (.mul d a b) => .assignMul d a b
-  | .assign (.div d a b) => .assignDiv d a b
-  | .assign (.neg d a) => .assignNeg d a
-  | .assign (.inv d a) => .assignInv d a
-  | .assign (.const d c) => .assignConst d c
-  | .assertEq a b => .assertEq a b
-
 abbrev Set : DialectSet := [sig]
 
-private def ix : Fin Set.length := ⟨0, by simp [Set]⟩
+def ix : Fin Set.length := ⟨0, by simp [Set]⟩
 
-private theorem fin_eq_ix (d : Fin Set.length) : d = ix := by
+theorem fin_eq_ix (d : Fin Set.length) : d = ix := by
   ext
   exact Nat.lt_one_iff.mp d.isLt
 
-/-- Erase dialect packaging to a FlatIR program. -/
-def toFlatProgram {γ : OpCtx} : List (Stmt Set γ F) → FlatIR.Program F
+/-- Extract operation from a statement in this single-dialect set. -/
+def stmtOp : Stmt Set γ F → Op γ F
+  | .op ⟨0, _⟩ op => op
+  | .op ⟨n + 1, h⟩ _ => by
+      simp [Set] at h
+
+@[simp] theorem stmtOp_op (op : Op γ F) : stmtOp (.op ix op) = op := by
+  rfl
+
+@[simp] theorem stmtOp_zero (h : 0 < Set.length) (op : Op γ F) :
+    stmtOp (.op ⟨0, h⟩ op) = op := by
+  rfl
+
+/-- Compile one leaf operation directly to R1CS constraints.
+
+This is terminal-dialect lowering: no compatibility IR is constructed. -/
+def compileOp [Field F] : Op γ F → List (R1CS.Constraint F)
+  | .assign (.add d a b) =>
+      [{ A := [(.var a, 1), (.var b, 1)],
+         B := [(.varOne, 1)], C := [(.var d, 1)] }]
+  | .assign (.sub d a b) =>
+      [{ A := [(.var a, 1), (.var b, -1)],
+         B := [(.varOne, 1)], C := [(.var d, 1)] }]
+  | .assign (.mul d a b) =>
+      [{ A := [(.var a, 1)], B := [(.var b, 1)], C := [(.var d, 1)] }]
+  | .assign (.div d a b) =>
+      [{ A := [(.var b, 1)], B := [(.var d, 1)], C := [(.var a, 1)] },
+       { A := [(.var b, 1)], B := [(.aux b, 1)], C := [(.varOne, 1)] }]
+  | .assign (.neg d a) =>
+      [{ A := [(.var a, 1)], B := [(.varOne, -1)], C := [(.var d, 1)] }]
+  | .assign (.inv d a) =>
+      [{ A := [(.var a, 1)], B := [(.var d, 1)],
+         C := [(.varOne, 1), (.auxIsZero a, -1)] },
+       { A := [(.var a, 1)], B := [(.auxIsZero a, 1)], C := [] },
+       { A := [(.var d, 1)], B := [(.auxIsZero a, 1)], C := [] }]
+  | .assign (.const d c) =>
+      [{ A := [(.varOne, c)], B := [(.varOne, 1)], C := [(.var d, 1)] }]
+  | .assertEq a b =>
+      [{ A := [(.var a, 1)], B := [(.varOne, 1)], C := [(.var b, 1)] }]
+
+/-- Compile terminal dialect statements directly to constraint lists. -/
+def compileConstraints [Field F] {γ : OpCtx} :
+    List (Stmt Set γ F) → List (R1CS.Constraint F)
   | [] => []
   | .op d op :: rest =>
       (by
         have hd : d = ix := fin_eq_ix d
         subst d
-        exact toFlatInstr op) :: toFlatProgram rest
+        exact compileOp op) ++ compileConstraints rest
 
-/-- Reuse the verified FlatIR backend for a dialect body. -/
+theorem compileConstraints_cons [Field F] {γ : OpCtx}
+    (stmt : Stmt Set γ F) (rest : List (Stmt Set γ F)) :
+    compileConstraints (stmt :: rest) =
+      compileOp (stmtOp stmt) ++ compileConstraints rest := by
+  cases stmt with
+  | op d op =>
+      have hd : d = ix := fin_eq_ix d
+      subst d
+      rfl
+
+/-- Compile a terminal dialect body directly to an R1CS system. -/
 def toR1CS [Field F] {γ : OpCtx} (body : List (Stmt Set γ F))
     (numPublicInputs : Nat := 0) : R1CS.System F :=
-  FlatIRToR1CS.compileProgram F (toFlatProgram body) numPublicInputs
+  { constraints := compileConstraints body, numPublicInputs }
 
-/-- The backend adapter preserves every satisfying flat witness. -/
-theorem toR1CS_preservation [Field F] {γ : OpCtx}
-    (body : List (Stmt Set γ F)) (w : FlatIR.Witness F)
-    (h : FlatIR.satisfies w (toFlatProgram body)) :
-    ∃ wt : R1CS.Witness F,
-      (∀ v, wt (.var v) = w v) ∧
-      R1CS.satisfies wt (toR1CS body) := by
-  exact (FlatIRToR1CS.CorrectPass (F := F)).preservation w
-    (toFlatProgram body) h
+/-! ## Terminal witness codec -/
 
-/-- The backend adapter reflects every satisfying R1CS witness. -/
+/-- Values assigned to terminal dialect locals before R1CS wire expansion. -/
+abbrev Witness (F : Type) := LocalVar → F
+
+/-- Update one terminal local while executing a canonical leaf witness. -/
+def writeWitness [DecidableEq F] (w : Witness F) (dest : LocalVar) (value : F) :
+    Witness F :=
+  fun v => if v = dest then value else w v
+
+/-- Execute one terminal leaf operation. Equality remains an observation, not
+a witness-generation fault. Division by zero is explicit because direct R1CS
+encoding requires an inverse witness. -/
+def materializeOp [Field F] [DecidableEq F] (w : Witness F) (op : Op γ F) :
+    Except String (Witness F) :=
+  match op with
+  | .assign (.add d a b) => .ok (writeWitness w d (w a + w b))
+  | .assign (.sub d a b) => .ok (writeWitness w d (w a - w b))
+  | .assign (.mul d a b) => .ok (writeWitness w d (w a * w b))
+  | .assign (.div d a b) =>
+      if w b = 0 then .error s!"division by zero at local {b}"
+      else .ok (writeWitness w d (w a * (w b)⁻¹))
+  | .assign (.neg d a) => .ok (writeWitness w d (-w a))
+  | .assign (.inv d a) => .ok (writeWitness w d (w a)⁻¹)
+  | .assign (.const d c) => .ok (writeWitness w d c)
+  | .assertEq _ _ => .ok w
+
+/-- Execute terminal assignments in source order. -/
+def materializeBody [Field F] [DecidableEq F] {γ : OpCtx} :
+    List (Stmt Set γ F) → Witness F → Except String (Witness F)
+  | [], w => .ok w
+  | stmt :: rest, w => materializeOp w (stmtOp stmt) >>= materializeBody rest
+
+/-- Satisfaction of one terminal operation by final local values. -/
+def satisfiesOp [Field F] (w : Witness F) : Op γ F → Prop
+  | .assign (.add d a b) => w d = w a + w b
+  | .assign (.sub d a b) => w d = w a - w b
+  | .assign (.mul d a b) => w d = w a * w b
+  | .assign (.div d a b) => w b ≠ 0 ∧ w d = w a * (w b)⁻¹
+  | .assign (.neg d a) => w d = -w a
+  | .assign (.inv d a) => w d = (w a)⁻¹
+  | .assign (.const d c) => w d = c
+  | .assertEq a b => w a = w b
+
+/-- Terminal dialect satisfaction, independent from compatibility IRs. -/
+def satisfies [Field F] {γ : OpCtx} (w : Witness F)
+    (body : List (Stmt Set γ F)) : Prop :=
+  ∀ stmt ∈ body, satisfiesOp w (stmtOp stmt)
+
+/-- Executable satisfaction checker for one terminal operation. -/
+def checkOp [Field F] [DecidableEq F] (w : Witness F) : Op γ F → Bool
+  | .assign (.add d a b) => decide (w d = w a + w b)
+  | .assign (.sub d a b) => decide (w d = w a - w b)
+  | .assign (.mul d a b) => decide (w d = w a * w b)
+  | .assign (.div d a b) => decide (w b ≠ 0 ∧ w d = w a * (w b)⁻¹)
+  | .assign (.neg d a) => decide (w d = -w a)
+  | .assign (.inv d a) => decide (w d = (w a)⁻¹)
+  | .assign (.const d c) => decide (w d = c)
+  | .assertEq a b => decide (w a = w b)
+
+/-- The operation checker decides its fixed-witness satisfaction predicate.
+Proof: split on the operation and reduce `decide`. -/
+theorem checkOp_true_iff [Field F] [DecidableEq F] (w : Witness F) (op : Op γ F) :
+    checkOp w op = true ↔ satisfiesOp w op := by
+  cases op with
+  | assign felt => cases felt <;> simp [checkOp, satisfiesOp]
+  | assertEq => simp [checkOp, satisfiesOp]
+
+/-- Executable terminal satisfaction checker. -/
+def check [Field F] [DecidableEq F] {γ : OpCtx} (w : Witness F)
+    (body : List (Stmt Set γ F)) : Bool :=
+  body.all fun stmt ↦ checkOp w (stmtOp stmt)
+
+/-- The body checker accepts exactly when every terminal operation is satisfied.
+Proof: rewrite list-wide Boolean conjunction using `checkOp_true_iff`. -/
+theorem check_true_iff [Field F] [DecidableEq F] {γ : OpCtx}
+    (w : Witness F) (body : List (Stmt Set γ F)) :
+    check w body = true ↔ satisfies w body := by
+  simp [check, satisfies, checkOp_true_iff]
+
+/-- Terminal program package. Existential operation context is intentionally
+hidden: R1CS constraint collection needs no module-level SSA context. -/
+inductive Program (F : Type) where
+  | mk {γ : OpCtx} (body : List (Stmt Set γ F)) (numPublicInputs : Nat := 0)
+
+/-- Public-input count carried by terminal backend program. -/
+def Program.numPublicInputs : Program F → Nat
+  | .mk _ numPublicInputs => numPublicInputs
+
+/-- Execute a terminal program's leaf assignments. -/
+def Program.materialize [Field F] [DecidableEq F] :
+    Program F → Witness F → Except String (Witness F)
+  | .mk body _, w => materializeBody body w
+
+/-- Check terminal program satisfaction. -/
+def Program.check [Field F] [DecidableEq F] : Program F → Witness F → Bool
+  | .mk body _, w => Dialect.R1CSLike.check w body
+
+/-- Direct terminal compilation. -/
+def compileProgram [Field F] : Program F → R1CS.System F
+  | .mk body numPublicInputs => toR1CS body numPublicInputs
+
+/-- Terminal language used by constructive backend artifacts. -/
+instance Language (F : Type) [Field F] : _root_.Language LocalVar F where
+  Program := Program F
+  satisfies := fun w program =>
+    match program with
+    | .mk body _ => satisfies w body
+
+theorem Program.check_true_iff [Field F] [DecidableEq F]
+    (program : Program F) (w : Witness F) :
+    program.check w = true ↔ (Language F).satisfies w program := by
+  cases program
+  exact Dialect.R1CSLike.check_true_iff w _
+
+/-- Construct R1CS wire assignment directly from terminal local values. -/
+def compileWitness [Field F] (w : Witness F) : R1CS.Witness F :=
+  fun | .varOne => 1
+      | .var v => w v
+      | .aux v => (w v)⁻¹
+      | .auxIsZero v => 1 - w v * (w v)⁻¹
+
+/-- Read terminal local values from ordinary R1CS wires. -/
+def readback [Field F] (w : R1CS.Witness F) : Witness F :=
+  fun v => w (.var v)
+
+/-- Constructing auxiliary wires leaves ordinary local values unchanged on readback. -/
+@[simp] theorem readback_compileWitness [Field F] (w : Witness F) :
+    readback (compileWitness w) = w := by
+  funext v
+  rfl
+
+set_option linter.flexible false in
+private theorem compileWitness_op_iff [Field F] (w : Witness F) (op : Op γ F) :
+    (∀ c ∈ compileOp op, R1CS.satisfiesLinComb (compileWitness w) c) ↔
+      satisfiesOp w op := by
+  cases op with
+  | assign felt =>
+      cases felt with
+      | add | sub | mul | neg | const =>
+          simp [compileOp, R1CS.satisfiesLinComb, R1CS.evalLinComb,
+            compileWitness, satisfiesOp]
+          constructor <;> intro h <;>
+            simpa [sub_eq_add_neg] using h.symm
+      | div dest left right =>
+          simp only [compileOp, List.forall_mem_cons,
+            R1CS.satisfiesLinComb, R1CS.evalLinComb, compileWitness,
+            satisfiesOp, List.foldl, zero_add, one_mul]
+          constructor
+          · rintro ⟨hquotient, hinverse, _⟩
+            have hnonzero : w right ≠ 0 := by
+              intro hzero
+              simp [hzero] at hinverse
+            refine ⟨hnonzero, ?_⟩
+            calc
+              w dest = w left * (w right)⁻¹ := by
+                have hmul : w dest * w right = w left := by
+                  simpa [mul_comm] using hquotient
+                simpa [div_eq_mul_inv] using (eq_div_iff hnonzero).2 hmul
+              _ = _ := rfl
+          · rintro ⟨hnonzero, hquotient⟩
+            constructor
+            · rw [hquotient]
+              field_simp
+            · constructor
+              · field_simp
+              · simp
+      | inv dest source =>
+          simp only [compileOp, List.forall_mem_cons,
+            R1CS.satisfiesLinComb, R1CS.evalLinComb, compileWitness,
+            satisfiesOp, List.foldl, zero_add, one_mul]
+          constructor
+          · rintro ⟨hmain, hsource, hdest, _⟩
+            by_cases hzero : w source = 0
+            · simp [hzero] at hmain hdest ⊢
+              exact hdest
+            · have hinverse : w source * (w source)⁻¹ = 1 := mul_inv_cancel₀ hzero
+              rw [hinverse] at hmain
+              ring_nf at hmain
+              have hproduct : w dest * w source = 1 := by
+                rw [mul_comm]
+                exact hmain
+              exact eq_inv_of_mul_eq_one_left hproduct
+          · intro hdest
+            constructor
+            · simp [hdest]
+            · constructor
+              · by_cases hzero : w source = 0
+                · simp [hzero]
+                · rw [mul_inv_cancel₀ hzero]
+                  ring
+              · constructor
+                · by_cases hzero : w source = 0
+                  · rw [hdest, hzero, inv_zero]
+                    simp
+                  · rw [mul_inv_cancel₀ hzero]
+                    ring
+                · simp
+  | assertEq left right =>
+      simp [compileOp, R1CS.satisfiesLinComb, R1CS.evalLinComb,
+        compileWitness, satisfiesOp]
+
+private theorem compileWitness_constraints_iff [Field F] {γ : OpCtx}
+    (w : Witness F) (body : List (Stmt Set γ F)) :
+    (∀ c ∈ compileConstraints body,
+      R1CS.satisfiesLinComb (compileWitness w) c) ↔ satisfies w body := by
+  induction body with
+  | nil => simp [compileConstraints, satisfies]
+  | cons stmt rest ih =>
+      rw [compileConstraints_cons]
+      simp only [List.forall_mem_append]
+      rw [compileWitness_op_iff, ih]
+      simp [satisfies]
+
+/-- Direct codec preserves and reflects terminal satisfaction for its exact
+wire assignment. -/
+theorem compileWitness_satisfies_iff [Field F] {γ : OpCtx}
+    (w : Witness F) (body : List (Stmt Set γ F))
+    (numPublicInputs : Nat := 0) :
+    R1CS.satisfies (compileWitness w) (toR1CS body numPublicInputs) ↔
+      satisfies w body := by
+  simp only [R1CS.satisfies, compileWitness, toR1CS]
+  exact (and_iff_right True.intro).trans (compileWitness_constraints_iff w body)
+
+set_option linter.flexible false in
+/-- A satisfying assignment to an operation's constraints satisfies its terminal
+equation on ordinary wires, assuming the distinguished wire is one.
+
+Proof sketch: normalize single-equation operations. Division's inverse constraint
+forces a nonzero denominator. For inverse, split on zero input and derive the is-zero
+wire before recovering the output equation; do not assume canonical auxiliary values. -/
+private theorem op_reflection [Field F] (w : R1CS.Witness F) (op : Op γ F)
+    (hone : w .varOne = 1)
+    (h : ∀ c ∈ compileOp op, R1CS.satisfiesLinComb w c) :
+    satisfiesOp (readback w) op := by
+  cases op with
+  | assign felt =>
+      cases felt with
+      | add | sub | mul | neg | const =>
+          simp only [compileOp, List.forall_mem_cons, R1CS.satisfiesLinComb,
+            R1CS.evalLinComb, List.foldl, readback, satisfiesOp] at *
+          r1cs_arith
+      | div dest left right =>
+          simp [compileOp, R1CS.satisfiesLinComb, R1CS.evalLinComb, hone] at h
+          have hn : w (.var right) ≠ 0 := by
+            intro hz
+            simp [hz] at h
+          refine ⟨hn, ?_⟩
+          change w (.var dest) = w (.var left) * (w (.var right))⁻¹
+          simpa [div_eq_mul_inv] using (eq_div_iff hn).2
+            (show w (.var dest) * w (.var right) = w (.var left) by
+              simpa [mul_comm] using h.1)
+      | inv dest source =>
+          simp [compileOp, R1CS.satisfiesLinComb, R1CS.evalLinComb, hone] at h
+          change w (.var dest) = (w (.var source))⁻¹
+          by_cases hz : w (.var source) = 0
+          · have hi : w (.auxIsZero source) = 1 := by
+              have hm := h.1
+              rw [hz] at hm
+              linear_combination hm
+            simpa [hz, hi] using h.2.2
+          · have hi : w (.auxIsZero source) = 0 :=
+              h.2.1.resolve_left hz
+            apply eq_inv_of_mul_eq_one_left
+            simpa [hi, mul_comm] using h.1
+  | assertEq =>
+      simpa [compileOp, R1CS.satisfiesLinComb, R1CS.evalLinComb,
+        hone, satisfiesOp, readback] using h
+
+/-- Every satisfying R1CS witness reads back to satisfying terminal locals, regardless
+of whether it was constructed by `compileWitness`.
+
+Proof sketch: extract the constant-one equation, split the concatenated constraints
+by operation, apply `op_reflection`, and induct over the body. -/
 theorem toR1CS_reflection [Field F] {γ : OpCtx}
-    (body : List (Stmt Set γ F)) (wt : R1CS.Witness F)
-    (h : R1CS.satisfies wt (toR1CS body)) :
-    ∃ w : FlatIR.Witness F,
-      (∀ v, wt (.var v) = w v) ∧
-      FlatIR.satisfies w (toFlatProgram body) := by
-  exact (FlatIRToR1CS.CorrectPass (F := F)).reflection wt
-    (toFlatProgram body) h
+    (body : List (Stmt Set γ F)) (w : R1CS.Witness F)
+    (numPublicInputs : Nat := 0)
+    (h : R1CS.satisfies w (toR1CS body numPublicInputs)) :
+    satisfies (readback w) body := by
+  obtain ⟨hone, hall⟩ := h
+  induction body with
+  | nil => simp [satisfies]
+  | cons stmt rest ih =>
+      rw [show (toR1CS (stmt :: rest) numPublicInputs).constraints =
+        compileOp (stmtOp stmt) ++ compileConstraints rest from
+          compileConstraints_cons stmt rest] at hall
+      have hp := List.forall_mem_append.mp hall
+      exact (List.forall_mem_cons).mpr
+        ⟨op_reflection w (stmtOp stmt) hone hp.1, ih hp.2⟩
+
+/-- Direct terminal backend retains existential preservation and reflection. -/
+instance CorrectPass [Field F] : PresReflPass (Language F) (R1CS.Language F) where
+  compile := compileProgram
+  witnessRel _ source target := ∀ v, target (.var v) = source v
+  preservation := by
+    intro w program h
+    refine ⟨compileWitness w, fun _ ↦ rfl, ?_⟩
+    cases program with
+    | mk body numPublicInputs =>
+        exact (compileWitness_satisfies_iff w body numPublicInputs).mpr h
+  reflection := by
+    intro w program h
+    refine ⟨readback w, fun _ ↦ rfl, ?_⟩
+    cases program with
+    | mk body numPublicInputs => exact toR1CS_reflection body w numPublicInputs h
+
+/-- Constructive direct terminal-to-R1CS artifact. -/
+def compilationArtifact [Field F] (source : Program F) :
+    WitnessCodec.CompilationArtifact (Language F) (R1CS.Language F) source where
+  target := compileProgram source
+  forward w := .ok (compileWitness w)
+  readback := readback
+  witnessRel source target := ∀ v, target (.var v) = source v
+  forward_rel := by
+    intro w target h v
+    have htarget : target = compileWitness w := Except.ok.inj h.symm
+    subst target
+    rfl
+  satisfies_iff := by
+    intro w target h
+    have htarget : target = compileWitness w := Except.ok.inj h.symm
+    subst target
+    cases source with
+    | mk body numPublicInputs =>
+        change satisfies w body ↔
+          R1CS.satisfies (compileWitness w) (toR1CS body numPublicInputs)
+        exact (compileWitness_satisfies_iff w body numPublicInputs).symm
+  readback_forward := by
+    intro w target h
+    have htarget : target = compileWitness w := Except.ok.inj h.symm
+    subst target
+    exact readback_compileWitness w
+
+/-- Terminal dialect exposes a total constructive backend transport. -/
+def witnessTransportingPass [Field F] :
+    WitnessCodec.WitnessTransportingPass (Language F) (R1CS.Language F) where
+  compileArtifact source := .ok (compilationArtifact source)
 
 end Dialect.R1CSLike

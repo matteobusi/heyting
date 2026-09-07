@@ -107,10 +107,10 @@ def objectBodyLengths : Option (Nat × Nat) :=
     some ((m.structs entry).compute.body.length,
       (m.structs entry).constrain.body.length)
 
--- Struct operations now survive the primary typed frontend boundary.
+-- Struct operations survive the typed frontend boundary.
 #guard objectBodyLengths == some (2, 2)
--- The executable backend projection rejects them at its explicit boundary.
-#guard failed (lowerCallCompatible (F := F) objectModule)
+#guard !failed (lowerFull (F := F) objectModule)
+#guard !failed (Dialect.Pipeline.compileAST (F := F) objectModule)
 
 def malformedCall : LLZK.Module where
   structs := calledModule.structs.map fun sd =>

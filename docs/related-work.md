@@ -177,7 +177,10 @@ Generates certified ZK proofs from Sigma-protocol specifications. Closest histor
 Verified C compiler in Coq. Structural ancestor of the verified-compiler tradition Heyting belongs to. *(training data — verify DOI before citing)*
 
 ### Abate et al. — Trinitary Compiler Correctness
-The `PresReflPass` / `TPσ ↔ CC~ ↔ TPτ` framework in `Heyting/Core/TrinitaryCC.lean` is based on this work on compositional compiler correctness, back-translation, and full abstraction. *(cite whatever the actual Abate et al. paper is in the repo's references)*
+Trace-relating compiler correctness is relevant background for witness-relational
+preservation/reflection. The active interface is `Heyting/Core/Pass.lean`; the
+standalone trinitary reformulation is no longer part of the implementation.
+Verify the exact reference before using this research note in a paper.
 
 ---
 
@@ -235,7 +238,10 @@ Tabby [CITE] uses sketch-based program synthesis and SMT-based equivalence check
 Circom [CITE], ZoKrates [CITE], Noir, Snarky, and Leo are widely-used ZKP DSLs that compile to arithmetic circuits without machine-checked compiler correctness. The vulnerability disclosures motivating this line of work include under-constrained circuits in Tornado Cash (2019), Zcash (2019), Aztec (2022), and Noir (2022) [CITE QED²].
 
 **Compiler correctness frameworks.**
-Our `PresReflPass` is inspired by Abate et al.'s [CITE] trinitary compiler correctness framework (TPσ ↔ CC~ ↔ TPτ), instantiated in `Heyting/Core/TrinitaryCC.lean`. The verified-compiler tradition traces to CompCert [CITE], though our setting (field arithmetic, dependent-type intrinsic well-formedness) requires new proof techniques.
+Our `PresReflPass` composes program-indexed witness relations and existential
+preservation/reflection. Trace-relating compiler correctness and CompCert are
+relevant background [CITE]; verify attribution before publication. The independent
+trinitary reformulation is not part of the active compiler.
 
 ---
 
@@ -243,7 +249,7 @@ Our `PresReflPass` is inspired by Abate et al.'s [CITE] trinitary compiler corre
 
 1. **Clap-lean sorry audit**: before submission, run `grep -r "sorry" Clap/` on the repo and `#check_axioms` on their main theorems. If they are sorry-free with standard axioms, soften the comparison; if not, sharpen it.
 2. **Coglio et al. publication status**: the ePrint is labeled "preliminary report" (Aug 2023). Check if a full version appeared at a venue.
-3. **Abate et al. citation**: identify the exact paper(s) backing `TrinitaryCC.lean` and add proper DOI.
+3. **Abate et al. citation**: verify the relevant trace-relating correctness paper and DOI.
 4. **CompCert citation**: Leroy, "Formal Verification of a Realistic Compiler", CACM 2009. DOI: 10.1145/1538788.1538814.
 5. **Benchmark gap**: CPP reviewers will ask what circuits Heyting compiles end-to-end. Have at least one non-trivial example (e.g. a Poseidon round, IsZero gadget, or Merkle step) ready as an evaluation artefact.
 6. **"Formally verified" in Leo's title**: flag this explicitly in the paper — the name is aspirational, not descriptive of mechanized proofs.

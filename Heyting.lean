@@ -26,19 +26,14 @@ import Heyting.Dialects.ObjectResidualSemantics
 import Heyting.Dialects.ObjectCallSemantics
 import Heyting.Dialects.StructObjectPass
 import Heyting.Dialects.CallSemantics
-import Heyting.Dialects.FeltPass
 import Heyting.Dialects.R1CSLike
 import Heyting.Dialects.R1CSLikePass
 
-import Heyting.Languages.FlatIR
 import Heyting.Languages.R1CS
 
-import Heyting.Core.TrinitaryCC
 import Heyting.Core.WitnessCodec
 import Heyting.Core.WitnessSemantics
 
-import Heyting.Passes.FlatIRToR1CS
-import Heyting.Passes.FlatIRWitnessCodec
 import Heyting.Passes.Tactics
 import Heyting.Parsers.ASTAnalysis
 import Heyting.Passes.ASTToDialect

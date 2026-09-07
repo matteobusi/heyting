@@ -8,7 +8,7 @@ import Heyting.Dialects.Felt
 import Heyting.Dialects.ConstrainEq
 
 /-!
-# EraseCalls Pass (Phase 6)
+# Field-local Call erasure
 
 Syntax-only lowering from the concrete source dialect set
 
@@ -22,24 +22,24 @@ into the call-free target set
 [Felt, ConstrainEq]
 ```
 
-by hygienically inlining call targets. This file now contains executable,
+by hygienically inlining call targets. This file contains executable,
 well-founded inlining and certified function/module construction. Semantic
 correctness is proved in `CallSemantics.lean`.
 
 Why standalone rather than a generic `DialectPass`: the generic `FreshLowerOp`
 handler has no module access, but call inlining must read the callee body from
-the enclosing module. Until a module-aware pass abstraction is introduced,
-`eraseBody` takes the module explicitly.
+the enclosing module, so `eraseBody` takes the module explicitly.
 
-## Phase 6 status
+`CallErasure` supplies the residual-polymorphic implementation used by the frontend.
+This specialization is retained because active generic/object proofs depend on its
+freshening, certification, and field-local semantic lemmas.
 
-- completed: freshen callee locals without capture
-- completed: bind call arguments to callee parameters
-- completed: bind callee returns with an explicit target definition
-- completed: recursively erase nested calls without fuel
-- completed: prove recursive compute/constrain simulation
-- completed: certify erased `FuncDef` capability and SSA checks
-- completed: expose a partial call-aware module wrapper and composition adapter
+## Proof sketch
+
+Recursion decreases the topological callee index. Each expansion binds arguments,
+freshens callee locals, expands nested calls, and binds the return value. Capability
+and SSA checks certify the resulting function; `CallSemantics` proves agreement
+using the corresponding parameter, renaming, and caller-frame lemmas.
 -/
 
 namespace Dialect.CallPass

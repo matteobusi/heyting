@@ -7,9 +7,17 @@ Strong guarantee starts after successful AST lowering into typed
 compilation. Parser and AST-to-dialect lowering remain executable, partial, and
 unverified.
 
-For successful compilation and witness forwarding, whole-entry theorem relates
-original typed source semantics to exact emitted R1CS. No constraint is added
-or lost relative to that typed source observation.
+For a certified compilation artifact `A` of typed module `M` and selected entry `e`:
+
+```text
+A.forward(w) = Ok z
+  → (TypedSource.satisfies(M, e, w) ↔ R1CS.satisfies(A.target, z))
+```
+
+The target is the internal R1CS, before serialization. This is pointwise equivalence
+for successfully transported witnesses, not yet a whole-entry `PresReflPass`.
+It does not establish transport success for all satisfying source witnesses or
+reflection from every satisfying target assignment. See [AUDIT.md](AUDIT.md).
 
 ## Framework
 
@@ -32,7 +40,7 @@ typed [Call, StructObject, Oracle, Felt, ConstrainEq]
   → [StructObject, Felt, ConstrainEq]
   → StructObject erasure
   → [Felt, ConstrainEq]
-  → R1CSLike → FlatIR → R1CS
+  → R1CSLike → R1CS
 ```
 
 ### Oracle and Call prefix
@@ -49,7 +57,7 @@ needed object aliases, and allocation freshness.
 
 - `StructObjectPass.lowerBody_simulation`: object-aware and encoded leaf execution agree.
 - `StructObjectPass.lowerBody_canonical_iff`: canonical finite source specialization.
-- `R1CSLikePass`: leaf operations materialize into exact FlatIR semantics.
+- `R1CSLikePass`: leaf operations materialize into exact terminal dialect semantics.
 - `Pipeline.source_artifact_iff`: certified source artifact satisfaction equivalence.
 
 Object paths remain compile-time identities. Only `(path, member)` witness
@@ -69,13 +77,22 @@ Major results:
 - `generated_typed_source_r1cs_iff`: specialization to generated candidate
 - `typed_pipeline_readback`: forwarding reads back exact canonical finite source witness
 
-These constructive pointwise results supplement existential pass correctness
-and use standard axioms only.
+These constructive pointwise results use standard axioms only. Structural wrappers
+use lowering-defined stage predicates; direct interpreter correspondence comes from
+separate simulations. The complete chain of existential pass correctness with matching
+direct-source and terminal witness semantics is not yet packaged.
 
-### FlatIR backend
+### Direct terminal backend
 
-`Heyting/Passes/FlatIRToR1CS.lean` provides full `PresReflPass`, exact witness
-construction/readback, and two-constraint nonzero division encoding.
+`R1CSLike.CorrectPass` provides full direct `PresReflPass`: preservation uses
+constructed wires; reflection reads back any satisfying R1CS assignment.
+`compileWitness_satisfies_iff` additionally proves pointwise equivalence for
+the exact generated wire assignment. Constructive codec supplies exact readback.
+Division retains two constraints enforcing quotient and nonzero denominator;
+inverse retains three constraints including the zero-input case.
+
+The obsolete FlatIR backend is available in repository history, not in the source tree.
+The temporary compatibility adapter has also been removed.
 
 ## Witness generation
 

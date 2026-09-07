@@ -57,8 +57,7 @@ extends Pass S T where
   /--
   Reflection / soundness: compilation does not lose constraints.
 
-  This is CC~ (trace-relating compiler correctness) from Abate et al. (ESOP
-  2020), equivalent here to TPσ and TPτ.
+  The target witness is arbitrary; it need not be produced by a witness generator.
   -/
   reflection :
     ∀ (wt : Witness Vt Ft) (p : S.Program), T.satisfies wt (compile p) →
@@ -73,7 +72,11 @@ extends Pass S T, PreservingPass S T, ReflectingPass S T
 
 /-! ## Composition of ReflectingPass instances -/
 
-/-- Compose two ReflectingPass instances to get a ReflectingPass for composition. -/
+/-- Compose reflection through a shared intermediate language.
+
+Proof sketch: reflect the target witness through the second pass, then reflect
+the resulting intermediate witness through the first pass. The intermediate
+witness establishes the existentially composed relation. -/
 def ReflectingPass.compose
   {Vs Vm Vt : Type} {Fs Fm Ft : Type}
   [Field Fs] [Field Fm] [Field Ft]
@@ -91,12 +94,14 @@ def ReflectingPass.compose
 
 /-! ## Composition of PresReflPass instances -/
 
-/-- Compose two PresReflPass instances to get a PresReflPass for the composition.
-    
-    Given `S --[pass1]--> M --[pass2]--> T`, produces `S --[compose]--> T`.
-    
-    The composed witness relation chains through the intermediate witness:
-    `witnessRel_comp p ws wt := ∃ wm, witnessRel1 p ws wm ∧ witnessRel2 (compile1 p) wm wt`
+/-- Compose preservation and reflection through the same intermediate language.
+
+The witness relation existentially quantifies an intermediate witness related
+by both passes. The intermediate satisfaction predicate must agree exactly.
+
+Proof sketch: preservation applies the two local preservation laws in execution
+order; reflection applies the reflection laws in reverse order. In each case,
+retain the intermediate witness to prove the composed relation.
 -/
 def PresReflPass.compose
   {Vs Vm Vt : Type} {Fs Fm Ft : Type}
@@ -105,7 +110,7 @@ def PresReflPass.compose
   (pass1 : PresReflPass S M) (pass2 : PresReflPass M T) :
   PresReflPass S T where
   compile := pass2.compile ∘ pass1.compile
-  witnessRel p ws wt := 
+  witnessRel p ws wt :=
     ∃ wm, pass1.witnessRel p ws wm ∧ pass2.witnessRel (pass1.compile p) wm wt
   preservation := by
     intro ws p hs

@@ -50,8 +50,12 @@ def language (V : Type) (satisfies : Witness V F → Module Δ n F → Prop) :
 
 end ModuleStage
 
-/-- A partial, semantics-certified transformation between two static module
-stages. Correctness is required whenever `lower` succeeds. -/
+/-- A partial transformation with existential preservation and reflection.
+
+Correctness is conditional only on successful program lowering, not on successful
+witness transport. Reflection quantifies over every satisfying target state.
+The guarantee is relative to the supplied `ModuleStage.satisfies` predicates;
+an independently defined source semantics needs a separate correspondence theorem. -/
 structure StructuralPass {Δs Δt : DialectSet}
     (source : ModuleStage Δs n F) (target : ModuleStage Δt n F) where
   lower : Module Δs n F → Except String (Module Δt n F)

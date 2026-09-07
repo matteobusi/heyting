@@ -1,6 +1,5 @@
 import Heyting.Dialects.WitnessExecution
 import Heyting.Dialects.R1CSLikePass
-import Heyting.Languages.FlatIRChecked
 import Mathlib.Algebra.Field.ZMod
 import Mathlib.Tactic.NormNum.Prime
 
@@ -29,16 +28,18 @@ def nextOp : Oracle.Op Ctx F := .next 3
   | .error .oracleUnderflow => true
   | _ => false
 
-def unequal : FlatIR.Program F := [.assertEq 0 1]
-def unequalSeed : FlatIR.Witness F
+def unequal : List (Dialect.Stmt R1CSLike.Set Ctx F) :=
+  [.op R1CSLike.ix (.assertEq 0 1)]
+
+def unequalSeed : R1CSLike.Witness F
   | 0 => 2
   | 1 => 3
   | _ => 0
 
 -- Equality does not make transport partial; the independent checker rejects
 -- the resulting candidate.
-#guard match R1CSLikePass.materializeWitness unequal unequalSeed with
-  | .ok result => !FlatIRChecked.checkProgram result unequal
+#guard match R1CSLike.materializeBody unequal unequalSeed with
+  | .ok result => !R1CSLike.check result unequal
   | .error _ => false
 
 end Dialect.WitnessExecution.Tests

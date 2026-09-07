@@ -7,7 +7,7 @@ import Mathlib.Algebra.Field.Basic
 /-!
 # Composable Dialects — Core Encoding
 
-Phase 0 of the dialect re-architecture (`docs/ROADMAP.md`).
+Operation signatures, capabilities, and intrinsically indexed statement syntax.
 
 ## Key design choices
 
@@ -21,8 +21,8 @@ dispatch reduces by `simp` and `fin_cases` gives exact case splits in proofs.
 **Shared `VarId` / `LocalVar`.** All dialect ops live inside the same module
 skeleton, so all middle-layer passes share one variable-id type. Witness
 relations in middle-layer passes are near-equalities on shared variables.
-The heterogeneous (path × slot) → Nat → R1CS encoding lives only in the
-fixed bottom passes, which already exist and are proved.
+Object erasure assigns `(path, member)` observations to natural-number witness
+slots; terminal compilation then embeds locals into the R1CS variable namespace.
 -/
 
 namespace Dialect

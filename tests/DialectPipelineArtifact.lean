@@ -8,16 +8,20 @@ namespace Dialect.Pipeline.Tests
 
 abbrev F := ZMod 17
 
-def program : FlatIR.Program F := [.assignMul 4 0 1, .assertEq 4 3]
+def terminal : R1CSLike.Program F := .mk (γ := ⟨1, 0, 0⟩) [
+  .op ⟨0, by simp [R1CSLike.Set]⟩ (.assign (.mul 4 0 1)),
+  .op ⟨0, by simp [R1CSLike.Set]⟩ (.assertEq 4 3)
+]
 
 def artifact : EntryCompilationArtifact F := {
-  program
+  terminal
   numParams := 2
   computeParams := 2
   paramOffset := 0
   witnessSpan := 2
   numPublicInputs := 0
-  backend := FlatIRToR1CS.compilationArtifact F program
+  numPublicInputs_eq := rfl
+  backend := R1CSLike.compilationArtifact terminal
 }
 
 def satisfying : SourceWitness F := { inputs := [3, 4], objects := [0, 12] }

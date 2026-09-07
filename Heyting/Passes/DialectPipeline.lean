@@ -10,23 +10,40 @@ import Heyting.Dialects.StructObjectPass
 import Heyting.Dialects.WitnessExecution
 import Heyting.Dialects.TypedSourceSemantics
 import Heyting.Dialects.OracleErasure
-import Heyting.Passes.FlatIRToR1CS
-import Heyting.Passes.FlatIRWitnessCodec
-import Heyting.Languages.FlatIRChecked
 
 /-!
 # Executable dialect-native constraint pipeline
 
 ```text
-LLZK AST → [Call, StructObject, Felt, ConstrainEq] → call erasure
+LLZK AST → [Call, StructObject, Oracle, Felt, ConstrainEq]
+         → Oracle projection → [Call, StructObject, Felt, ConstrainEq] → Call erasure
          → [StructObject, Felt, ConstrainEq]
          → StructObject erasure → [Felt, ConstrainEq]
          → R1CSLike → R1CS
 ```
 
-The pipeline exposes failure from the still-partial call erasure boundary.
-Compute-side execution uses the typed witness source set, then materializes the
-same object-erased locals consumed by the constraint backend.
+The pipeline retains successful lowering equations in `TypedEntryCompilationArtifact`.
+Compute execution produces finite source observations once; transport then materializes
+the terminal locals and auxiliary wires.
+
+## Main results
+
+- `typed_source_artifact_iff`: direct typed-source satisfaction agrees with the
+  lowering-defined artifact predicate for canonical finite source witnesses.
+- `typed_source_r1cs_iff`: successful forwarding preserves and reflects satisfaction
+  for the particular source/target witness pair.
+- `typed_pipeline_readback`: successful forwarding recovers exact finite observations.
+
+## Proof sketch and scope
+
+Compose the Oracle/Call checker correspondence, the object-erasure simulation,
+the leaf materialization equivalence, and the terminal codec equivalence. Layout
+equalities in the artifact identify the exact programs and witnesses at each bridge.
+Successful forwarding supplies canonical lengths and the checked readback equation.
+
+This is not a whole-entry `PresReflPass`: arbitrary-target reflection and transport
+totality are not established here. Parsing, AST lowering, source-generation success,
+public-wire classification, and serialization remain outside the theorem.
 -/
 
 namespace Dialect.Pipeline
@@ -37,7 +54,7 @@ abbrev CallResidual : DialectSet :=
   [StructObject.sig, Felt.sig, ConstrainEq.sig]
 
 /-- Certified selected-entry lowering. Intermediate structural results remain
-attached to exact FlatIR program consumed by backend. -/
+attached to exact terminal dialect body consumed by backend. -/
 structure EntryLoweringArtifact {F : Type} [Field F] {n : Nat}
     (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n) where
   callErased : List (Stmt CallResidual
@@ -51,11 +68,14 @@ structure EntryLoweringArtifact {F : Type} [Field F] {n : Nat}
   objectFree : FuncDef CallPass.TargetSet n entry.val F .constraint
     (m.structs entry).members.length
   objectErasure : StructObjectPass.lowerFunc callFree = some objectFree
-  program : FlatIR.Program F
-  program_eq : program = R1CSLikePass.sourceToFlatProgram objectFree.body
+  terminal : List (Stmt R1CSLike.Set
+    ⟨n, entry.val, (m.structs entry).members.length⟩ F)
+  terminal_eq : terminal =
+    (R1CSLikePass.dialectPass F).lowerModuleBody objectFree.numParams objectFree.body
 
 namespace EntryLoweringArtifact
 
+/-- Size of the finite object-member witness region required by the expanded body. -/
 def witnessSpan {F : Type} [Field F] {n : Nat}
     {m : Module LLZK.DialectLowering.SourceSet n F} {entry : Fin n}
     (artifact : EntryLoweringArtifact m entry) : Nat :=
@@ -84,7 +104,6 @@ def lowerEntryCertified {F : Type} [Field F] {n : Nat}
           | some objectFree =>
               let pass := R1CSLikePass.dialectPass F
               let lowered := pass.lowerModuleBody objectFree.numParams objectFree.body
-              let program := R1CSLike.toFlatProgram lowered
               .ok {
                 callErased
                 callErasure := herase
@@ -92,13 +111,8 @@ def lowerEntryCertified {F : Type} [Field F] {n : Nat}
                 callCertification := hcall
                 objectFree
                 objectErasure := hobject
-                program
-                program_eq := by
-                  simpa [program, lowered, pass, DialectPass.lowerModuleBody,
-                    DialectPass.lowerBody, R1CSLikePass.dialectPass] using
-                    (R1CSLikePass.lowerBodyFresh_toFlatProgram (F := F)
-                      ((R1CSLikePass.dialectPass F).startFresh
-                        objectFree.numParams objectFree.body) objectFree.body)
+                terminal := lowered
+                terminal_eq := rfl
               }
 
 /-- Erase calls from the primary object-aware frontend module. -/
@@ -109,8 +123,7 @@ noncomputable def eraseCalls {F : Type} [Field F] {n : Nat}
   | some out => .ok out
   | none => .error "call erasure failed"
 
-/-- Typed frontend plus call erasure.  This is the Phase-11 executable
-boundary, including programs that still contain StructObject operations. -/
+/-- Typed frontend plus Call erasure, retaining StructObject operations. -/
 noncomputable def eraseCallsAST {F : Type} [Field F] [IntCast F]
     (ast : LLZK.Module) :
     Except String (Σ k, Module CallResidual (k + 1) F) := do
@@ -132,22 +145,13 @@ noncomputable def eraseStructuralAST {F : Type} [Field F] [IntCast F]
   let ⟨k, callFree⟩ ← eraseCallsAST (F := F) ast
   pure ⟨k, ← eraseObjects callFree⟩
 
-/-- Lower the selected constraint function to the exact FlatIR program consumed
-by the R1CS backend. The returned naturals are the original parameter count and
-the inserted encoded-witness span. -/
-def lowerEntryProgram {F : Type} [Field F] {n : Nat}
-    (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n) :
-    Except String (FlatIR.Program F × Nat × Nat) := do
-  let lowering ← lowerEntryCertified m entry
-  pure (lowering.program, lowering.callFree.numParams, lowering.witnessSpan)
-
 /-- Compile the constraint function selected as a module entry. -/
 def compileEntry {F : Type} [Field F] {n : Nat}
     (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n) :
     Except String (R1CS.System F) := do
-  let ⟨program, _, _⟩ ← lowerEntryProgram m entry
+  let lowering ← lowerEntryCertified m entry
   let numPublic := (m.structs entry).members.countP (·.isPublic)
-  pure (FlatIRToR1CS.compileProgram F program numPublic)
+  pure (R1CSLike.toR1CS lowering.terminal numPublic)
 
 /-- Finite source observables transported by compilation. Transient locals,
 call frames, object paths, allocation counters, and the oracle cursor are not
@@ -161,36 +165,42 @@ structure SourceWitness (F : Type) where
 module entry. Every layout decision needed by `forward` is stored beside the
 target program that introduced it. -/
 structure EntryCompilationArtifact (F : Type) [Field F] where
-  program : FlatIR.Program F
+  terminal : R1CSLike.Program F
   numParams : Nat
   computeParams : Nat
   paramOffset : Nat
   witnessSpan : Nat
   numPublicInputs : Nat
+  numPublicInputs_eq : terminal.numPublicInputs = numPublicInputs
   backend : WitnessCodec.CompilationArtifact
-    (FlatIR.Language F) (R1CS.Language F) program
+    (R1CSLike.Language F) (R1CS.Language F) terminal
 
 namespace EntryCompilationArtifact
 
+/-- Assemble the terminal codec and layout from a certified selected-entry lowering.
+The stored public-input count is metadata, not a proof of serializer wire visibility. -/
 def ofLowering {F : Type} [Field F] {n : Nat}
     (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n)
     (lowering : EntryLoweringArtifact m entry) : EntryCompilationArtifact F :=
   let numPublic := (m.structs entry).members.countP (·.isPublic)
   {
-    program := lowering.program
+    terminal := .mk lowering.terminal numPublic
     numParams := lowering.callFree.numParams
     computeParams := (m.structs entry).compute.numParams
     paramOffset := lowering.callFree.numParams - (m.structs entry).compute.numParams
     witnessSpan := lowering.witnessSpan
     numPublicInputs := numPublic
-    backend := FlatIRToR1CS.compilationArtifact F lowering.program numPublic
+    numPublicInputs_eq := rfl
+    backend := R1CSLike.compilationArtifact (.mk lowering.terminal numPublic)
   }
 
+/-- Exact internal R1CS owned by the artifact's backend codec. -/
 def target {F : Type} [Field F] (artifact : EntryCompilationArtifact F) : R1CS.System F :=
   artifact.backend.target
 
+/-- Place finite input and object observations in their canonical terminal local slots. -/
 def seed {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
-    (source : SourceWitness F) : FlatIR.Witness F :=
+    (source : SourceWitness F) : R1CSLike.Witness F :=
   StructObjectPass.seedCanonicalWitness artifact.numParams artifact.witnessSpan
     artifact.paramOffset source.inputs source.objects
 
@@ -198,23 +208,23 @@ def seed {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
 only malformed canonical lengths and backend-invalid division are failures. -/
 def materialize {F : Type} [Field F] [DecidableEq F]
     (artifact : EntryCompilationArtifact F) (source : SourceWitness F) :
-    Except String (FlatIR.Witness F) := do
+    Except String (R1CSLike.Witness F) :=
   if source.inputs.length != artifact.computeParams then
-    throw "canonical source witness has the wrong input length"
-  if source.objects.length != artifact.witnessSpan then
-    throw "canonical source witness has the wrong object span"
-  match R1CSLikePass.materializeWitness artifact.program (artifact.seed source) with
-  | .ok witness => pure witness
-  | .error fault => throw s!"dialect leaf transport: {fault.message}"
+    .error "canonical source witness has the wrong input length"
+  else if source.objects.length != artifact.witnessSpan then
+    .error "canonical source witness has the wrong object span"
+  else match artifact.terminal.materialize (artifact.seed source) with
+    | .ok witness => .ok witness
+    | .error fault => .error s!"dialect leaf transport: {fault}"
 
 def readback {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
     (target : R1CS.Witness F) : SourceWitness F :=
-  let flat := artifact.backend.readback target
+  let witness := artifact.backend.readback target
   {
     inputs := List.ofFn fun i : Fin artifact.computeParams =>
-      flat (artifact.paramOffset + i.val)
+      witness (artifact.paramOffset + i.val)
     objects := List.ofFn fun i : Fin artifact.witnessSpan =>
-      flat (artifact.numParams + i.val)
+      witness (artifact.numParams + i.val)
   }
 
 /-- Compose structural seeding, leaf materialization, and backend auxiliary
@@ -225,8 +235,8 @@ def forward {F : Type} [Field F] [DecidableEq F]
     Except String (R1CS.Witness F) :=
   match artifact.materialize source with
   | .error error => .error error
-  | .ok flat =>
-    match artifact.backend.forward flat with
+  | .ok witness =>
+    match artifact.backend.forward witness with
     | .error error => .error error
     | .ok target =>
       if artifact.readback target = source then .ok target
@@ -236,16 +246,21 @@ end EntryCompilationArtifact
 
 namespace Source
 
+/-- Artifact-relative satisfaction: materialization succeeds and the resulting
+terminal witness satisfies the terminal body. This is not a definition of direct
+typed-source semantics; `typed_source_artifact_iff` supplies that correspondence. -/
 def satisfies [Field F] [DecidableEq F] (source : SourceWitness F)
     (artifact : EntryCompilationArtifact F) : Prop :=
-  ∃ flat, artifact.materialize source = .ok flat ∧
-    FlatIR.satisfies flat artifact.program
+  ∃ witness, artifact.materialize source = .ok witness ∧
+    (R1CSLike.Language F).satisfies witness artifact.terminal
 
 end Source
 
-/-- Phase-14C boundary: direct object-aware constraint satisfaction equals
-Phase-13 artifact satisfaction whenever artifact records exact certified
-StructObject lowering and canonical finite layout. -/
+/-- Direct object-aware satisfaction agrees with artifact-relative satisfaction
+under exact lowering and layout equations and canonical input/object lengths.
+
+Proof sketch: specialize the object-to-terminal materialization theorem, then
+rewrite the artifact seed and materializer using the recorded layout equalities. -/
 theorem source_artifact_iff [Field F] [DecidableEq F]
     {n i numMembers : Nat}
     (fn : FuncDef StructObjectPass.SourceSet n i F .constraint numMembers)
@@ -258,8 +273,9 @@ theorem source_artifact_iff [Field F] [DecidableEq F]
     (hparamOffset : artifact.paramOffset = fn.numParams - computeParams)
     (hspan : artifact.witnessSpan = StructObjectPass.witnessSpan
       StructObjectPass.StaticState.initial.objects 0 fn.body)
-    (hprogram : artifact.program =
-      R1CSLikePass.sourceToFlatProgram objectFree.body)
+    (hterminal : artifact.terminal = .mk
+      ((R1CSLikePass.dialectPass F).lowerModuleBody objectFree.numParams objectFree.body)
+      artifact.numPublicInputs)
     (hinputs : source.inputs.length = computeParams)
     (hobjects : source.objects.length = artifact.witnessSpan) :
     (ObjectResidualSemantics.evalBody fn.body
@@ -279,37 +295,37 @@ theorem source_artifact_iff [Field F] [DecidableEq F]
     simp only [EntryCompilationArtifact.seed, hnumParams, hparamOffset, hspan]
   have hinputsArtifact : source.inputs.length = artifact.computeParams :=
     hinputs.trans hcomputeParams.symm
-  have hmaterialize : ∀ flat,
-      artifact.materialize source = .ok flat ↔
-        R1CSLikePass.materializeWitness
-          (R1CSLikePass.sourceToFlatProgram objectFree.body)
+  let terminalBody :=
+    (R1CSLikePass.dialectPass F).lowerModuleBody objectFree.numParams objectFree.body
+  have hmaterialize : ∀ witness,
+      artifact.materialize source = .ok witness ↔
+        R1CSLike.materializeBody terminalBody
           (StructObjectPass.seedCanonicalWitness fn.numParams
             (StructObjectPass.witnessSpan
               StructObjectPass.StaticState.initial.objects 0 fn.body)
-            (fn.numParams - computeParams) source.inputs source.objects) = .ok flat := by
-    intro flat
-    unfold EntryCompilationArtifact.materialize
-    simp only [hinputsArtifact, hobjects, bne_self_eq_false, hprogram, hseed]
-    cases R1CSLikePass.materializeWitness
-        (R1CSLikePass.sourceToFlatProgram objectFree.body)
-        (StructObjectPass.seedCanonicalWitness fn.numParams
-          (StructObjectPass.witnessSpan
-            StructObjectPass.StaticState.initial.objects 0 fn.body)
-          (fn.numParams - computeParams) source.inputs source.objects) with
-    | error fault =>
-        simp only [Bool.false_eq_true, if_false]
-        dsimp only [Except.instMonad, Except.pure, Except.bind,
-          instMonadExceptOfExcept]
-        constructor <;> intro h <;> cases h
-    | ok witness =>
-        simp only [Bool.false_eq_true, if_false]
-        dsimp only [Except.instMonad, Except.pure, Except.bind]
-        simp
+            (fn.numParams - computeParams) source.inputs source.objects) = .ok witness := by
+    intro witness
+    have hentry : artifact.materialize source = .ok witness ↔
+        artifact.terminal.materialize (artifact.seed source) = .ok witness := by
+      have hdef : artifact.materialize source =
+          match artifact.terminal.materialize (artifact.seed source) with
+          | .ok result => .ok result
+          | .error fault => .error s!"dialect leaf transport: {fault}" := by
+        simp [EntryCompilationArtifact.materialize, hinputsArtifact, hobjects]
+      rw [hdef]
+      cases artifact.terminal.materialize (artifact.seed source) <;> simp
+    rw [hentry, hterminal]
+    change R1CSLike.materializeBody terminalBody (artifact.seed source) = .ok witness ↔ _
+    rw [hseed]
   constructor
-  · rintro ⟨flat, hflat, hsatisfies⟩
-    exact ⟨flat, (hmaterialize flat).mpr hflat, by simpa [hprogram] using hsatisfies⟩
-  · rintro ⟨flat, hflat, hsatisfies⟩
-    exact ⟨flat, (hmaterialize flat).mp hflat, by simpa [hprogram] using hsatisfies⟩
+  · rintro ⟨witness, hwitness, hsatisfies⟩
+    refine ⟨witness, (hmaterialize witness).mpr hwitness, ?_⟩
+    rw [hterminal]
+    exact hsatisfies
+  · rintro ⟨witness, hwitness, hsatisfies⟩
+    refine ⟨witness, (hmaterialize witness).mp hwitness, ?_⟩
+    rw [hterminal] at hsatisfies
+    exact hsatisfies
 
 /-- Check finite canonical observables against the original typed module,
 before Oracle, Call, or StructObject erasure. -/
@@ -394,20 +410,15 @@ def CanonicalSource {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
 set_option linter.flexible false in
 theorem canonicalSource_of_materialize [Field F] [DecidableEq F]
     (artifact : EntryCompilationArtifact F) (source : SourceWitness F)
-    (flat : FlatIR.Witness F) (hmaterialize : artifact.materialize source = .ok flat) :
+    (witness : R1CSLike.Witness F)
+    (hmaterialize : artifact.materialize source = .ok witness) :
     artifact.CanonicalSource source := by
   unfold CanonicalSource
   by_cases hinputs : source.inputs.length = artifact.computeParams
   · by_cases hobjects : source.objects.length = artifact.witnessSpan
     · exact ⟨hinputs, hobjects⟩
     · simp [materialize, hinputs, hobjects] at hmaterialize
-      dsimp only [Except.instMonad, Except.pure, Except.bind,
-        instMonadExceptOfExcept] at hmaterialize
-      cases hmaterialize
   · simp [materialize, hinputs] at hmaterialize
-    dsimp only [Except.instMonad, Except.pure, Except.bind,
-      instMonadExceptOfExcept] at hmaterialize
-    cases hmaterialize
 
 theorem canonicalSource_of_forward [Field F] [DecidableEq F]
     (artifact : EntryCompilationArtifact F) (source : SourceWitness F)
@@ -420,8 +431,12 @@ theorem canonicalSource_of_forward [Field F] [DecidableEq F]
 
 end EntryCompilationArtifact
 
-/-- Whole typed-source observation equals canonical artifact observation by
-ordinary composition of Oracle, Call, StructObject, and leaf certificates. -/
+/-- Direct typed-source satisfaction agrees with artifact-relative satisfaction
+for canonical finite source witnesses and the exact certified compilation artifact.
+
+Proof sketch: use Call certification to identify function fields, the terminal
+equation to identify the leaf body, and `source_artifact_iff` for the object/leaf
+bridge. Compose with `structuralPrefix_satisfies_iff` for Oracle and Call. -/
 theorem typed_source_artifact_iff [Field F] [DecidableEq F] {n : Nat}
     (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
     (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry)
@@ -433,10 +448,17 @@ theorem typed_source_artifact_iff [Field F] [DecidableEq F] {n : Nat}
     (compiled.projected.structs entry).constrain
     compiled.lowering.callErased.1 compiled.lowering.callFree
     compiled.lowering.callCertification
+  have hterminal : compiled.artifact.terminal = .mk
+      ((R1CSLikePass.dialectPass F).lowerModuleBody
+        compiled.lowering.objectFree.numParams compiled.lowering.objectFree.body)
+      compiled.artifact.numPublicInputs := by
+    change R1CSLike.Program.mk compiled.lowering.terminal _ = _
+    rw [compiled.lowering.terminal_eq]
+    rfl
   have hobject := source_artifact_iff compiled.lowering.callFree
     compiled.lowering.objectFree compiled.lowering.objectErasure
     (compiled.projected.structs entry).compute.numParams compiled.artifact source
-    rfl rfl rfl rfl compiled.lowering.program_eq hcanonical.1 hcanonical.2
+    rfl rfl rfl rfl hterminal hcanonical.1 hcanonical.2
   rw [hcall.1, hcall.2.1] at hobject
   have hprefix := ObjectCallSemantics.structuralPrefix_satisfies_iff
     module entry compiled.prefixCertificate source.inputs source.objects
@@ -485,7 +507,7 @@ def checkSource [Field F] [DecidableEq F]
     (artifact : EntryCompilationArtifact F) (source : SourceWitness F) : Bool :=
   match artifact.materialize source with
   | .error _ => false
-  | .ok flat => FlatIRChecked.checkProgram flat artifact.program
+  | .ok witness => artifact.terminal.check witness
 
 theorem checkSource_true_iff [Field F] [DecidableEq F]
     (artifact : EntryCompilationArtifact F) (source : SourceWitness F) :
@@ -493,9 +515,9 @@ theorem checkSource_true_iff [Field F] [DecidableEq F]
   unfold checkSource Source.satisfies
   cases hmaterialize : artifact.materialize source with
   | error error => simp
-  | ok flat =>
+  | ok witness =>
     simpa [hmaterialize] using
-      (FlatIRChecked.checkProgram_true_iff_satisfies flat artifact.program)
+      (R1CSLike.Program.check_true_iff artifact.terminal witness)
 
 /-- Executable direct source checker and erased artifact checker agree on every
 canonical source witness for a certified whole-entry compilation. -/
@@ -520,7 +542,10 @@ theorem generated_typed_source_check_eq_artifact [Field F] [DecidableEq F]
   typed_source_check_eq_artifact module entry compiled source
     (generateSourceWitness_canonical module compiled.artifact inputs oracle source hgen)
 
-/-- Whole executable constraint-pipeline pointwise correctness. -/
+/-- Successful forwarding preserves the truth value of artifact satisfaction.
+
+Proof sketch: invert the two successful transport steps and use the backend's
+pointwise codec law. This does not quantify over arbitrary target witnesses. -/
 theorem pipeline_witness_iff [Field F]
     [DecidableEq F] (artifact : EntryCompilationArtifact F) (source : SourceWitness F)
     (target : R1CS.Witness F) (hforward : artifact.forward source = .ok target) :
@@ -529,8 +554,8 @@ theorem pipeline_witness_iff [Field F]
   cases hmaterialize : artifact.materialize source with
   | error error =>
     simp [EntryCompilationArtifact.forward, hmaterialize] at hforward
-  | ok flat =>
-    cases hbackend : artifact.backend.forward flat with
+  | ok witness =>
+    cases hbackend : artifact.backend.forward witness with
     | error error =>
       simp [EntryCompilationArtifact.forward, hmaterialize, hbackend] at hforward
     | ok compiled =>
@@ -543,12 +568,16 @@ theorem pipeline_witness_iff [Field F]
       next hroundtrip =>
         have htarget : compiled = target := Except.ok.inj hforward'
         subst target
-        simpa [Source.satisfies, hmaterialize] using
-          (artifact.backend.satisfies_iff flat compiled hbackend)
+        have hcodec := artifact.backend.satisfies_iff witness compiled hbackend
+        simpa [Source.satisfies, hmaterialize] using hcodec
       next => simp at hforward'
 
-/-- Final pointwise compiler theorem from original typed module to exact R1CS
-stored in successful whole-entry compilation artifact. -/
+/-- Direct typed-source satisfaction iff satisfaction of the exact internal R1CS,
+for a successfully forwarded witness pair.
+
+Proof sketch: successful forwarding implies canonical source lengths. Compose
+`typed_source_artifact_iff` with `pipeline_witness_iff`. Neither arbitrary-target
+reflection nor success of forwarding for all satisfying sources is asserted. -/
 theorem typed_source_r1cs_iff [Field F] [DecidableEq F] {n : Nat}
     (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
     (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry)
@@ -561,7 +590,11 @@ theorem typed_source_r1cs_iff [Field F] [DecidableEq F] {n : Nat}
   exact (typed_source_artifact_iff module entry compiled source hcanonical).trans
     (pipeline_witness_iff compiled.artifact source target hforward)
 
-/-- Generated-source specialization of whole typed-source correctness. -/
+/-- Pointwise equivalence for a generated candidate after successful forwarding.
+
+The generation premise records provenance but is not needed by the proof, which
+applies `typed_source_r1cs_iff`. In particular, generation alone does not imply
+source satisfaction or successful transport. -/
 theorem generated_typed_source_r1cs_iff [Field F] [DecidableEq F] {k : Nat}
     (module : Module LLZK.DialectLowering.WitnessSourceSet (k + 1) F)
     (entry : Fin (k + 1)) (compiled : TypedEntryCompilationArtifact module entry)
@@ -584,6 +617,9 @@ theorem generated_witness_iff [Field F] [DecidableEq F] {k : Nat}
       R1CS.satisfies target artifact.target :=
   pipeline_witness_iff artifact source target hforward
 
+/-- Successful forwarding recovers the exact finite source observation.
+
+Proof sketch: invert forwarding and extract its final readback equality check. -/
 theorem pipeline_readback [Field F]
     [DecidableEq F] (artifact : EntryCompilationArtifact F) (source : SourceWitness F)
     (target : R1CS.Witness F) (hforward : artifact.forward source = .ok target) :
@@ -591,8 +627,8 @@ theorem pipeline_readback [Field F]
   cases hmaterialize : artifact.materialize source with
   | error error =>
     simp [EntryCompilationArtifact.forward, hmaterialize] at hforward
-  | ok flat =>
-    cases hbackend : artifact.backend.forward flat with
+  | ok witness =>
+    cases hbackend : artifact.backend.forward witness with
     | error error =>
       simp [EntryCompilationArtifact.forward, hmaterialize, hbackend] at hforward
     | ok compiled =>

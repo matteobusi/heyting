@@ -8,7 +8,11 @@
 
 **Plan status:** complete
 
-**Current point:** Phase 15 complete — legacy infrastructure extracted
+**Current point:** Phase 16 complete — direct terminal backend; obsolete source cleanup applied.
+
+This file is migration history, not the current proof contract. Compatibility modules
+mentioned below have been removed. See [AUDIT.md](AUDIT.md) and [GUARANTEES.md](GUARANTEES.md)
+for current boundaries and the remaining whole-entry composition obligation.
 
 ## Ground rules
 
@@ -1507,6 +1511,88 @@ Result:
 - Frontend no longer depends on StructIR lowering for shared AST analysis.
 - Integration suite exercises nested compute/constrain calls, object storage,
   public members, every Felt operation, two Oracle reads, and negative checking.
+
+---
+
+## Phase 16 — Terminal R1CS dialect `[done]`
+
+Goal: replace FlatIR as active leaf-to-R1CS translation boundary without
+changing target constraints, witness layout, or existing correctness claims.
+`R1CS.System` remains backend artifact, not a general `Dialect.Module`:
+constraint collection and global wire names are terminal backend concerns.
+
+### Phase 16A — direct operation encoding `[done]`
+
+Files: `Dialects/R1CSLike.lean`.
+
+1. Define direct R1CS constraint encoding for every R1CSLike operation.
+2. Define recursive direct terminal-body compilation, with no FlatIR program.
+3. Prove operation and full-system equality with existing
+   `R1CSLike → FlatIR → R1CS` route.
+4. Rewrite existing R1CSLike preservation/reflection wrappers through equality.
+
+Result at this checkpoint: `R1CSLike.toR1CS` produces R1CS directly. FlatIR
+supplied compatibility proofs until Phase 16D moved active proofs to native semantics.
+
+### Phase 16B — direct witness codec `[done]`
+
+1. Move R1CS auxiliary witness construction/readback behind terminal dialect
+   API, preserving exact `varOne`, `aux`, and `auxIsZero` layout.
+2. Prove direct codec equals FlatIR codec pointwise.
+3. State direct R1CSLike witness preservation/reflection without a FlatIR
+   witness in public result.
+
+Result:
+
+- Added terminal `R1CSLike.Program`, terminal local `Witness`, direct
+  `compileWitness`, and direct `readback`.
+- Added a total `WitnessCodec.CompilationArtifact` and
+  `WitnessTransportingPass` from terminal R1CSLike programs to R1CS.
+- Proved exact pointwise equality to existing FlatIR wire codec and exact
+  terminal/R1CS satisfaction equivalence for every direct wire assignment.
+- Added terminal-codec regression checks. FlatIR remained internal
+  compatibility observation until artifact switch.
+
+### Phase 16C — artifact and pipeline switch `[done]`
+
+1. Store terminal R1CSLike body and direct target in entry artifact.
+2. Replace artifact backend construction with direct codec.
+3. Keep FlatIR target as differential assertion, proved equal.
+4. Switch CLI artifact target after full differential validation.
+
+Result:
+
+- `EntryLoweringArtifact` initially stored terminal R1CSLike body beside FlatIR
+  observation and target equality. Phase 16D removed that temporary observation.
+- `EntryCompilationArtifact` stores terminal program and direct R1CSLike
+  constructive codec; `target`, `forward`, and `readback` now use it.
+- CLI entry compilation targets terminal R1CSLike directly.
+- Source-facing correctness theorems compose through direct codec. Temporary
+  FlatIR materialization/checking observation was removed in Phase 16D.
+
+### Phase 16D — retire adapter `[done]`
+
+Remove FlatIR from active compiler imports only after direct compilation,
+codec, pipeline theorem, CLI/smoke fixtures, zero-sorry audit, and axiom audit
+all pass. Retain FlatIR on `legacy-infrastructure` and, if useful, isolated
+backend regression tests.
+
+Completed 2026-09-07:
+
+- Terminal dialect owns direct materialization, satisfaction, executable
+  checking, constraint encoding, witness construction, and readback.
+- `R1CSLike.CorrectPass` proves full preservation/reflection. Reflection applies
+  to arbitrary satisfying R1CS witnesses, beyond constructed codec outputs.
+- Leaf materialization and whole-entry proofs now use native terminal semantics.
+- Entry artifacts no longer store FlatIR programs or compatibility equations.
+- Active library and CLI import closures exclude FlatIR and StructIR. New
+  `scripts/check_active_imports.py` enforces this boundary inside CLI smoke gate.
+- `R1CSLikeFlatCompat` isolates exact target, satisfaction, and wire-codec
+  equivalence with retained FlatIR backend for regression testing.
+- Verification: `lake build`, `lake build hey`, all 16 Lean test files, all 14
+  smoke stages including 10 LLZK fixtures and snarkjs witness validation passed.
+  Zero-sorry audit passed; direct backend and whole-pipeline theorem audits use
+  only `propext`, `Classical.choice`, and `Quot.sound`. Graph refreshed.
 
 ---
 

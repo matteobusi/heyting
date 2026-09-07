@@ -9,7 +9,7 @@ LLZK text
   → Module [Call, StructObject, Felt, ConstrainEq]
   → Module [StructObject, Felt, ConstrainEq]
   → Module [Felt, ConstrainEq]
-  → R1CSLike → FlatIR → R1CS
+  → R1CSLike → R1CS
 ```
 
 Proof-bearing languages and passes are generic over `F : Type [Field F]`.
@@ -62,26 +62,20 @@ paths never become field values.
 Files: `Felt.lean`, `ConstrainEq.lean`, `R1CSLikePass.lean`.
 
 Felt supplies arithmetic assignments. ConstrainEq supplies Boolean equality
-observation. Leaf materialization builds exact FlatIR program and witness locals.
+observation. Leaf pass produces terminal R1CSLike body and materializes its locals.
 Zero-divisor backend validity is explicit.
 
 ## R1CSLike
 
 Files: `R1CSLike.lean`, `R1CSLikePass.lean`.
 
-Call/object-free constraint dialect mirrors backend instructions. It isolates
-dialect semantics from FlatIR representation and supports pass-local proof.
-
-## FlatIR
-
-File: `Heyting/Languages/FlatIR.lean`.
-
-Flat instructions over natural variable IDs: add, sub, mul, div, neg, const,
-assert equality. No calls, objects, or Oracle.
+Call/object-free constraint dialect owns direct R1CS constraint encoding,
+witness construction/readback, materialization, satisfaction, and checking.
+`CorrectPass` supplies preservation/reflection independently of compatibility IRs.
 
 ## R1CS
 
-Files: `Heyting/Languages/R1CS.lean`, `Heyting/Passes/FlatIRToR1CS.lean`.
+Files: `Heyting/Languages/R1CS.lean`, `Heyting/Dialects/R1CSLike.lean`.
 
 Constraints have `A * B = C`. Variable IDs distinguish constant one, ordinary
 wires, auxiliaries. Backend is full `PresReflPass`; division emits relation plus
@@ -90,7 +84,7 @@ inverse/nonzero constraint.
 ## Source witness and artifact
 
 Files: `WitnessSemantics.lean`, `WitnessCodec.lean`,
-`FlatIRWitnessCodec.lean`, `DialectPipeline.lean`.
+`R1CSLike.lean`, `DialectPipeline.lean`.
 
 Compute execution projects transient state to finite source witness containing
 inputs and reachable object coordinates. `TypedEntryCompilationArtifact`

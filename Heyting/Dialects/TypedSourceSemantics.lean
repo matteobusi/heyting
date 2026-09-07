@@ -9,11 +9,16 @@ import Heyting.Core.VarIdEncoding
 # Direct typed-source constraint semantics
 
 This file interprets `[Call, StructObject, Oracle, Felt, ConstrainEq]` directly.
-It does not invoke Oracle projection, call expansion, object erasure, FlatIR
+It does not invoke Oracle projection, Call expansion, object erasure, terminal
 lowering, or a compilation artifact.
 
 `Call` is the only structural case. The residual leaf semantics is assembled
 separately over one statically selected `StructObject.State`.
+
+This is the independent source predicate used by the whole-entry theorem.
+It is a specification of the supported typed fragment, not a proved semantics
+for arbitrary LLZK text. Arithmetic checking includes nonzero-divisor validity;
+Oracle operations are excluded from certified constraint bodies by capabilities.
 -/
 
 namespace Dialect.TypedSourceSemantics

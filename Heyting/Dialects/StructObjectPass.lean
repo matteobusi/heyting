@@ -21,6 +21,20 @@ its destination to a dedicated initial witness local identified by the
 bijection `VarIdEncoding.encode (path, member)`. Existing non-parameter SSA
 locals are shifted above that witness range, so the two namespaces cannot
 collide. No object identity is represented by a field value.
+
+## Main results and proof sketch
+
+`lowerBody_simulation` relates object-aware evaluation to encoded leaf evaluation.
+Induction over the body tracks object paths, aliases, and agreement of field locals.
+Member reads select encoded witness slots; arithmetic preserves agreement under
+renaming. `lowerBody_canonical_iff` specializes the simulation to finite inputs and
+object observations. `R1CSLikePass.source_materialize_iff` connects this boundary
+to terminal witness materialization.
+
+The packaged `structuralPass` uses `sourceStage`, whose satisfaction is defined by
+successful lowering and a related satisfying target state. Its reflection law
+decodes a target state. Do not confuse that elaboration-defined predicate with
+direct source execution: the simulation theorems provide the independent bridge.
 -/
 
 namespace Dialect.StructObjectPass
@@ -138,7 +152,7 @@ def lowerBody {n i numMembers : Nat} {F : Type}
 /-! ## Direct StructObject lowering semantics -/
 
 /-- Constraint semantics at object-erasure target, including backend validity
-for division. This mirrors exact FlatIR observation used by Phase 13. -/
+for division, as required by the terminal constraint semantics. -/
 def evalTargetStmt [Field F] {ctx : OpCtx} :
     Stmt TargetSet ctx F → (LocalVar → F) → (LocalVar → F) × Prop
   | .op ⟨0, _⟩ op, env =>
@@ -274,6 +288,12 @@ theorem capsLE_tail {ctx : OpCtx} {F : Type} {kind : Capability}
   exact (List.all_eq_true.mp hcap) stmt (by simp [hmem])
 
 set_option linter.flexible false in
+/-- Object erasure preserves constraint truth and the related final state for an
+SSA, constraint-capable body whose member observations fit in the witness span.
+
+Proof sketch: induct over the body with `LowerStateRel` as invariant. Object reads
+update aliases to encoded witness slots; arithmetic updates shifted locals; equality
+uses local agreement. The span bound separates witness parameters from fresh locals. -/
 theorem lowerBody_simulation [Field F]
     {n i numMembers numParams span : Nat}
     (body : List (Stmt SourceSet ⟨n, i, numMembers⟩ F))
@@ -798,8 +818,11 @@ theorem canonical_initial_rel [Field F]
   · intro v hv
     simp [hv]
 
-/-- Selected certified constraint body has identical direct object-aware and
-object-erased observations under canonical finite source data. -/
+/-- A certified constraint body has equivalent object-aware and erased observations
+under canonical finite source data.
+
+Proof sketch: establish the initial `LowerStateRel` for the canonical seed, then
+specialize `lowerBody_simulation` using the function's SSA and capability proofs. -/
 theorem lowerBody_canonical_iff [Field F]
     {n i numMembers : Nat}
     (fn : FuncDef SourceSet n i F .constraint numMembers)
@@ -849,8 +872,11 @@ def targetStage (n : Nat) (F : Type) [Field F] : ModuleStage TargetSet n F where
     evalFuncConstrain (CallSemantics.targetHandlers F) m
       (m.structs observation.1).constrain observation.2
 
-/-- Elaboration semantics for the object-bearing stage, indexed by the
-explicit source/target state relation. -/
+/-- Lowering-defined semantics for the object-bearing stage.
+
+This predicate asserts existence of a successfully lowered module and a related
+satisfying target observation. It is not the independent object interpreter;
+use `lowerBody_simulation` and its canonical specialization for that boundary. -/
 noncomputable def sourceStage (n : Nat) (F : Type) [Field F] :
     ModuleStage SourceSet n F where
   State := SourceObservation n F
@@ -891,8 +917,7 @@ noncomputable def structuralPass (n : Nat) (F : Type) [Field F] :
       have hrel : StateRel m source target := decodeSourceState_rel m target
       exact ⟨source, hrel, ⟨result, target, herase, hrel, hsatisfies⟩⟩
 
-/-- Phase-11 Call erasure specialized to the exact source stage expected by
-the Phase-12 object pass. -/
+/-- Call erasure specialized to the lowering-defined source stage of object erasure. -/
 noncomputable def callPass (n : Nat) (F : Type) [Field F] :
     EraseDialect Call.sig SourceSet
       (CallErasure.expandedSourceStage

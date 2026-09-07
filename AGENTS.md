@@ -41,11 +41,10 @@ Heyting/
     Oracle*.lean           -- nondeterministic input and constraint projection
     Felt*.lean             -- field operations and semantics
     ConstrainEq.lean       -- source equality constraints
-    R1CSLike*.lean         -- leaf constraint dialect and FlatIR adapter
+    R1CSLike*.lean         -- leaf constraint dialect and direct R1CS codec
     TypedSourceSemantics.lean
     WitnessExecution.lean
   Languages/
-    FlatIR.lean            -- backend instruction list
     R1CS.lean              -- rank-1 constraint systems
   Parsers/
     AST.lean               -- untyped LLZK AST
@@ -55,8 +54,6 @@ Heyting/
   Passes/
     ASTToDialect.lean      -- unverified typed frontend
     DialectPipeline.lean   -- active proof-carrying whole pipeline
-    FlatIRWitnessCodec.lean
-    FlatIRToR1CS.lean      -- verified backend pass
   Backends/                -- JSON, .r1cs, .wtns serializers
   CLI.lean / CLIArgs.lean
 tests/                     -- Lean unit tests and LLZK fixtures
@@ -77,7 +74,6 @@ LLZK text
   → StructObject erasure
   → [Felt, ConstrainEq]
   → R1CSLike
-  → FlatIR
   → R1CS
 ```
 
@@ -104,8 +100,11 @@ and exact R1CS target. Key results:
 - `generated_typed_source_r1cs_iff`
 - `typed_pipeline_readback`
 
-Guarantee begins at successfully typed dialect module. Parser and AST-to-dialect
-lowering remain executable but unverified.
+Guarantee begins at successfully typed dialect module and assumes successful witness
+forwarding. It is pointwise, not yet whole-entry arbitrary-target reflection.
+Structural wrappers use lowering-defined predicates; independent source semantics
+is connected by separate simulation theorems. See `docs/AUDIT.md`.
+Parser and AST-to-dialect lowering remain executable but unverified.
 
 ## Invariants
 
@@ -139,13 +138,22 @@ New structural dialect:
 - prove conditional preservation/reflection
 - define witness codec/readback if state contributes observables
 
-New FlatIR instruction:
+New terminal R1CSLike operation:
 
-- extend `FlatIRToR1CS.compileInstr`
-- prove preservation/reflection, usually with `r1cs_arith`
-- extend witness construction/readback
+- extend `R1CSLike.compileOp`, materializer, satisfaction, and checker
+- extend direct preservation/reflection and witness codec proofs
+
+Active library/CLI imports must exclude FlatIR and StructIR. Guard:
+`python3 scripts/check_active_imports.py` (also runs in smoke test).
 
 Use specific Mathlib imports. Lean style width 100. Search mathlib before proving.
+
+Source documentation follows Mathlib conventions: module docs after imports,
+declaration docstrings state the actual contract and hypotheses, theorem names
+describe the result, and nontrivial proofs include a high-level sketch. Group routine
+frame/renaming/SSA helper lemmas under documented invariants. Keep migration chronology
+out of source comments. Never describe a conditional codec as arbitrary-target reflection,
+or lowering-defined satisfaction as independent source semantics.
 
 ## Verification
 
@@ -153,7 +161,7 @@ Use specific Mathlib imports. Lean style width 100. Search mathlib before provin
 lake env lean path/to/File.lean
 lake build
 lake build hey
-/Users/mbusi/.codex/plugins/cache/lean4-skills/lean4/4.8.1/bin/lean4-skills-sorry-analyzer Heyting --report-only --format=summary
+/Users/mbusi/.codex/plugins/cache/lean4-skills/lean4/4.8.5/bin/lean4-skills-sorry-analyzer Heyting --report-only --format=summary
 ./tests/run_tests.sh
 ./scripts/smoke_cli.sh
 ```
@@ -164,6 +172,7 @@ Run `lean_verify <file> <theorem>` for changed major theorems. Expected axioms:
 ## Documentation
 
 - `docs/GUARANTEES.md`: exact proof boundary/status
+- `docs/AUDIT.md`: proof contracts, reading order, sketches, and open obligations
 - `docs/WARNING.md`: assumptions and limitations
 - `docs/languages.md`: language and pass semantics
 - `docs/ROADMAP.md`: future work

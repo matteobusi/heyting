@@ -10,12 +10,26 @@ compiler path:
 LLZK AST
   → typed dialect module
   → Oracle → Call → StructObject erasure
-  → Felt/ConstrainEq → R1CSLike → FlatIR → R1CS
+  → Felt/ConstrainEq → R1CSLike → R1CS
 ```
 
 Whole typed-entry artifact composes local correctness and proves
 typed-source/R1CS satisfaction equivalence after successful lowering and
 witness transport.
+
+Phase 16 completes terminal backend migration. Active artifacts own R1CSLike
+programs, direct materialization/checking, and direct R1CS codecs with full
+preservation/reflection. FlatIR and compatibility-only modules have been removed.
+
+## Priority 0 — complete the compositional correctness chain
+
+Align the intermediate languages, satisfaction predicates, and witness relations
+used by the existing structural, leaf, and terminal results. Connect lowering-defined
+structural stages to independent typed-source semantics. Package whole-entry
+preservation and reflection for arbitrary satisfying witnesses, conditional on
+successful program compilation. Separately prove constructive transport success
+under explicit supported-source hypotheses. Do not infer these from the current
+pointwise theorem's successful-forwarding premise. See [AUDIT.md](AUDIT.md).
 
 ## Priority 1 — verified frontend boundary
 

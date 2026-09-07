@@ -1758,7 +1758,7 @@ structure CallModuleConstraintPass (Δ' : DialectSet) (F : Type) [Field F] where
       evalFuncConstrain handlers' out (out.structs entry).constrain env ↔
         evalConstrainBody m entry (m.structs entry).constrain.body env
 
-/-- Certified Phase-6 call-erasure wrapper. -/
+/-- Field-local Call erasure with conditional module constraint equivalence. -/
 noncomputable def moduleConstraintPass : CallModuleConstraintPass TargetSet F where
   handlers' := targetHandlers F
   lowerModule := eraseModule

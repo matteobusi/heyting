@@ -9,11 +9,28 @@ import Heyting.Core.Semantics
 /-!
 # Generic Dialect Passes
 
-Phase-0 body-level macro-expansion theorem for dialect ops.
+Body- and module-level macro expansion for leaf dialect operations.
 
 A lowering maps each source op into a list of target statements. If each op's
 lowering simulates the source op in constrain and compute semantics, then
 lowering a whole body preserves constrain satisfaction and compute results.
+
+## Main results
+
+- `fresh_constrainBody` and `fresh_computeBody` lift per-operation simulations
+  to lists while threading a fresh-variable counter.
+- `DialectPass.lowerModule_entryConstrain_iff` lifts constraint equivalence to
+  intrinsically SSA-certified module entries.
+- `ModuleConstraintPass.compose` chains equivalences with matching middle handlers.
+
+## Proof sketch
+
+Induct on the source body. Split evaluation of the expanded head from the tail,
+apply the operation simulation, then apply the induction hypothesis. Agreement
+below the fresh counter ensures temporary locals cannot affect source reads.
+SSA and capability certificates allow the same construction inside `FuncDef`.
+These handler-based results do not themselves identify terminal R1CS witnesses;
+that bridge is proved in `R1CSLikePass`.
 -/
 
 namespace Dialect
@@ -576,6 +593,11 @@ theorem simple_computeBody
 
 /-! ## fresh macro-expansion theorem (body level) -/
 
+/-- Fresh-aware lowering preserves constraint evaluation when the initial counter
+bounds every source variable and the per-operation simulation holds.
+
+Proof sketch: split the expanded head from the tail, apply its simulation, and
+use agreement below the monotonically increasing counter to evaluate the tail. -/
 theorem fresh_constrainBody
     {Δ Δ' : DialectSet} {n n' : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)
@@ -617,6 +639,11 @@ theorem fresh_constrainBody
 set_option linter.flexible false in
 set_option linter.unusedSimpArgs false in
 set_option linter.style.longLine false in
+/-- Fresh-aware lowering preserves compute success/failure and, on success, the
+values of original locals below the initial fresh counter.
+
+Proof sketch: induct over the body, case-split on head and tail execution status,
+and compose agreement below the fresh counter in the successful branch. -/
 theorem fresh_computeBody
     {Δ Δ' : DialectSet} {n n' : Nat} {γ : OpCtx}
     (handlers : HandlerFamily Δ F)

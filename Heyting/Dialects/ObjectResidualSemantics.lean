@@ -10,7 +10,7 @@ import Heyting.Dialects.CallErasure
 Concrete constraint semantics for `[StructObject, Felt, ConstrainEq]`. The
 stage state is the standalone StructObject state: field locals, object paths,
 witness storage, and the allocation counter. This is the residual
-interpretation used by the Phase-11 structural Call certificate.
+interpretation used by the structural Call certificate.
 -/
 
 namespace Dialect.ObjectResidualSemantics
@@ -56,7 +56,7 @@ noncomputable def callStage (n : Nat) (F : Type) [Field F] :
   CallErasure.expandedSourceStage
     (CallErasure.objectFeltConstrainSyntax (F := F)) (stage n F)
 
-/-- Certified Phase-11 object-aware Call erasure. -/
+/-- Object-aware Call erasure with lowering-defined source semantics. -/
 noncomputable def eraseCallPass (n : Nat) (F : Type) [Field F] :
     EraseDialect Call.sig Set (callStage n F) (stage n F) :=
   CallErasure.structuralPass

@@ -29,15 +29,10 @@ indexed by wire index as defined by `WireAssignment`.
 
 ## Relationship to verification
 
-The witness array is the concrete representation of `R1CS.Witness F`.
-The key correctness property of this module is:
-
-  `witnessToArray wa w = witnessToArray wa w'  →  ∀ v, w v = w' v`
-
-i.e., distinct witnesses produce distinct arrays (injectivity on the domain
-`{varOne} ∪ {var n | n < wa.numRegVars} ∪ {aux n | n < wa.numAuxVars}`).
-
-This follows from `WireAssignment.encode_injective` (future theorem).
+The finite array observes only allocated wire slots, including inverse and is-zero
+auxiliaries. Equality of arrays cannot imply equality of the unbounded witness
+functions outside those slots. No serialization correctness theorem is provided here;
+the internal compiler theorem ends before wire numbering and JSON encoding.
 -/
 
 namespace WitnessJSON

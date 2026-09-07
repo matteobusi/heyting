@@ -26,16 +26,13 @@ index numRegVars+numAuxVars+1 ..                                   → auxIsZero
 
 Total wires = `1 + numRegVars + numAuxVars + numAuxIsZeroVars`.
 
-## Verifiability
+## Trust boundary
 
-The key pure-algebraic correctness property is:
-
-`encode` is injective — no two distinct `VarId`s receive the same index.
-
-Once proved, a serializer correctness theorem can be stated as:
-`R1CS.satisfies w sys ↔ evalColumnVector (toWitnessVector wa w) (toConstraintMatrix wa sys) = 0`
-
-Both are left as future theorem comments to document intent without obligating proofs now.
+Wire numbering is executable but not certified here. Any injectivity or round-trip
+statement must restrict each variable constructor to its allocated range. `encode`
+is not injective on arbitrary `VarId`: `.var wa.numRegVars` and `.aux 0` collide.
+Serializer correctness and public/private wire classification are separate obligations
+from the internal R1CS satisfaction theorem.
 -/
 
 namespace WireAssignment
@@ -92,12 +89,5 @@ def decode (wa : Sizes) (i : Nat) : Option R1CS.VarId :=
     some (.auxIsZero (i - 1 - wa.numRegVars - wa.numAuxVars))
   else
     none
-
--- Future theorem (encode is injective):
---   theorem encode_injective (wa : Sizes) : Function.Injective (encode wa) := ...
---
--- Future theorem (encode/decode are inverses within range):
---   theorem decode_encode (wa : Sizes) (v : R1CS.VarId)
---       (hv : encode wa v < wa.numWires) : decode wa (encode wa v) = some v := ...
 
 end WireAssignment

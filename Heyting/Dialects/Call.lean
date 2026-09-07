@@ -9,10 +9,10 @@ import Heyting.Core.ModuleSemantics
 
 Callable invocation syntax as ordinary dialect ops.
 
-Initial Phase-4 semantics policy:
+Supported callable policy:
 - `target : Fin γ.i` enforces topological calls to earlier callables.
 - `sel = 0` selects the target struct's existing compute/constrain body.
-- other selectors are reserved for Phase 3 first-class callable space.
+- other selectors are unsupported and rejected by erasure.
 -/
 
 namespace Dialect.Call
@@ -35,7 +35,7 @@ def cap : Op γ F → Capability
 def mapVars (ρ : LocalVar → LocalVar) : Op γ F → Op γ F
   | .call dst target sel args => .call (dst.map ρ) target sel (args.map ρ)
 
-/-- Initial selector policy: selector `0` chooses the existing compute/constrain body. -/
+/-- Selector `0` chooses the target struct's compute/constrain body. -/
 def selectorSupported (sel : Nat) : Bool := sel == 0
 
 /-- Bind call arguments into a callee-local environment. -/

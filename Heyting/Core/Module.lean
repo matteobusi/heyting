@@ -112,8 +112,8 @@ end Module
 
 `function.def @f(felts) → felt` at module level (outside any struct) is not
 yet a first-class type in this module structure, so AST lowering rejects free
-functions. Future callable model may replace homogeneous `structs` array with
-named callable space. Call selector field remains placeholder for this upgrade.
+functions. Each struct exposes only its compute/constrain pair; supported calls
+select that pair with selector zero.
 -/
 
 end Dialect

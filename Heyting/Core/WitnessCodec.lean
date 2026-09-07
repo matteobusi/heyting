@@ -7,9 +7,11 @@ import Heyting.Core.Pass
 /-!
 # Constructive witness codecs and compilation artifacts
 
-`PresReflPass` records existential equisatisfiability.  The CLI needs a
-stronger, constructive object: the exact target program and the exact witness
-codec for that program must be produced together.
+`PresReflPass` records existential preservation and reflection. The CLI also
+needs a constructive object: the exact target program and the witness codec
+for that program must be produced together. These are different contracts:
+an artifact proves pointwise equivalence after successful forwarding, but does
+not require forwarding to succeed or reflect arbitrary satisfying target witnesses.
 
 Artifacts operate only on canonical language witnesses. Transient interpreter
 state (locals, call frames, allocation counters, oracle cursors) is projected
@@ -57,8 +59,12 @@ def identity (source : S.Program) : CompilationArtifact S S source where
     subst wt
     rfl
 
-/-- Compose proof-carrying artifacts. The executable forward maps are composed
-with `Except.bind`; readback composes in the opposite direction. -/
+/-- Compose pointwise-correct artifacts with exactly matching middle language and program.
+
+Forward maps compose with `Except.bind`; readback composes in reverse order.
+Proof sketch: successful composed forwarding supplies an intermediate witness
+and two success equations. Chain the local equivalences and readback equalities.
+No totality or arbitrary-target reflection follows from this construction. -/
 def compose {source : S.Program}
     (first : CompilationArtifact S M source)
     (second : CompilationArtifact M T first.target) :

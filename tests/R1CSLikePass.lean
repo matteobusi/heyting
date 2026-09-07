@@ -40,9 +40,23 @@ def loweredModule : Module TargetSet 1 F :=
   (dialectPass F).lowerModule sourceModule
 
 #guard (loweredModule.structs entry).constrain.body.length == 3
-#guard (R1CSLike.toFlatProgram
+#guard (R1CSLike.compileConstraints
   (loweredModule.structs entry).constrain.body).length == 3
 #guard (compileEntryConstrain F loweredModule entry).constraints.length == 3
+
+/-- Terminal codec preserves satisfaction of the selected leaf body. -/
+example (w : R1CSLike.Witness F) :
+    R1CS.satisfies (R1CSLike.compileWitness w)
+        (R1CSLike.toR1CS (loweredModule.structs entry).constrain.body) ↔
+      R1CSLike.satisfies w (loweredModule.structs entry).constrain.body :=
+  R1CSLike.compileWitness_satisfies_iff w
+    (loweredModule.structs entry).constrain.body
+
+example (w : R1CSLike.Witness F) :
+    (R1CSLike.compilationArtifact
+      (.mk (loweredModule.structs entry).constrain.body)).readback
+        (R1CSLike.compileWitness w) = w :=
+  R1CSLike.readback_compileWitness w
 
 example (env : LocalVar → F) :
     evalFuncConstrain (targetHandlers F) loweredModule
@@ -52,3 +66,15 @@ example (env : LocalVar → F) :
   (moduleConstraintPass F).constrain_iff sourceModule entry env
 
 end Dialect.R1CSLikePass.Tests
+
+-- Reflection covers arbitrary target assignments, including unconstrained auxiliaries.
+example {F : Type} [Field F] (program : Dialect.R1CSLike.Program F)
+    (target : R1CS.Witness F)
+    (h : R1CS.satisfies target (Dialect.R1CSLike.compileProgram program)) :
+    ∃ source, (∀ v, target (.var v) = source v) ∧
+      (Dialect.R1CSLike.Language F).satisfies source program :=
+  (Dialect.R1CSLike.CorrectPass (F := F)).reflection target program h
+
+#print axioms Dialect.R1CSLike.CorrectPass
+#print axioms Dialect.R1CSLike.toR1CS_reflection
+#print axioms Dialect.R1CSLike.compileWitness_satisfies_iff

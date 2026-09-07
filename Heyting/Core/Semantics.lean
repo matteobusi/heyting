@@ -13,9 +13,8 @@ Per-dialect `DialectSem` handler interface, a family of handlers for a
 ## Design
 
 `DialectSem` bundles the two step functions (`constrainStep`,
-`computeStep`) with the laws needed by the T1 macro-expansion theorem:
-reads-congruence and dest-frame. Rename-commutation laws (needed for T2 and
-`EraseCalls` freshening proofs) are deferred to Phase 2.
+`computeStep`) with the reads-congruence and destination-frame laws needed by
+macro-expansion proofs. Call-specific renaming simulations live with the Call proofs.
 
 The body evaluators are structurally recursive on the statement list. Recursive
 constructs such as calls are handled by ordinary dialect semantics.

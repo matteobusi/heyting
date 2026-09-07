@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+python3 "$ROOT/scripts/check_active_imports.py"
 BIN="$ROOT/.lake/build/bin/hey"
 INPUT="$ROOT/scripts/multiply.llzk"
 OUT_BASE="${TMPDIR:-/tmp}/heyting-smoke"

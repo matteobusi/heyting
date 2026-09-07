@@ -14,15 +14,16 @@ import Heyting.Dialects.Oracle
 Typed frontend boundary for the dialect-native pipeline:
 
 ```text
-LLZK.Module → Dialect.Module [Call, StructObject, Felt, ConstrainEq]
+LLZK.Module → Dialect.Module [Call, StructObject, Oracle, Felt, ConstrainEq]
 ```
 
-Witness lowering uses a dedicated Oracle dialect.  The constraint projection
-explicitly erases oracle reads to zero because compute bodies do not contribute
-constraints; dialect witness execution consumes the preserved oracle stream.
+`lowerFull` retains Oracle reads for witness execution. `lower` offers an Oracle-free
+projection for constraint-only clients; the main pipeline uses explicit `OracleErasure`
+after full typed lowering instead.
 Functions are accepted only after executable capability and SSA checks provide
-the proofs required by `Dialect.FuncDef`. A separate call-compatible lowering
-temporarily rejects object operations for the current backend path.
+the proofs required by `Dialect.FuncDef`. These intrinsic certificates establish
+well-formedness of the result, not fidelity to the untyped AST or upstream LLZK semantics.
+Parsing, symbol/member resolution, and this translation remain unverified.
 -/
 
 namespace LLZK.DialectLowering
@@ -30,7 +31,7 @@ namespace LLZK.DialectLowering
 open Std Dialect
 open Dialect.CallPass
 
-/-- Object-aware frontend set. This is now the primary typed AST boundary. -/
+/-- Object-aware constraint projection without Oracle syntax. -/
 abbrev SourceSet : DialectSet :=
   [Call.sig, StructObject.sig, Felt.sig, ConstrainEq.sig]
 
@@ -38,23 +39,19 @@ abbrev SourceSet : DialectSet :=
 abbrev WitnessSourceSet : DialectSet :=
   [Call.sig, StructObject.sig, Oracle.sig, Felt.sig, ConstrainEq.sig]
 
-/-- Backend-compatible subset retained while struct-object erasure is pending. -/
-abbrev CallCompatibleSet := CallPass.SourceSet
-
 def callIx : Fin SourceSet.length := ⟨0, by simp [SourceSet]⟩
 def structIx : Fin SourceSet.length := ⟨1, by simp [SourceSet]⟩
 def feltIx : Fin SourceSet.length := ⟨2, by simp [SourceSet]⟩
 def constrainEqIx : Fin SourceSet.length := ⟨3, by simp [SourceSet]⟩
 
-/-- Embeddings used by the common AST traversal. Struct operations may be
-rejected by a compatibility builder without duplicating frontend logic. -/
+/-- Dialect embeddings shared by the full and Oracle-free AST traversals. -/
 structure Builder (Δ : DialectSet) where
   call : ∀ {γ : OpCtx} {F : Type}, Call.Op γ F → Dialect.Stmt Δ γ F
   felt : ∀ {γ : OpCtx} {F : Type}, Felt.Op γ F → Dialect.Stmt Δ γ F
   constrainEq : ∀ {γ : OpCtx} {F : Type},
     ConstrainEq.Op γ F → Dialect.Stmt Δ γ F
   structObject : ∀ {γ : OpCtx} {F : Type},
-    StructObject.Op γ F → Except String (Dialect.Stmt Δ γ F)
+    StructObject.Op γ F → Dialect.Stmt Δ γ F
   oracle : ∀ {γ : OpCtx} {F : Type} [OfNat F 0],
     Oracle.Op γ F → Dialect.Stmt Δ γ F
 
@@ -62,25 +59,16 @@ def fullBuilder : Builder SourceSet where
   call op := .op callIx op
   felt op := .op feltIx op
   constrainEq op := .op constrainEqIx op
-  structObject op := .ok (.op structIx op)
+  structObject op := .op structIx op
   oracle op := match op with
     | .next dest => .op feltIx (.const dest 0)
 
 def witnessBuilder : Builder WitnessSourceSet where
   call op := .op ⟨0, by simp [WitnessSourceSet]⟩ op
-  structObject op := .ok (.op ⟨1, by simp [WitnessSourceSet]⟩ op)
+  structObject op := .op ⟨1, by simp [WitnessSourceSet]⟩ op
   oracle op := .op ⟨2, by simp [WitnessSourceSet]⟩ op
   felt op := .op ⟨3, by simp [WitnessSourceSet]⟩ op
   constrainEq op := .op ⟨4, by simp [WitnessSourceSet]⟩ op
-
-def callCompatibleBuilder : Builder CallCompatibleSet where
-  call op := .op callSourceIx op
-  felt op := .op feltSourceIx op
-  constrainEq op := .op constrSourceIx op
-  structObject _ := .error
-    "struct-object erasure is not implemented for the backend-compatible source set"
-  oracle op := match op with
-    | .next dest => .op feltSourceIx (.const dest 0)
 
 private def lookupSSA (ssaMap : HashMap String Nat) (name : String) :
     Except String Nat :=
@@ -181,14 +169,14 @@ def lowerComputeBody {Δ : DialectSet} (builder : Builder Δ)
     | .constrainEq _ _ _ =>
       throw "constrain.eq is not valid in compute body"
     | .structNew _ dest _ =>
-      result := result ++ [← builder.structObject
+      result := result ++ [builder.structObject
         (.newStruct (← lookupSSA ssaMap dest))]
     | .readMember _ dest self member =>
-      result := result ++ [← builder.structObject
+      result := result ++ [builder.structObject
         (.readMember (← lookupSSA ssaMap dest) (← lookupSSA ssaMap self)
           (← lookupMember memberIndex numMembers member))]
     | .writeMember _ self member src =>
-      result := result ++ [← builder.structObject
+      result := result ++ [builder.structObject
         (.writeMember (← lookupSSA ssaMap self)
           (← lookupMember memberIndex numMembers member)
           (← lookupSSA ssaMap src))]
@@ -252,7 +240,7 @@ def lowerConstrainBody {Δ : DialectSet} (builder : Builder Δ)
     | .funcReturn _ (some _) =>
       throw "constrain function must not return a value"
     | .readMember _ dest self member =>
-      result := result ++ [← builder.structObject
+      result := result ++ [builder.structObject
         (.readMember (← lookupSSA ssaMap dest) (← lookupSSA ssaMap self)
           (← lookupMember memberIndex numMembers member))]
     | .structNew _ _ _ | .writeMember _ _ _ _ =>
@@ -371,21 +359,9 @@ def lower {F : Type} [Field F] [IntCast F] (m : LLZK.Module) :
     Except String (Σ k, Dialect.Module SourceSet (k + 1) F) :=
   lowerWith fullBuilder m
 
-/-- Typed compute-side lowering preserving nondeterministic reads as Oracle
-operations. -/
-def lowerWitness {F : Type} [Field F] [IntCast F] (m : LLZK.Module) :
-    Except String (Σ k, Dialect.Module WitnessSourceSet (k + 1) F) :=
-  lowerWith witnessBuilder m
-
 /-- Full typed frontend boundary used by the primary pipeline. -/
 def lowerFull {F : Type} [Field F] [IntCast F] (m : LLZK.Module) :
     Except String (Σ k, Dialect.Module WitnessSourceSet (k + 1) F) :=
-  lowerWitness (F := F) m
-
-/-- Temporary executable projection used by the current constraint backend.
-It traverses the same AST but rejects struct-object instructions precisely. -/
-def lowerCallCompatible {F : Type} [Field F] [IntCast F] (m : LLZK.Module) :
-    Except String (Σ k, Dialect.Module CallCompatibleSet (k + 1) F) :=
-  lowerWith callCompatibleBuilder m
+  lowerWith witnessBuilder m
 
 end LLZK.DialectLowering

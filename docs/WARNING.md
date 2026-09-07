@@ -59,6 +59,17 @@ Some macOS 15/Lake combinations reject Reservoir platform string during
 Lean proves internal R1CS semantics. JSON/binary serializers and snarkjs parsing
 are tested executable boundaries, not currently proved faithful byte encodings.
 
+## 11. Whole-entry reflection is not yet arbitrary-witness reflection
+
+`typed_source_r1cs_iff` assumes successful forwarding of a particular source witness.
+It does not cover every satisfying assignment an arbitrary prover could supply.
+The terminal pass has full reflection, but matching that law to independent source
+semantics across the whole executable entry remains a separate obligation.
+
+Wire encoding is only intended for allocated constructor ranges. Global injectivity
+over all natural-number-indexed `R1CS.VarId` values would be false. Public/private
+wire ordering and finite serialization must be audited separately.
+
 ## Archived issues
 
 Retired StructIR-specific assumptions and proofs live on branch

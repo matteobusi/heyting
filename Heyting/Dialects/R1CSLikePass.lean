@@ -12,73 +12,39 @@ import Heyting.Dialects.StructObjectPass
 One source operation becomes one target instruction. Consequently destinations,
 reads, capabilities, SSA structure, and semantic state threading are preserved
 exactly; no fresh locals are allocated.
+
+## Main results and proof sketch
+
+`dialectPass` proves handler-level equivalence by case analysis on source operations.
+`materialize_spec` and `materialize_satisfies_iff` relate sequential evaluation to
+a fixed terminal witness: SSA ensures later assignments cannot change earlier reads
+or destinations. `source_materialize_iff` combines this argument with certified
+object erasure and identifies the exact terminal body via `lowerModuleBody_eq_sourceToTargetBody`.
+
+The handler interpretation and terminal fixed-witness satisfaction are distinct.
+In particular, division validity is explicit in `evalSourceStmt` and materialization;
+the generic handler equivalence alone is not the entire R1CS correctness argument.
 -/
 
 namespace Dialect.R1CSLikePass
 
 open Dialect
 
-inductive WitnessError where
-  | divisionByZero (denominator : LocalVar)
-  deriving Repr, DecidableEq
-
-def WitnessError.message : WitnessError → String
-  | .divisionByZero v => s!"division by zero at local {v}"
-
-def writeWitness (w : FlatIR.Witness F) (dest : LocalVar) (value : F) :
-    FlatIR.Witness F :=
-  fun v => if v = dest then value else w v
-
-/-- Materialize one leaf assignment. Equality is deliberately observational:
-it remains a constraint and never turns witness transport into failure. -/
-def materializeStep [Field F] [DecidableEq F]
-    (w : FlatIR.Witness F) (instr : FlatIR.Instr F) :
-    Except WitnessError (FlatIR.Witness F) :=
-  match instr with
-  | .assignAdd dest a b => .ok (writeWitness w dest (w a + w b))
-  | .assignSub dest a b => .ok (writeWitness w dest (w a - w b))
-  | .assignMul dest a b => .ok (writeWitness w dest (w a * w b))
-  | .assignDiv dest a b =>
-      if w b = 0 then .error (.divisionByZero b)
-      else .ok (writeWitness w dest (w a * (w b)⁻¹))
-  | .assignNeg dest a => .ok (writeWitness w dest (-w a))
-  | .assignInv dest a => .ok (writeWitness w dest (w a)⁻¹)
-  | .assignConst dest c => .ok (writeWitness w dest c)
-  | .assertEq _ _ => .ok w
-
-/-- Execute all leaf assignments to produce the exact FlatIR witness consumed
-by the backend. Partiality is exactly the backend-invalid division case. -/
-def materializeWitness [Field F] [DecidableEq F]
-    (program : FlatIR.Program F) (initial : FlatIR.Witness F) :
-    Except WitnessError (FlatIR.Witness F) :=
-  program.foldlM (materializeStep (F := F)) initial
-
-@[simp] theorem materializeWitness_nil [Field F] [DecidableEq F]
-    (initial : FlatIR.Witness F) :
-    materializeWitness [] initial = .ok initial := rfl
-
-@[simp] theorem materializeWitness_cons [Field F] [DecidableEq F]
-    (instr : FlatIR.Instr F) (rest : FlatIR.Program F)
-    (initial : FlatIR.Witness F) :
-    materializeWitness (instr :: rest) initial =
-      (materializeStep initial instr).bind (materializeWitness rest) := rfl
-
 abbrev SourceSet := CallPass.TargetSet
 abbrev TargetSet := R1CSLike.Set
 
-/-! ## Constructive leaf correspondence -/
-
-/-- Direct flattening of object-erasure target syntax. -/
-def sourceToFlatInstr {ctx : OpCtx} : Stmt SourceSet ctx F → FlatIR.Instr F
-  | .op ⟨0, _⟩ op => R1CSLike.toFlatInstr (.assign op)
+/-- Package object-erasure target syntax in terminal R1CSLike dialect. -/
+def sourceToTargetStmt {ctx : OpCtx} :
+    Stmt SourceSet ctx F → Stmt TargetSet ctx F
+  | .op ⟨0, _⟩ op => .op R1CSLike.ix (.assign op)
   | .op ⟨1, _⟩ op =>
       match op with
-      | .eq left right => .assertEq left right
+      | .eq left right => .op R1CSLike.ix (.assertEq left right)
 
-def sourceToFlatProgram {ctx : OpCtx} :
-    List (Stmt SourceSet ctx F) → FlatIR.Program F
+def sourceToTargetBody {ctx : OpCtx} :
+    List (Stmt SourceSet ctx F) → List (Stmt TargetSet ctx F)
   | [] => []
-  | stmt :: rest => sourceToFlatInstr stmt :: sourceToFlatProgram rest
+  | stmt :: rest => sourceToTargetStmt stmt :: sourceToTargetBody rest
 
 def evalSourceStmt [Field F] {ctx : OpCtx} :
     Stmt SourceSet ctx F → (LocalVar → F) → (LocalVar → F) × Prop
@@ -100,43 +66,42 @@ def Preserves (defined : LocalVar → Bool)
     (before after : LocalVar → F) : Prop :=
   ∀ v, defined v = true → after v = before v
 
-/-- Exact leaf materialization contract. Error means backend-invalid direct
-observation; success yields precisely same satisfaction result and preserves
-all locals defined before body. -/
+/-- Exact direct leaf materialization contract. -/
 def MaterializeSpec [Field F] [DecidableEq F] {ctx : OpCtx}
     (defined : LocalVar → Bool) (body : List (Stmt SourceSet ctx F))
     (initial : LocalVar → F) : Prop :=
-  match materializeWitness (sourceToFlatProgram body) initial with
+  match R1CSLike.materializeBody (sourceToTargetBody body) initial with
   | .error _ => ¬ (evalSourceBody body initial).2
   | .ok final =>
-      (FlatIR.satisfies final (sourceToFlatProgram body) ↔
+      (R1CSLike.satisfies final (sourceToTargetBody body) ↔
         (evalSourceBody body initial).2) ∧
       Preserves defined initial final
 
-def FlatBodySpec [Field F] [DecidableEq F]
-    (defined : LocalVar → Bool) (program : FlatIR.Program F)
+def TargetBodySpec [Field F] [DecidableEq F] {ctx : OpCtx}
+    (defined : LocalVar → Bool) (body : List (Stmt TargetSet ctx F))
     (initial : LocalVar → F) (truth : Prop) : Prop :=
-  match materializeWitness program initial with
+  match R1CSLike.materializeBody body initial with
   | .error _ => ¬ truth
   | .ok final =>
-      (FlatIR.satisfies final program ↔ truth) ∧
+      (R1CSLike.satisfies final body ↔ truth) ∧
       Preserves defined initial final
 
-theorem flat_cons_of_ok [Field F] [DecidableEq F]
+theorem target_cons_of_ok [Field F] [DecidableEq F] {ctx : OpCtx}
     (defined extended : LocalVar → Bool)
-    (initial step : LocalVar → F) (instr : FlatIR.Instr F)
-    (program : FlatIR.Program F) (headTruth tailTruth : Prop)
-    (hstep : materializeStep initial instr = .ok step)
-    (htail : FlatBodySpec extended program step tailTruth)
+    (initial step : LocalVar → F) (op : R1CSLike.Op ctx F)
+    (body : List (Stmt TargetSet ctx F)) (headTruth tailTruth : Prop)
+    (hstep : R1CSLike.materializeOp initial op = .ok step)
+    (htail : TargetBodySpec extended body step tailTruth)
     (hhead : ∀ final, Preserves extended step final →
-      (FlatIR.satisfiesInstr final instr ↔ headTruth))
+      (R1CSLike.satisfiesOp final op ↔ headTruth))
     (hextend : ∀ v, defined v = true → extended v = true)
     (hstepPreserves : Preserves defined initial step) :
-    FlatBodySpec defined (instr :: program) initial (headTruth ∧ tailTruth) := by
-  unfold FlatBodySpec at htail ⊢
-  rw [materializeWitness_cons, hstep]
-  simp only [Except.bind]
-  cases hmaterialize : materializeWitness program step with
+    TargetBodySpec defined (.op R1CSLike.ix op :: body) initial
+      (headTruth ∧ tailTruth) := by
+  unfold TargetBodySpec at htail ⊢
+  rw [R1CSLike.materializeBody, R1CSLike.stmtOp_op, hstep]
+  dsimp only [Except.instMonad, Except.bind]
+  cases hmaterialize : R1CSLike.materializeBody body step with
   | error error =>
       rw [hmaterialize] at htail
       change ¬ tailTruth at htail
@@ -144,34 +109,26 @@ theorem flat_cons_of_ok [Field F] [DecidableEq F]
       exact fun h => htail h.2
   | ok final =>
       rw [hmaterialize] at htail
-      change (FlatIR.satisfies final program ↔ tailTruth) ∧
+      change (R1CSLike.satisfies final body ↔ tailTruth) ∧
         Preserves extended step final at htail
-      change (FlatIR.satisfies final (instr :: program) ↔
+      change (R1CSLike.satisfies final (.op R1CSLike.ix op :: body) ↔
           headTruth ∧ tailTruth) ∧ Preserves defined initial final
       constructor
-      · constructor
-        · intro hall
-          have hheadSat := hall instr (by simp)
-          have htailSat : FlatIR.satisfies final program := by
-            intro candidate hmem
-            exact hall candidate (by simp [hmem])
-          exact ⟨(hhead final htail.2).mp hheadSat, htail.1.mp htailSat⟩
-        · rintro ⟨hheadTruth, htailTruth⟩ candidate hmem
-          rcases List.mem_cons.mp hmem with rfl | hmem
-          · exact (hhead final htail.2).mpr hheadTruth
-          · exact htail.1.mpr htailTruth candidate hmem
+      · simp only [R1CSLike.satisfies, List.forall_mem_cons]
+        exact and_congr (hhead final htail.2) htail.1
       · intro v hv
         exact (htail.2 v (hextend v hv)).trans (hstepPreserves v hv)
 
-theorem flat_cons_of_error [Field F] [DecidableEq F]
+theorem target_cons_of_error [Field F] [DecidableEq F] {ctx : OpCtx}
     (defined : LocalVar → Bool) (initial : LocalVar → F)
-    (instr : FlatIR.Instr F) (program : FlatIR.Program F)
-    (headTruth tailTruth : Prop) (error : WitnessError)
-    (hstep : materializeStep initial instr = .error error)
+    (op : R1CSLike.Op ctx F) (body : List (Stmt TargetSet ctx F))
+    (headTruth tailTruth : Prop) (error : String)
+    (hstep : R1CSLike.materializeOp initial op = .error error)
     (hfalse : ¬ headTruth) :
-    FlatBodySpec defined (instr :: program) initial (headTruth ∧ tailTruth) := by
-  unfold FlatBodySpec
-  rw [materializeWitness_cons, hstep]
+    TargetBodySpec defined (.op R1CSLike.ix op :: body) initial
+      (headTruth ∧ tailTruth) := by
+  unfold TargetBodySpec
+  rw [R1CSLike.materializeBody, R1CSLike.stmtOp_op, hstep]
   change ¬ (headTruth ∧ tailTruth)
   exact fun h => hfalse h.1
 
@@ -192,7 +149,7 @@ theorem felt_head_satisfies_iff [Field F] {ctx : OpCtx}
     (hfresh : defined (Felt.destVar op) = false)
     (hpreserves : Preserves (fun v => defined v || v == Felt.destVar op)
       (Felt.applyOp op initial) final) :
-    FlatIR.satisfiesInstr final (R1CSLike.toFlatInstr (.assign op)) ↔
+    R1CSLike.satisfiesOp final (.assign op) ↔
       Felt.backendValid op initial := by
   have hdest : final (Felt.destVar op) = Felt.evalVal op initial := by
     rw [hpreserves (Felt.destVar op) (by simp), Felt.applyOp_at_dest]
@@ -209,37 +166,43 @@ theorem felt_head_satisfies_iff [Field F] {ctx : OpCtx}
   | add dest left right | sub dest left right | mul dest left right =>
       have hd := hdest
       simp only [Felt.destVar, Felt.evalVal] at hd
-      simp only [R1CSLike.toFlatInstr, FlatIR.satisfiesInstr, Felt.backendValid]
+      simp only [R1CSLike.satisfiesOp, Felt.backendValid]
       rw [hd, hread left (by simp [Felt.reads]),
         hread right (by simp [Felt.reads])]
       simp
   | div dest left right =>
       have hd := hdest
       simp only [Felt.destVar, Felt.evalVal] at hd
-      simp only [R1CSLike.toFlatInstr, FlatIR.satisfiesInstr, Felt.backendValid]
+      simp only [R1CSLike.satisfiesOp, Felt.backendValid]
       rw [hd, hread left (by simp [Felt.reads]),
         hread right (by simp [Felt.reads])]
       simp [div_eq_mul_inv]
   | neg dest source | inv dest source =>
       have hd := hdest
       simp only [Felt.destVar, Felt.evalVal] at hd
-      simp only [R1CSLike.toFlatInstr, FlatIR.satisfiesInstr, Felt.backendValid]
+      simp only [R1CSLike.satisfiesOp, Felt.backendValid]
       rw [hd, hread source (by simp [Felt.reads])]
       simp
   | const dest value =>
       have hd : final dest = value := by
         simpa [Felt.destVar, Felt.evalVal] using hdest
-      simpa [R1CSLike.toFlatInstr, FlatIR.satisfiesInstr,
-        Felt.backendValid] using hd
+      simpa [R1CSLike.satisfiesOp, Felt.backendValid] using hd
 
+/-- SSA body materialization satisfies `MaterializeSpec`: successful execution
+relates terminal satisfaction to source evaluation and preserves initially defined locals.
+
+Proof sketch: induct on the body and extend the defined-local predicate at assignments.
+SSA freshness and read validity let the tail preserve the head equation. Division by
+zero follows the fault branch rather than producing a satisfying terminal equation. -/
 theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
     (body : List (Stmt SourceSet ctx F)) (defined : LocalVar → Bool)
     (initial : LocalVar → F) (hssa : isSSA defined body = true) :
     MaterializeSpec defined body initial := by
   induction body generalizing defined initial with
   | nil =>
-      change (FlatIR.satisfies initial [] ↔ True) ∧ Preserves defined initial initial
-      exact ⟨by simp [FlatIR.satisfies], fun _ _ => rfl⟩
+      change (R1CSLike.satisfies initial [] ↔ True) ∧
+        Preserves defined initial initial
+      exact ⟨by simp [R1CSLike.satisfies], fun _ _ => rfl⟩
   | cons stmt rest ih =>
       cases stmt with
       | op d payload =>
@@ -262,7 +225,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           rw [hstmtDest] at hparts
           let extended := fun v => defined v || v == Felt.destVar payload
           let step := Felt.applyOp payload initial
-          have htail : FlatBodySpec extended (sourceToFlatProgram rest) step
+          have htail : TargetBodySpec extended (sourceToTargetBody rest) step
               (evalSourceBody rest step).2 := by
             simpa [MaterializeSpec] using ih extended step (by
               simpa [extended] using hparts.2)
@@ -280,88 +243,92 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           cases payload with
           | div dest left right =>
               by_cases hzero : initial right = 0
-              · have herr : materializeStep initial (.assignDiv dest left right) =
-                    .error (.divisionByZero right) := by
-                    simp [materializeStep, hzero]
-                simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                  sourceToFlatInstr, evalSourceBody, evalSourceStmt,
-                  R1CSLike.toFlatInstr, Felt.backendValid, hzero]
-                  using flat_cons_of_error defined initial (.assignDiv dest left right)
-                    (sourceToFlatProgram rest) (initial right ≠ 0)
+              · have herr : R1CSLike.materializeOp initial
+                    (.assign (.div dest left right) : R1CSLike.Op ctx F) =
+                    .error s!"division by zero at local {right}" := by
+                    simp [R1CSLike.materializeOp, hzero]
+                simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                  sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  Felt.backendValid, hzero]
+                  using target_cons_of_error defined initial
+                    (.assign (.div dest left right))
+                    (sourceToTargetBody rest) (initial right ≠ 0)
                     (evalSourceBody rest step).2
-                    (.divisionByZero right) herr (fun hne => hne hzero)
-              · have hok : materializeStep initial (.assignDiv dest left right) =
+                    s!"division by zero at local {right}" herr (fun hne => hne hzero)
+              · have hok : R1CSLike.materializeOp initial
+                    (.assign (.div dest left right) : R1CSLike.Op ctx F) =
                     .ok step := by
-                    simp only [materializeStep, hzero, if_false, Except.ok.injEq]
+                    simp only [R1CSLike.materializeOp, hzero, if_false,
+                      Except.ok.injEq]
                     funext v
-                    simp [step, writeWitness, Felt.applyOp, Felt.evalVal,
+                    simp [step, R1CSLike.writeWitness, Felt.applyOp, Felt.evalVal,
                       Felt.destVar, div_eq_mul_inv]
-                simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                  sourceToFlatInstr, evalSourceBody, evalSourceStmt,
-                  R1CSLike.toFlatInstr, Felt.backendValid, hzero]
-                  using flat_cons_of_ok defined extended initial step
-                    (.assignDiv dest left right) (sourceToFlatProgram rest)
+                simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                  sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  Felt.backendValid, hzero]
+                  using target_cons_of_ok defined extended initial step
+                    (.assign (.div dest left right)) (sourceToTargetBody rest)
                     (initial right ≠ 0)
                     (evalSourceBody rest step).2 hok htail
                     (fun final hpres => felt_head_satisfies_iff defined
                       (.div dest left right) initial final hreads hfresh hpres)
                     hextend hstepPreserves
           | add dest left right =>
-              simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                sourceToFlatInstr, evalSourceBody, evalSourceStmt,
-                R1CSLike.toFlatInstr, Felt.backendValid]
-                using flat_cons_of_ok defined extended initial step
-                  (.assignAdd dest left right) (sourceToFlatProgram rest) True
+              simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                Felt.backendValid]
+                using target_cons_of_ok defined extended initial step
+                  (.assign (.add dest left right)) (sourceToTargetBody rest) True
                   (evalSourceBody rest step).2 rfl htail
                   (fun final hpres => felt_head_satisfies_iff defined
                     (.add dest left right) initial final hreads hfresh hpres)
                   hextend hstepPreserves
           | sub dest left right =>
-              simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                sourceToFlatInstr, evalSourceBody, evalSourceStmt,
-                R1CSLike.toFlatInstr, Felt.backendValid]
-                using flat_cons_of_ok defined extended initial step
-                  (.assignSub dest left right) (sourceToFlatProgram rest) True
+              simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                Felt.backendValid]
+                using target_cons_of_ok defined extended initial step
+                  (.assign (.sub dest left right)) (sourceToTargetBody rest) True
                   (evalSourceBody rest step).2 rfl htail
                   (fun final hpres => felt_head_satisfies_iff defined
                     (.sub dest left right) initial final hreads hfresh hpres)
                   hextend hstepPreserves
           | mul dest left right =>
-              simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                sourceToFlatInstr, evalSourceBody, evalSourceStmt,
-                R1CSLike.toFlatInstr, Felt.backendValid]
-                using flat_cons_of_ok defined extended initial step
-                  (.assignMul dest left right) (sourceToFlatProgram rest) True
+              simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                Felt.backendValid]
+                using target_cons_of_ok defined extended initial step
+                  (.assign (.mul dest left right)) (sourceToTargetBody rest) True
                   (evalSourceBody rest step).2 rfl htail
                   (fun final hpres => felt_head_satisfies_iff defined
                     (.mul dest left right) initial final hreads hfresh hpres)
                   hextend hstepPreserves
           | neg dest source =>
-              simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                sourceToFlatInstr, evalSourceBody, evalSourceStmt,
-                R1CSLike.toFlatInstr, Felt.backendValid]
-                using flat_cons_of_ok defined extended initial step
-                  (.assignNeg dest source) (sourceToFlatProgram rest) True
+              simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                Felt.backendValid]
+                using target_cons_of_ok defined extended initial step
+                  (.assign (.neg dest source)) (sourceToTargetBody rest) True
                   (evalSourceBody rest step).2 rfl htail
                   (fun final hpres => felt_head_satisfies_iff defined
                     (.neg dest source) initial final hreads hfresh hpres)
                   hextend hstepPreserves
           | inv dest source =>
-              simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                sourceToFlatInstr, evalSourceBody, evalSourceStmt,
-                R1CSLike.toFlatInstr, Felt.backendValid]
-                using flat_cons_of_ok defined extended initial step
-                  (.assignInv dest source) (sourceToFlatProgram rest) True
+              simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                Felt.backendValid]
+                using target_cons_of_ok defined extended initial step
+                  (.assign (.inv dest source)) (sourceToTargetBody rest) True
                   (evalSourceBody rest step).2 rfl htail
                   (fun final hpres => felt_head_satisfies_iff defined
                     (.inv dest source) initial final hreads hfresh hpres)
                   hextend hstepPreserves
           | const dest value =>
-              simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                sourceToFlatInstr, evalSourceBody, evalSourceStmt,
-                R1CSLike.toFlatInstr, Felt.backendValid]
-                using flat_cons_of_ok defined extended initial step
-                  (.assignConst dest value) (sourceToFlatProgram rest) True
+              simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                Felt.backendValid]
+                using target_cons_of_ok defined extended initial step
+                  (.assign (.const dest value)) (sourceToTargetBody rest) True
                   (evalSourceBody rest step).2 rfl htail
                   (fun final hpres => felt_head_satisfies_iff defined
                     (.const dest value) initial final hreads hfresh hpres)
@@ -370,11 +337,12 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           | eq left right =>
               have htailSSA : isSSA defined rest = true := by
                 simpa [SourceSet, CallPass.TargetSet] using hparts.2
-              have htail : FlatBodySpec defined (sourceToFlatProgram rest) initial
+              have htail : TargetBodySpec defined (sourceToTargetBody rest) initial
                   (evalSourceBody rest initial).2 := by
                 simpa [MaterializeSpec] using ih defined initial htailSSA
               have hhead : ∀ final, Preserves defined initial final →
-                  (FlatIR.satisfiesInstr final (.assertEq left right) ↔
+                  (R1CSLike.satisfiesOp final
+                    (.assertEq left right : R1CSLike.Op ctx F) ↔
                     initial left = initial right) := by
                 intro final hpres
                 have hleft := hpres left ((List.all_eq_true.mp hparts.1) left (by
@@ -383,11 +351,11 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
                 have hright := hpres right ((List.all_eq_true.mp hparts.1) right (by
                   change right ∈ [left, right]
                   simp))
-                simp [FlatIR.satisfiesInstr, hleft, hright]
-              simpa [MaterializeSpec, FlatBodySpec, sourceToFlatProgram,
-                sourceToFlatInstr, evalSourceBody, evalSourceStmt]
-                using flat_cons_of_ok defined defined initial initial
-                  (.assertEq left right) (sourceToFlatProgram rest)
+                simp [R1CSLike.satisfiesOp, hleft, hright]
+              simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
+                sourceToTargetStmt, evalSourceBody, evalSourceStmt]
+                using target_cons_of_ok defined defined initial initial
+                  (.assertEq left right) (sourceToTargetBody rest)
                   (initial left = initial right)
                   (evalSourceBody rest initial).2 rfl htail hhead
                   (fun _ h => h) (fun _ _ => rfl)
@@ -414,18 +382,20 @@ theorem evalSourceBody_eq_evalTargetBody [Field F] {ctx : OpCtx}
                 rw [ih]
                 rfl
 
-/-- Successful materialization produces a satisfying FlatIR witness exactly
+/-- Successful direct materialization produces a satisfying terminal witness exactly
 when direct object-erasure target semantics accepts same initial witness. -/
 theorem materialize_satisfies_iff [Field F] [DecidableEq F] {ctx : OpCtx}
     (body : List (Stmt SourceSet ctx F)) (defined : LocalVar → Bool)
     (initial : LocalVar → F) (hssa : isSSA defined body = true) :
-    (∃ final, materializeWitness (sourceToFlatProgram body) initial = .ok final ∧
-        FlatIR.satisfies final (sourceToFlatProgram body)) ↔
+    (∃ final,
+        R1CSLike.materializeBody (sourceToTargetBody body) initial = .ok final ∧
+        R1CSLike.satisfies final (sourceToTargetBody body)) ↔
       (StructObjectPass.evalTargetBody body initial).2 := by
   rw [← evalSourceBody_eq_evalTargetBody]
   have hspec := materialize_spec body defined initial hssa
   unfold MaterializeSpec at hspec
-  cases hmaterialize : materializeWitness (sourceToFlatProgram body) initial with
+  cases hmaterialize : R1CSLike.materializeBody
+      (sourceToTargetBody body) initial with
   | error error =>
       rw [hmaterialize] at hspec
       simp [hspec]
@@ -438,9 +408,8 @@ theorem materialize_satisfies_iff [Field F] [DecidableEq F] {ctx : OpCtx}
       · intro htruth
         exact ⟨final, rfl, hspec.1.mpr htruth⟩
 
-/-- Object-aware direct satisfaction equals successful canonical leaf
-materialization for every successfully certified StructObject lowering. -/
-theorem source_materialize_iff [Field F] [DecidableEq F]
+/-- Object-aware satisfaction equals canonical direct terminal materialization. -/
+theorem source_target_materialize_iff [Field F] [DecidableEq F]
     {n i numMembers : Nat}
     (fn : FuncDef StructObjectPass.SourceSet n i F .constraint numMembers)
     (out : FuncDef SourceSet n i F .constraint numMembers)
@@ -454,8 +423,8 @@ theorem source_materialize_iff [Field F] [DecidableEq F]
       (TypedSourceSemantics.initialState fn.numParams computeParams
         inputs objects)).2 ↔
       ∃ final,
-        materializeWitness (sourceToFlatProgram out.body) seed = .ok final ∧
-        FlatIR.satisfies final (sourceToFlatProgram out.body) := by
+        R1CSLike.materializeBody (sourceToTargetBody out.body) seed = .ok final ∧
+        R1CSLike.satisfies final (sourceToTargetBody out.body) := by
   dsimp only
   have hfields := StructObjectPass.lowerFunc_fields fn out hlower
   have hleaf := materialize_satisfies_iff out.body
@@ -640,13 +609,11 @@ theorem lowerBodyFresh_ssa (init : LocalVar → Bool) {γ : OpCtx}
           R1CSLike.reads, R1CSLike.dest, SourceSet, CallPass.TargetSet,
           ConstrainEq.sig, ConstrainEq.reads, ConstrainEq.dest, ih]
 
-/-- R1CS-like dialect packaging erases to same FlatIR program as direct leaf
-adapter. Fresh counter is unchanged and therefore absent from result. -/
-theorem lowerBodyFresh_toFlatProgram {γ : OpCtx} (next : LocalVar)
+/-- Dialect lowering produces exact direct terminal body. -/
+theorem lowerBodyFresh_toTargetBody {γ : OpCtx} (next : LocalVar)
     (body : List (Stmt SourceSet γ F)) :
-    R1CSLike.toFlatProgram
-        (lowerBodyFresh (lowerOpFresh (F := F)) next body).1 =
-      sourceToFlatProgram body := by
+    (lowerBodyFresh (lowerOpFresh (F := F)) next body).1 =
+      sourceToTargetBody body := by
   induction body generalizing next with
   | nil => rfl
   | cons stmt rest ih =>
@@ -656,14 +623,13 @@ theorem lowerBodyFresh_toFlatProgram {γ : OpCtx} (next : LocalVar)
           · subst d
             cases op <;>
               simp [lowerBodyFresh, lowerOpFresh, lowerOp,
-                R1CSLike.toFlatProgram, sourceToFlatProgram, sourceToFlatInstr, ih]
+                sourceToTargetBody, sourceToTargetStmt, R1CSLike.ix, ih]
           · subst d
             cases op
             simp [lowerBodyFresh, lowerOpFresh, lowerOp,
-              R1CSLike.toFlatProgram, R1CSLike.toFlatInstr,
-              sourceToFlatProgram, sourceToFlatInstr, ih]
+              sourceToTargetBody, sourceToTargetStmt, R1CSLike.ix, ih]
 
-/-- Unified composable pass for Phase 7's dialect boundary. -/
+/-- Leaf-dialect lowering with fresh-variable, SSA, and handler simulation certificates. -/
 def dialectPass (F : Type) [Field F] : DialectPass SourceSet TargetSet F where
   handlers := sourceHandlers F
   handlers' := targetHandlers F
@@ -683,19 +649,48 @@ def dialectPass (F : Type) [Field F] : DialectPass SourceSet TargetSet F where
     rw [lowerBodyFresh_ssa]
     exact h
 
+theorem lowerModuleBody_eq_sourceToTargetBody [Field F] {ctx : OpCtx}
+    (numParams : Nat) (body : List (Stmt SourceSet ctx F)) :
+    (dialectPass F).lowerModuleBody numParams body = sourceToTargetBody body := by
+  change (lowerBodyFresh (lowerOpFresh (F := F)) (startFresh numParams body) body).1 =
+    sourceToTargetBody body
+  exact lowerBodyFresh_toTargetBody (startFresh numParams body) body
+
+/-- Certified object erasure followed by direct terminal materialization. -/
+theorem source_materialize_iff [Field F] [DecidableEq F]
+    {n i numMembers : Nat}
+    (fn : FuncDef StructObjectPass.SourceSet n i F .constraint numMembers)
+    (out : FuncDef SourceSet n i F .constraint numMembers)
+    (hlower : StructObjectPass.lowerFunc fn = some out)
+    (computeParams : Nat) (inputs objects : List F) :
+    let span := StructObjectPass.witnessSpan
+      StructObjectPass.StaticState.initial.objects 0 fn.body
+    let seed := StructObjectPass.seedCanonicalWitness fn.numParams span
+      (fn.numParams - computeParams) inputs objects
+    let terminal := (dialectPass F).lowerModuleBody out.numParams out.body
+    (ObjectResidualSemantics.evalBody fn.body
+      (TypedSourceSemantics.initialState fn.numParams computeParams
+        inputs objects)).2 ↔
+      ∃ final,
+        R1CSLike.materializeBody terminal seed = .ok final ∧
+        R1CSLike.satisfies final terminal := by
+  dsimp only
+  rw [lowerModuleBody_eq_sourceToTargetBody]
+  exact source_target_materialize_iff fn out hlower computeParams inputs objects
+
 /-- Total module-level constraint wrapper, ready to compose after call erasure. -/
 def moduleConstraintPass (F : Type) [Field F] :
     ModuleConstraintPass SourceSet TargetSet F :=
   ModuleConstraintPass.ofDialectPass (dialectPass F)
 
-/-- Phase-6 call erasure followed by the Phase-7 instruction lowering. -/
+/-- Field-local Call erasure followed by terminal dialect lowering. -/
 noncomputable def callToR1CSLike (F : Type) [Field F] :
     CallSemantics.CallModuleConstraintPass TargetSet F :=
   CallSemantics.CallModuleConstraintPass.compose
     (CallSemantics.moduleConstraintPass (F := F))
     (moduleConstraintPass F) rfl
 
-/-- Compile one lowered module entry through verified FlatIR-to-R1CS backend. -/
+/-- Compile one lowered module entry through direct terminal R1CS backend. -/
 def compileEntryConstrain (F : Type) [Field F] {n : Nat}
     (m : Module TargetSet n F) (entry : Fin n) : R1CS.System F :=
   R1CSLike.toR1CS (m.structs entry).constrain.body

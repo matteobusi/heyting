@@ -20,9 +20,17 @@ payload between the callee and caller operation contexts, and the small piece
 of syntax used to bind a returned value, are supplied explicitly by
 `ResidualSyntax`.  They are pass values, not type-class-selected effects.
 
-The older `[Call, Felt, ConstrainEq]` development remains in `CallPass`; its
-semantic theorem is the first certified specialization.  This file supplies
-the generic syntax path used by the object-aware frontend.
+`CallPass` provides field-local freshening and certification infrastructure.
+This file supplies the generic syntax path used by the object-aware frontend.
+
+## Proof boundaries
+
+The packaged `structuralPass` uses `expandedSourceStage`: source satisfaction is
+defined by successful expansion and the supplied residual semantics. Its laws
+follow by unfolding that definition and retaining the same semantic state.
+Independent recursive source execution is related to expansion in `ObjectCallSemantics`.
+That simulation, not the lowering-defined wrapper alone, connects the compiler
+to the direct typed-source checker.
 -/
 
 namespace Dialect.CallErasure

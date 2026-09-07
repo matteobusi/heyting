@@ -13,6 +13,11 @@ Executable semantics for the typed compute-side source set
 object paths, witness storage, allocation, and the oracle cursor explicit.
 Recursive calls are topologically decreasing and thread the witness, allocation,
 and oracle components linearly.
+
+The evaluator produces candidates, not proofs that the constraint body accepts them.
+The named runtime faults distinguish execution failure from Boolean constraint failure.
+The whole-pipeline generated-witness theorem assumes successful generation and forwarding;
+it does not prove that this interpreter succeeds or satisfies constraints for all inputs.
 -/
 
 namespace Dialect.WitnessExecution

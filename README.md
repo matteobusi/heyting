@@ -11,7 +11,7 @@ LLZK text → untyped AST
   → Oracle projection
   → Call erasure
   → StructObject erasure
-  → [Felt, ConstrainEq] → R1CSLike → FlatIR → R1CS
+  → [Felt, ConstrainEq] → R1CSLike → R1CS
 ```
 
 Compute execution runs against full typed source module. It threads field
@@ -37,12 +37,18 @@ lowering/transport.
 | Oracle projection | selected-entry correspondence proved | `Heyting/Dialects/OracleErasure.lean` |
 | Call erasure | conditional structural preservation/reflection | `Heyting/Dialects/CallErasure.lean` |
 | StructObject erasure | simulation + canonical equivalence | `Heyting/Dialects/StructObjectPass.lean` |
-| Leaf dialect → FlatIR | proved semantic/materialization boundary | `Heyting/Dialects/R1CSLikePass.lean` |
-| FlatIR → R1CS | full `PresReflPass` | `Heyting/Passes/FlatIRToR1CS.lean` |
+| Leaf dialect → R1CSLike | proved semantic/materialization boundary | `Heyting/Dialects/R1CSLikePass.lean` |
+| R1CSLike → R1CS | direct `PresReflPass` + constructive codec | `Heyting/Dialects/R1CSLike.lean` |
 | Whole typed entry → R1CS | pointwise satisfaction iff + readback | `Heyting/Passes/DialectPipeline.lean` |
 
 Retired StructIR implementation is preserved on Git branch
 `legacy-infrastructure`; it is absent from active source and CLI.
+FlatIR and compatibility-only proofs have also been removed; the historical backend
+remains in Git history.
+
+The whole-entry result assumes successful witness forwarding. It is not yet a
+whole-entry `PresReflPass` over arbitrary target witnesses. See the
+[proof audit guide](docs/AUDIT.md) for exact contracts, dependencies, and proof sketches.
 
 ## Supported LLZK fragment
 
