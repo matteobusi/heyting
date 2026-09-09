@@ -46,21 +46,14 @@ def sourceToTargetBody {ctx : OpCtx} :
   | [] => []
   | stmt :: rest => sourceToTargetStmt stmt :: sourceToTargetBody rest
 
-def evalSourceStmt [Field F] {ctx : OpCtx} :
-    Stmt SourceSet ctx F → (LocalVar → F) → (LocalVar → F) × Prop
-  | .op ⟨0, _⟩ op, env =>
-      (Felt.applyOp op env, Felt.backendValid op env)
-  | .op ⟨1, _⟩ op, env =>
-      match op with
-      | .eq left right => (env, env left = env right)
+/-- The object-erasure target and terminal-lowering source share one statement semantics. -/
+abbrev evalSourceStmt [Field F] {ctx : OpCtx} :=
+  StructObjectPass.evalTargetStmt (F := F) (ctx := ctx)
 
-def evalSourceBody [Field F] {ctx : OpCtx} :
-    List (Stmt SourceSet ctx F) → (LocalVar → F) → (LocalVar → F) × Prop
-  | [], env => (env, True)
-  | stmt :: rest, env =>
-      let step := evalSourceStmt stmt env
-      let tail := evalSourceBody rest step.1
-      (tail.1, step.2 ∧ tail.2)
+/-- The object-erasure target and terminal-lowering source share one body semantics.
+This includes backend division validity, unlike the generic field-local handler. -/
+abbrev evalSourceBody [Field F] {ctx : OpCtx} :=
+  StructObjectPass.evalTargetBody (F := F) (ctx := ctx)
 
 def Preserves (defined : LocalVar → Bool)
     (before after : LocalVar → F) : Prop :=
@@ -249,6 +242,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
                     simp [R1CSLike.materializeOp, hzero]
                 simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
                   sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt,
                   Felt.backendValid, hzero]
                   using target_cons_of_error defined initial
                     (.assign (.div dest left right))
@@ -265,6 +259,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
                       Felt.destVar, div_eq_mul_inv]
                 simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
                   sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt,
                   Felt.backendValid, hzero]
                   using target_cons_of_ok defined extended initial step
                     (.assign (.div dest left right)) (sourceToTargetBody rest)
@@ -276,6 +271,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           | add dest left right =>
               simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
                 sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt,
                 Felt.backendValid]
                 using target_cons_of_ok defined extended initial step
                   (.assign (.add dest left right)) (sourceToTargetBody rest) True
@@ -286,6 +282,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           | sub dest left right =>
               simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
                 sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt,
                 Felt.backendValid]
                 using target_cons_of_ok defined extended initial step
                   (.assign (.sub dest left right)) (sourceToTargetBody rest) True
@@ -296,6 +293,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           | mul dest left right =>
               simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
                 sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt,
                 Felt.backendValid]
                 using target_cons_of_ok defined extended initial step
                   (.assign (.mul dest left right)) (sourceToTargetBody rest) True
@@ -306,6 +304,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           | neg dest source =>
               simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
                 sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt,
                 Felt.backendValid]
                 using target_cons_of_ok defined extended initial step
                   (.assign (.neg dest source)) (sourceToTargetBody rest) True
@@ -316,6 +315,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           | inv dest source =>
               simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
                 sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt,
                 Felt.backendValid]
                 using target_cons_of_ok defined extended initial step
                   (.assign (.inv dest source)) (sourceToTargetBody rest) True
@@ -326,6 +326,7 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
           | const dest value =>
               simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
                 sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                  StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt,
                 Felt.backendValid]
                 using target_cons_of_ok defined extended initial step
                   (.assign (.const dest value)) (sourceToTargetBody rest) True
@@ -353,34 +354,18 @@ theorem materialize_spec [Field F] [DecidableEq F] {ctx : OpCtx}
                   simp))
                 simp [R1CSLike.satisfiesOp, hleft, hright]
               simpa [MaterializeSpec, TargetBodySpec, sourceToTargetBody,
-                sourceToTargetStmt, evalSourceBody, evalSourceStmt]
+                sourceToTargetStmt, evalSourceBody, evalSourceStmt,
+                StructObjectPass.evalTargetBody, StructObjectPass.evalTargetStmt]
                 using target_cons_of_ok defined defined initial initial
                   (.assertEq left right) (sourceToTargetBody rest)
                   (initial left = initial right)
                   (evalSourceBody rest initial).2 rfl htail hhead
                   (fun _ h => h) (fun _ _ => rfl)
 
+/-- Object erasure and terminal lowering use definitionally identical leaf semantics. -/
 theorem evalSourceBody_eq_evalTargetBody [Field F] {ctx : OpCtx}
     (body : List (Stmt SourceSet ctx F)) (env : LocalVar → F) :
-    evalSourceBody body env = StructObjectPass.evalTargetBody body env := by
-  induction body generalizing env with
-  | nil => rfl
-  | cons stmt rest ih =>
-      cases stmt with
-      | op d payload =>
-          rcases d with ⟨index, hindex⟩
-          have hcases : index = 0 ∨ index = 1 := by
-            simp [SourceSet, CallPass.TargetSet] at hindex
-            omega
-          rcases hcases with rfl | rfl
-          · simp only [evalSourceBody, StructObjectPass.evalTargetBody]
-            rw [ih]
-            rfl
-          · cases payload with
-            | eq left right =>
-                simp only [evalSourceBody, StructObjectPass.evalTargetBody]
-                rw [ih]
-                rfl
+    evalSourceBody body env = StructObjectPass.evalTargetBody body env := rfl
 
 /-- Successful direct materialization produces a satisfying terminal witness exactly
 when direct object-erasure target semantics accepts same initial witness. -/
@@ -408,7 +393,30 @@ theorem materialize_satisfies_iff [Field F] [DecidableEq F] {ctx : OpCtx}
       · intro htruth
         exact ⟨final, rfl, hspec.1.mpr htruth⟩
 
-/-- Object-aware satisfaction equals canonical direct terminal materialization. -/
+/-- Object observations and terminal materialization agree for any initial leaf
+environment with the certified layout's observable slots.
+
+Proof sketch: compose the related-state object simulation with leaf materialization
+correctness. This is a local relational bridge, not arbitrary-terminal-witness reflection. -/
+theorem source_target_related_materialize_iff [Field F] [DecidableEq F]
+    {n i numMembers : Nat}
+    (fn : FuncDef StructObjectPass.SourceSet n i F .constraint numMembers)
+    (out : FuncDef SourceSet n i F .constraint numMembers)
+    (hlower : StructObjectPass.lowerFunc fn = some out)
+    (computeParams : Nat) (inputs objects : List F) (initial : LocalVar → F)
+    (hrel : StructObjectPass.CanonicalStateRel fn.numParams computeParams
+      (StructObjectPass.witnessSpan StructObjectPass.StaticState.initial.objects 0 fn.body)
+      inputs objects initial) :
+    (ObjectResidualSemantics.evalBody fn.body
+      (TypedSourceSemantics.initialState fn.numParams computeParams inputs objects)).2 ↔
+      ∃ final, R1CSLike.materializeBody (sourceToTargetBody out.body) initial = .ok final ∧
+        R1CSLike.satisfies final (sourceToTargetBody out.body) := by
+  exact (StructObjectPass.lowerFunc_related_iff fn out hlower computeParams
+    inputs objects initial hrel).symm.trans
+    (materialize_satisfies_iff out.body _ initial out.wf_ssa).symm
+
+/-- Canonical specialization of the related-state materialization bridge.
+Proof sketch: the canonical seed agrees with itself on every allocated slot. -/
 theorem source_target_materialize_iff [Field F] [DecidableEq F]
     {n i numMembers : Nat}
     (fn : FuncDef StructObjectPass.SourceSet n i F .constraint numMembers)
@@ -425,19 +433,8 @@ theorem source_target_materialize_iff [Field F] [DecidableEq F]
       ∃ final,
         R1CSLike.materializeBody (sourceToTargetBody out.body) seed = .ok final ∧
         R1CSLike.satisfies final (sourceToTargetBody out.body) := by
-  dsimp only
-  have hfields := StructObjectPass.lowerFunc_fields fn out hlower
-  have hleaf := materialize_satisfies_iff out.body
-    (fun v => decide (v < out.numParams))
-    (StructObjectPass.seedCanonicalWitness fn.numParams
-      (StructObjectPass.witnessSpan StructObjectPass.StaticState.initial.objects
-        0 fn.body)
-      (fn.numParams - computeParams) inputs objects)
-    out.wf_ssa
-  rw [hfields.2] at hleaf
-  have hobject := StructObjectPass.lowerBody_canonical_iff fn computeParams
-    inputs objects
-  simpa only [hfields.2] using hobject.symm.trans hleaf.symm
+  exact source_target_related_materialize_iff fn out hlower computeParams inputs objects _
+    (StructObjectPass.canonicalStateRel_seed _ _ _ _ _)
 
 private abbrev feltIx : Fin SourceSet.length := ⟨0, by simp [SourceSet, CallPass.TargetSet]⟩
 private abbrev constrIx : Fin SourceSet.length := ⟨1, by simp [SourceSet, CallPass.TargetSet]⟩

@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import Heyting.Passes.ASTToDialect
 import Heyting.Core.VarIdEncoding
+import Heyting.Core.StructuralPass
 
 /-!
 # Direct typed-source constraint semantics
@@ -225,5 +226,33 @@ def checkProjectedAt [Field F] [DecidableEq F] {n : Nat}
   let initial := initialState source.constrain.numParams source.compute.numParams
     inputs objects
   (evalProjectedBody m entry initial source.constrain.body).2
+
+/-! ## Direct module stages
+
+Oracle projection and Call erasure preserve the selected entry and its finite
+input/object observation. Sharing this state type makes their stage boundaries
+definitionally identical without defining source satisfaction through lowering.
+-/
+
+/-- Finite observations supplied to a selected constraint entry.
+Lengths are unrestricted here: the direct checker defines their interpretation. -/
+structure ConstraintObservation (n : Nat) (F : Type) where
+  entry : Fin n
+  inputs : List F
+  objects : List F
+
+/-- Independent semantics of the full typed source module. -/
+def sourceStage (n : Nat) (F : Type) [Field F] [DecidableEq F] :
+    ModuleStage SourceSet n F where
+  State := ConstraintObservation n F
+  satisfies observation m :=
+    satisfiesAt m observation.entry observation.inputs observation.objects
+
+/-- Independent recursive constraint semantics after Oracle projection. -/
+def projectedStage (n : Nat) (F : Type) [Field F] [DecidableEq F] :
+    ModuleStage ProjectedSet n F where
+  State := ConstraintObservation n F
+  satisfies observation m :=
+    checkProjectedAt m observation.entry observation.inputs observation.objects = true
 
 end Dialect.TypedSourceSemantics

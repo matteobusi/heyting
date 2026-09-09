@@ -102,8 +102,11 @@ and exact R1CS target. Key results:
 
 Guarantee begins at successfully typed dialect module and assumes successful witness
 forwarding. It is pointwise, not yet whole-entry arbitrary-target reflection.
-Structural wrappers use lowering-defined predicates; independent source semantics
-is connected by separate simulation theorems. See `docs/AUDIT.md`.
+Generic structural wrappers use lowering-defined predicates. Direct Oracle/Call passes
+also compose over `TypedSourceSemantics.ConstraintObservation` and independent predicates.
+`StructObjectPass.CanonicalStateRel` bridges finite observations to allocated leaf slots;
+`lowerFunc_related_iff` and the materialization bridge connect it to entry artifacts.
+Whole-entry arbitrary-witness preservation/reflection remains open. See `docs/AUDIT.md`.
 Parser and AST-to-dialect lowering remain executable but unverified.
 
 ## Invariants

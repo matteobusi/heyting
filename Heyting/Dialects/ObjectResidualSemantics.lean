@@ -3,6 +3,7 @@ Copyright (c) 2025 Heyting Authors. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import Heyting.Dialects.CallErasure
+import Heyting.Dialects.TypedSourceSemantics
 
 /-!
 # Object-aware residual semantics
@@ -63,5 +64,17 @@ noncomputable def eraseCallPass (n : Nat) (F : Type) [Field F] :
     (CallErasure.objectFeltConstrainSyntax (F := F))
     (CallErasure.objectFeltConstrainRenameStable (F := F))
     (stage n F)
+
+/-- Direct residual semantics initialized from a finite entry observation.
+
+Unlike `callStage`, this predicate evaluates the given module body independently
+of any erasure. It shares the observation type of the direct Oracle/Call stages. -/
+def canonicalStage (n : Nat) (F : Type) [Field F] : ModuleStage Set n F where
+  State := TypedSourceSemantics.ConstraintObservation n F
+  satisfies observation m :=
+    let entry := m.structs observation.entry
+    (evalBody entry.constrain.body
+      (TypedSourceSemantics.initialState entry.constrain.numParams entry.compute.numParams
+        observation.inputs observation.objects)).2
 
 end Dialect.ObjectResidualSemantics

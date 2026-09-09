@@ -1234,4 +1234,95 @@ theorem structuralPrefix_satisfies_iff [Field F] [DecidableEq F]
   rw [← structuralPrefix_check_eq source entry certificate inputs objects]
   exact (evalTargetBody_true_iff certificate.callFree.1 _).symm
 
+/-! ## Direct module-stage correspondence -/
+
+/-- Successful struct erasure preserves its independently interpreted entry observation.
+
+Proof sketch: invert erasure and both function certifications. Certification retains
+parameter counts and the expanded constraint body. Apply the recursive Call simulation
+to that body, then convert its Boolean result to residual satisfaction. -/
+theorem eraseStructDef_satisfies_iff [Field F] [DecidableEq F] {n : Nat}
+    (m : Module SourceSet n F) (entry : Fin n) (out : StructDef TargetSet n entry F)
+    (herase : CallErasure.eraseStructDef
+      (CallErasure.objectFeltConstrainSyntax (F := F)) m entry = some out)
+    (inputs objects : List F) :
+    (ObjectResidualSemantics.evalBody out.constrain.body
+      (TypedSourceSemantics.initialState out.constrain.numParams out.compute.numParams
+        inputs objects)).2 ↔
+      TypedSourceSemantics.checkProjectedAt m entry inputs objects = true := by
+  unfold CallErasure.eraseStructDef at herase
+  cases hc : CallErasure.eraseComputeFunc
+      (CallErasure.objectFeltConstrainSyntax (F := F)) m entry with
+  | none => simp [hc] at herase
+  | some computeBody =>
+    cases hk : CallErasure.eraseConstrainFunc
+        (CallErasure.objectFeltConstrainSyntax (F := F)) m entry with
+    | none => simp [hc, hk] at herase
+    | some constrainBody =>
+      cases hcc : CallErasure.certifyFunc (m.structs entry).compute computeBody.1 with
+      | none => simp [hc, hk, hcc] at herase
+      | some compute =>
+        cases hkc : CallErasure.certifyFunc (m.structs entry).constrain constrainBody.1 with
+        | none => simp [hc, hk, hcc, hkc] at herase
+        | some constrain =>
+          simp only [hc, hk, Option.pure_def, Option.bind_eq_bind, Option.bind_some,
+            hkc, hcc, Option.some.injEq] at herase
+          subst out
+          have hcompute := CallErasure.certifyFunc_fields _ _ _ hcc
+          have hconstrain := CallErasure.certifyFunc_fields _ _ _ hkc
+          dsimp only
+          rw [hconstrain.1, hcompute.1, hconstrain.2.1]
+          exact (evalTargetBody_true_iff constrainBody.1 _).symm.trans
+            (by rw [eraseConstrainFunc_checkProjectedAt_eq m entry constrainBody hk])
+
+/-- Module Call erasure preserves direct finite observations, with no transport premise.
+Proof: select the entry erasure and apply `eraseStructDef_satisfies_iff`. -/
+theorem eraseModule_satisfies_iff [Field F] [DecidableEq F] {n : Nat}
+    (m : Module SourceSet n F) (out : Module TargetSet n F)
+    (herase : CallErasure.eraseModule
+      (CallErasure.objectFeltConstrainSyntax (F := F)) m = some out)
+    (observation : TypedSourceSemantics.ConstraintObservation n F) :
+    (ObjectResidualSemantics.canonicalStage n F).satisfies observation out ↔
+      (TypedSourceSemantics.projectedStage n F).satisfies observation m :=
+  eraseStructDef_satisfies_iff m observation.entry (out.structs observation.entry)
+    (CallErasure.eraseModule_struct _ m out herase observation.entry)
+    observation.inputs observation.objects
+
+/-- Call erasure between independent recursive and residual module semantics.
+
+Both laws keep the finite observation unchanged and use `eraseModule_satisfies_iff`.
+Source satisfaction is not defined through expansion. Lowering remains partial. -/
+noncomputable def directConstraintPass (n : Nat) (F : Type) [Field F] [DecidableEq F] :
+    EraseDialect Call.sig TargetSet (TypedSourceSemantics.projectedStage n F)
+      (ObjectResidualSemantics.canonicalStage n F) where
+  lower m := match CallErasure.eraseModule
+      (CallErasure.objectFeltConstrainSyntax (F := F)) m with
+    | some out => .ok out
+    | none => .error "call erasure failed"
+  stateRel _ _ source target := source = target
+  preservation := by
+    intro m out observation hlower hsat
+    cases herase : CallErasure.eraseModule
+        (CallErasure.objectFeltConstrainSyntax (F := F)) m with
+    | none => simp [herase] at hlower
+    | some result =>
+      have heq : result = out := by simpa [herase] using hlower
+      subst out
+      exact ⟨observation, rfl, (eraseModule_satisfies_iff m result herase observation).mpr hsat⟩
+  reflection := by
+    intro m out observation hlower hsat
+    cases herase : CallErasure.eraseModule
+        (CallErasure.objectFeltConstrainSyntax (F := F)) m with
+    | none => simp [herase] at hlower
+    | some result =>
+      have heq : result = out := by simpa [herase] using hlower
+      subst out
+      exact ⟨observation, rfl, (eraseModule_satisfies_iff m result herase observation).mp hsat⟩
+
+/-- Oracle projection followed by Call erasure, composed at the shared direct stage.
+The result has existential preservation/reflection from independent source semantics
+to independent residual semantics, conditional only on successful module lowering. -/
+noncomputable def directPrefixPass (n : Nat) (F : Type) [Field F] [DecidableEq F] :=
+  (OracleErasure.directConstraintPass n F).compose (directConstraintPass n F)
+
 end Dialect.ObjectCallSemantics

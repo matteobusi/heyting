@@ -818,6 +818,65 @@ theorem canonical_initial_rel [Field F]
   · intro v hv
     simp [hv]
 
+/-- Finite observations agree with a leaf environment on allocated input and object
+slots. Locals outside this prefix are deliberately unconstrained: SSA execution
+defines them before use. The layout belongs to the source function, not its target. -/
+def CanonicalStateRel [Field F] (numParams computeParams span : Nat)
+    (inputs objects : List F) (target : LocalVar → F) : Prop :=
+  ∀ v, v < numParams + span →
+    target v = seedCanonicalWitness numParams span (numParams - computeParams)
+      inputs objects v
+
+/-- Canonical seeding realizes the finite observation relation. -/
+theorem canonicalStateRel_seed [Field F] (numParams computeParams span : Nat)
+    (inputs objects : List F) :
+    CanonicalStateRel numParams computeParams span inputs objects
+      (seedCanonicalWitness numParams span (numParams - computeParams) inputs objects) := by
+  intro v _
+  rfl
+
+/-- Slot agreement supplies the simulation invariant. Proof sketch: reuse the
+canonical invariant and replace only its value and object-witness equalities. -/
+theorem CanonicalStateRel.initial_rel [Field F] {numParams computeParams span : Nat}
+    {inputs objects : List F} {target : LocalVar → F}
+    (h : CanonicalStateRel numParams computeParams span inputs objects target) :
+    LowerStateRel numParams span (fun v ↦ decide (v < numParams)) StaticState.initial
+      (TypedSourceSemantics.initialState numParams computeParams inputs objects) target := by
+  have base := canonical_initial_rel numParams computeParams span inputs objects
+  refine { base with values := ?_, witness := ?_ }
+  · intro v hv
+    have hvlt : v < numParams := by simpa using hv
+    have hr : renameLocal numParams span StaticState.initial.aliases v = v := by
+      simp [renameLocal, StaticState.initial, AliasEnv.empty, baseRename, hvlt]
+    have heq := h v (Nat.lt_of_lt_of_le hvlt (Nat.le_add_right numParams span))
+    rw [hr, heq]
+    simpa only [hr] using base.values v hv
+  · intro key hkey
+    rw [h (witnessLocal numParams key.1 key.2) (by
+      unfold witnessLocal
+      omega)]
+    exact base.witness key hkey
+
+/-- Certified object erasure preserves and reflects direct satisfaction for any
+related leaf environment, not just the canonical seed.
+
+Proof sketch: slot agreement initializes the object simulation; intrinsic SSA and
+capability proofs discharge its hypotheses. Successful certification identifies the
+exact target body. No materialization or successful witness transport is assumed. -/
+theorem lowerFunc_related_iff [Field F] {n i numMembers : Nat}
+    (fn : FuncDef SourceSet n i F .constraint numMembers)
+    (out : FuncDef TargetSet n i F .constraint numMembers)
+    (hlower : lowerFunc fn = some out)
+    (computeParams : Nat) (inputs objects : List F) (target : LocalVar → F)
+    (hrel : CanonicalStateRel fn.numParams computeParams
+      (witnessSpan StaticState.initial.objects 0 fn.body) inputs objects target) :
+    (evalTargetBody out.body target).2 ↔
+      (ObjectResidualSemantics.evalBody fn.body
+        (TypedSourceSemantics.initialState fn.numParams computeParams inputs objects)).2 := by
+  rw [(lowerFunc_fields fn out hlower).2]
+  exact (lowerBody_simulation fn.body (fun v ↦ decide (v < fn.numParams))
+    StaticState.initial _ target fn.wf_ssa fn.wf_caps (Nat.le_refl _) hrel.initial_rel).1
+
 /-- A certified constraint body has equivalent object-aware and erased observations
 under canonical finite source data.
 
@@ -844,6 +903,26 @@ theorem lowerBody_canonical_iff [Field F]
     fn.wf_ssa fn.wf_caps (Nat.le_refl span)
     (canonical_initial_rel fn.numParams computeParams span inputs objects)
   exact hsim.1
+
+/-- Certified object-function erasure relates direct source execution to the exact
+leaf body under its canonical seed.
+
+Proof sketch: successful certification identifies the target body with `lowerBody`.
+Rewrite by that equation and apply `lowerBody_canonical_iff`. The target semantics
+includes division validity; no generic handler semantics is substituted here. -/
+theorem lowerFunc_canonical_iff [Field F] {n i numMembers : Nat}
+    (fn : FuncDef SourceSet n i F .constraint numMembers)
+    (out : FuncDef TargetSet n i F .constraint numMembers)
+    (hlower : lowerFunc fn = some out)
+    (computeParams : Nat) (inputs objects : List F) :
+    let span := witnessSpan StaticState.initial.objects 0 fn.body
+    (evalTargetBody out.body
+      (seedCanonicalWitness fn.numParams span (fn.numParams - computeParams)
+        inputs objects)).2 ↔
+      (ObjectResidualSemantics.evalBody fn.body
+        (TypedSourceSemantics.initialState fn.numParams computeParams inputs objects)).2 := by
+  exact lowerFunc_related_iff fn out hlower computeParams inputs objects _
+    (canonicalStateRel_seed _ _ _ _ _)
 
 theorem encodeTargetState_rel {n : Nat} {F : Type}
     (m : Module SourceSet n F) (source : SourceObservation n F) :

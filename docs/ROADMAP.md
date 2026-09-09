@@ -23,6 +23,16 @@ preservation/reflection. FlatIR and compatibility-only modules have been removed
 
 ## Priority 0 — complete the compositional correctness chain
 
+Completed alignment: direct Oracle/Call module stages share finite observations and
+compose with existential preservation/reflection. Object-erasure target and leaf-lowering
+source use one division-validating evaluator; the certified object-function bridge is local.
+The finite-observation adapter `CanonicalStateRel` now retains the source function's
+parameter/object-slot layout. Its related-state object theorem composes with leaf
+materialization and is used by the selected-entry artifact proof. Boundary alignment
+(item 1) is complete; this is not yet one existential whole-entry pass.
+Next (item 2): package preservation/reflection for arbitrary satisfying terminal witnesses.
+Then (item 3): prove constructive transport success under explicit source hypotheses.
+
 Align the intermediate languages, satisfaction predicates, and witness relations
 used by the existing structural, leaf, and terminal results. Connect lowering-defined
 structural stages to independent typed-source semantics. Package whole-entry

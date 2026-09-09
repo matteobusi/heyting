@@ -447,4 +447,26 @@ theorem checkAt_eq_checkProjectedAt [Field F] [DecidableEq F] {n : Nat}
     (out.structs entry).constrain.body).2
   exact congrArg Prod.snd heval
 
+/-- Oracle projection with direct source and target semantics and unchanged observations.
+
+Proof sketch: `checkAt_eq_checkProjectedAt` equates the two independent checkers after
+successful lowering. Both existential laws choose the same finite observation; neither
+assumes witness generation or forwarding succeeds. Oracle is not the head of `SourceSet`,
+so this is a `StructuralPass`, not a head-erasure `EraseDialect` abbreviation. -/
+def directConstraintPass (n : Nat) (F : Type) [Field F] [DecidableEq F] :
+    StructuralPass (TypedSourceSemantics.sourceStage n F)
+      (TypedSourceSemantics.projectedStage n F) where
+  lower := lowerModule
+  stateRel _ _ source target := source = target
+  preservation := by
+    intro m out observation hlower hsat
+    refine ⟨observation, rfl, ?_⟩
+    exact (checkAt_eq_checkProjectedAt m out hlower observation.entry
+      observation.inputs observation.objects).symm.trans hsat
+  reflection := by
+    intro m out observation hlower hsat
+    refine ⟨observation, rfl, ?_⟩
+    exact (checkAt_eq_checkProjectedAt m out hlower observation.entry
+      observation.inputs observation.objects).trans hsat
+
 end Dialect.OracleErasure

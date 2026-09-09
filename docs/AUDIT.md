@@ -55,6 +55,44 @@ parser fidelity, serialized bytes, or public-wire visibility.
 
 ## Structural wrappers are not independent source specifications
 
+### Direct prefix alignment
+
+`TypedSourceSemantics.ConstraintObservation` shares the selected entry, finite inputs,
+and finite object observations across three independently interpreted stages:
+
+```text
+TypedSourceSemantics.sourceStage
+  -- OracleErasure.directConstraintPass -->
+TypedSourceSemantics.projectedStage
+  -- ObjectCallSemantics.directConstraintPass -->
+ObjectResidualSemantics.canonicalStage
+```
+
+`ObjectCallSemantics.directPrefixPass` composes these with `StructuralPass.compose`.
+Both local relations preserve the observation exactly. Preservation/reflection are
+conditional only on successful module lowering, not on witness forwarding. The Call
+bridge inverts function certification and uses the independent recursive simulation.
+The module pass is noncomputable because module-wide Call certification uses classical
+choice; the CLI still uses its existing executable selected-entry artifacts.
+
+At the next boundary, `StructObjectPass.lowerFunc_canonical_iff` exposes the exact
+certified leaf body with its canonical seed. `R1CSLikePass.evalSourceBody` is an alias
+of `StructObjectPass.evalTargetBody`, so those semantics now agree definitionally,
+including division validity. The existing materialization bridge uses this local theorem.
+
+`StructObjectPass.CanonicalStateRel` supplies the finite-observation/layout adapter:
+the leaf environment agrees with the canonical seed below `numParams + span`, with
+all other locals unrestricted. Layout is computed from the source function, never
+guessed from the erased target. `CanonicalStateRel.initial_rel` establishes the
+simulation invariant; `lowerFunc_related_iff` proves both satisfaction directions
+for every related environment and the exact certified target. No forwarding premise
+is needed. `R1CSLikePass.source_target_related_materialize_iff` composes this with leaf
+materialization. Its canonical specialization is used by the executable entry artifact's
+existing correctness proof. Boundary alignment is complete, but packaging one existential
+whole-entry pass and reflecting arbitrary terminal witnesses remain separate work.
+
+### Lowering-defined wrappers
+
 `CallErasure.expandedSourceStage` defines satisfaction through successful expansion
 and the residual stage. `StructObjectPass.sourceStage` defines it through successful
 object lowering and a related target observation. Their packaged preservation/reflection
@@ -85,7 +123,7 @@ whole-compiler theorem: that would move the specification to the compiler output
 
 ## Remaining obligations
 
-1. Align intermediate semantics/witness relations and compose whole-entry existential
+1. Using the aligned boundaries and object-state/layout adapter, compose whole-entry existential
    preservation/reflection, including arbitrary satisfying target assignments.
 2. Prove constructive transport success for an explicitly supported source class.
 3. Establish frontend fidelity and agreement with the intended upstream LLZK fragment.

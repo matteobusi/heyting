@@ -45,6 +45,17 @@ typed [Call, StructObject, Oracle, Felt, ConstrainEq]
 
 ### Oracle and Call prefix
 
+`OracleErasure.directConstraintPass` and `ObjectCallSemantics.directConstraintPass`
+use independent source/projected/residual semantics with the same finite observation.
+`ObjectCallSemantics.directPrefixPass` composes their existential preservation/reflection,
+conditional on successful module lowering. This module-level theorem does not replace
+the CLI's selected-entry artifact. The subsequent object-layout boundary uses
+`StructObjectPass.CanonicalStateRel`: finite observations agree with an initial leaf
+environment on allocated slots, with other locals unrestricted. `lowerFunc_related_iff`
+proves direct satisfaction equivalence; `source_target_related_materialize_iff` joins
+it to leaf materialization. The existing artifact proof uses its canonical specialization.
+This does not prove reflection from arbitrary satisfying terminal witnesses.
+
 - `OracleErasure.checkAt_eq_checkProjectedAt`: projection preserves selected-entry checking.
 - `ObjectCallSemantics.structuralPrefix_check_eq`: direct checker correspondence.
 - `ObjectCallSemantics.structuralPrefix_satisfies_iff`: source satisfaction iff successful
@@ -57,6 +68,7 @@ needed object aliases, and allocation freshness.
 
 - `StructObjectPass.lowerBody_simulation`: object-aware and encoded leaf execution agree.
 - `StructObjectPass.lowerBody_canonical_iff`: canonical finite source specialization.
+- `StructObjectPass.lowerFunc_canonical_iff`: exact certified target-body specialization.
 - `R1CSLikePass`: leaf operations materialize into exact terminal dialect semantics.
 - `Pipeline.source_artifact_iff`: certified source artifact satisfaction equivalence.
 
@@ -77,9 +89,9 @@ Major results:
 - `generated_typed_source_r1cs_iff`: specialization to generated candidate
 - `typed_pipeline_readback`: forwarding reads back exact canonical finite source witness
 
-These constructive pointwise results use standard axioms only. Structural wrappers
-use lowering-defined stage predicates; direct interpreter correspondence comes from
-separate simulations. The complete chain of existential pass correctness with matching
+These constructive pointwise results use standard axioms only. The generic structural
+wrappers use lowering-defined predicates; direct Oracle/Call wrappers additionally expose
+independent semantics. The complete chain of existential pass correctness with matching
 direct-source and terminal witness semantics is not yet packaged.
 
 ### Direct terminal backend
