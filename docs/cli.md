@@ -40,6 +40,8 @@ Witness generation checks original typed-source constraints first, erased
 artifact constraints second as differential assertion, then transports to R1CS.
 Failure messages distinguish runtime/lowering faults from constraint rejection.
 Argument, lowering, runtime, and constraint errors return nonzero process status.
+Entries whose compute function has more parameters than the constrain function are
+rejected at lowering.
 
 ## Field boundary
 

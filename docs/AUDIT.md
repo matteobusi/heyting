@@ -89,9 +89,38 @@ for every related environment and the exact certified target. No forwarding prem
 is needed. `R1CSLikePass.source_target_related_materialize_iff` composes this with leaf
 materialization. Its canonical specialization is used by the executable entry artifact's
 existing correctness proof. Boundary alignment is complete, but packaging one existential
-whole-entry pass and reflecting arbitrary terminal witnesses remain separate work.
+whole-entry pass remains separate work. Arbitrary-target reflection is now supplied by
+`typed_source_of_r1cs`, using the zero-prefix enforcement described below.
 
-### Lowering-defined wrappers
+### Item 2 repair: reserved parameters and arbitrary-target reflection
+
+`tests/ReservedParameterReflection.lean` gives an intrinsically certified full typed
+module accepted by `compileTypedEntryArtifact`: no compute parameters, one constraint
+parameter, and a body comparing parameter `0` with a fresh constant `1`.
+`source_unsatisfied` proves that every finite source observation fails, because source
+initialization fixes the reserved parameter to zero. The old emitted R1CS accepted
+the all-one assignment (including `varOne`); the regression now verifies rejection.
+
+`R1CSLike.enforceZeroPrefix` emits terminal constant equations for reserved slots.
+`satisfies_enforceZeroPrefix_iff` proves that the new target means exactly the old target
+plus canonical zeros. Both entry compilation routes use this enforcement. Forwarding
+checks the same invariant, retaining the pointwise theorem for arbitrary artifact values.
+
+`Pipeline.typed_source_of_r1cs` now proves that every satisfying compiled R1CS witness
+reads back to a satisfying independent typed-source observation. Proof chain: enforced
+zeros → terminal reflection → finite slot readback → terminal materialization fixed point
+→ related-state object reflection → Oracle/Call correspondence. No forwarding premise.
+`target_unsatisfied` in the regression proves rejection of *every* target witness for the
+counterexample, not only the all-one assignment. `Pipeline.typed_source_exists_r1cs` proves the converse: a canonical satisfying source
+observation yields the compiled witness `compileWitness w` (from the materialized leaf witness
+`w`), which satisfies the target and reads back exactly. Proof: `materialize_spec` preserves
+every local below `numParams + span` (`materializeBody_preserves_params`), so reserved zeros
+and finite readback survive. The layout invariant `computeParams ≤ numParams` is a field of `EntryLoweringArtifact`,
+checked by `lowerEntryCertified`. `typed_source_forward_total` shows `forward` succeeds on
+canonical satisfying sources (the same witness, plus its final readback/zero checks).
+`typed_entry_correct` bundles both directions as `EntryCorrect`.
+
+### Lowering-defined wrappers (existing interfaces)
 
 `CallErasure.expandedSourceStage` defines satisfaction through successful expansion
 and the residual stage. `StructObjectPass.sourceStage` defines it through successful
@@ -123,9 +152,10 @@ whole-compiler theorem: that would move the specification to the compiler output
 
 ## Remaining obligations
 
-1. Using the aligned boundaries and object-state/layout adapter, compose whole-entry existential
-   preservation/reflection, including arbitrary satisfying target assignments.
-2. Prove constructive transport success for an explicitly supported source class.
+1. Optionally repackage `EntryCorrect` as a `PresReflPass` instance (needs a source `Language`
+   for finite observations and total or option-valued compilation).
+2. Prove `generateSourceWitness` yields satisfying observations for a supported source class;
+   `forward` totality on satisfying observations is done.
 3. Establish frontend fidelity and agreement with the intended upstream LLZK fragment.
 4. State and prove source generator correctness under appropriate input/program assumptions.
 5. Certify finite wire layout, public/private observations, and serialization. Encoding

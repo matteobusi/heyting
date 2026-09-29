@@ -16,8 +16,16 @@ A.forward(w) = Ok z
 
 The target is the internal R1CS, before serialization. This is pointwise equivalence
 for successfully transported witnesses, not yet a whole-entry `PresReflPass`.
-It does not establish transport success for all satisfying source witnesses or
-reflection from every satisfying target assignment. See [AUDIT.md](AUDIT.md).
+It does not establish transport success for all satisfying source witnesses.
+Separately, `typed_source_of_r1cs` proves unrestricted target reflection:
+`R1CS.satisfies z A.target → TypedSource.satisfies (A.readback z) M`.
+Reserved source slots are enforced as zero in the target. Conversely,
+`typed_source_exists_r1cs` proves existential preservation, and `typed_source_forward_total`
+proves the executable `forward` accepts every canonically sized satisfying source observation,
+returning a satisfying R1CS witness that reads back to it. `typed_entry_correct` bundles both
+directions as `EntryCorrect`; `typed_source_iff_exists_r1cs` states the resulting equivalence.
+The layout invariant `computeParams ≤ numParams` is checked by `lowerEntryCertified`.
+Source witnesses must still come from somewhere: generator correctness remains open. See [AUDIT.md](AUDIT.md).
 
 ## Framework
 
@@ -54,7 +62,8 @@ the CLI's selected-entry artifact. The subsequent object-layout boundary uses
 environment on allocated slots, with other locals unrestricted. `lowerFunc_related_iff`
 proves direct satisfaction equivalence; `source_target_related_materialize_iff` joins
 it to leaf materialization. The existing artifact proof uses its canonical specialization.
-This does not prove reflection from arbitrary satisfying terminal witnesses.
+The whole-entry `typed_source_of_r1cs` combines related-state reflection with finite
+readback and enforced reserved-slot zeros to cover arbitrary satisfying target witnesses.
 
 - `OracleErasure.checkAt_eq_checkProjectedAt`: projection preserves selected-entry checking.
 - `ObjectCallSemantics.structuralPrefix_check_eq`: direct checker correspondence.

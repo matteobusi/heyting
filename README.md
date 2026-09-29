@@ -39,15 +39,19 @@ lowering/transport.
 | StructObject erasure | simulation + canonical equivalence | `Heyting/Dialects/StructObjectPass.lean` |
 | Leaf dialect → R1CSLike | proved semantic/materialization boundary | `Heyting/Dialects/R1CSLikePass.lean` |
 | R1CSLike → R1CS | direct `PresReflPass` + constructive codec | `Heyting/Dialects/R1CSLike.lean` |
-| Whole typed entry → R1CS | pointwise satisfaction iff + readback | `Heyting/Passes/DialectPipeline.lean` |
+| Whole typed entry → R1CS | `EntryCorrect`: preservation (with total `forward`) + arbitrary-target reflection + readback | `Heyting/Passes/DialectPipeline.lean` |
 
 Retired StructIR implementation is preserved on Git branch
 `legacy-infrastructure`; it is absent from active source and CLI.
 FlatIR and compatibility-only proofs have also been removed; the historical backend
 remains in Git history.
 
-The whole-entry result assumes successful witness forwarding. It is not yet a
-whole-entry `PresReflPass` over arbitrary target witnesses. See the
+`typed_entry_correct` proves both directions for a compiled entry. Every canonically sized
+observation satisfying the typed-source semantics is accepted by `forward`, giving a
+satisfying R1CS witness that reads back to it. Every satisfying R1CS witness, however
+obtained, reads back to a satisfying observation. Not covered: parser and AST-to-dialect
+fidelity, correctness of the source-witness generator, wire layout, and serialization.
+`EntryCorrect` is not a literal `PresReflPass` instance. See the
 [proof audit guide](docs/AUDIT.md) for exact contracts, dependencies, and proof sketches.
 
 ## Supported LLZK fragment

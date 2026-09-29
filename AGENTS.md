@@ -101,12 +101,14 @@ and exact R1CS target. Key results:
 - `typed_pipeline_readback`
 
 Guarantee begins at successfully typed dialect module and assumes successful witness
-forwarding. It is pointwise, not yet whole-entry arbitrary-target reflection.
+forwarding for the pointwise iff. `typed_source_of_r1cs` separately proves arbitrary-target
+reflection to finite source readback; reserved-slot zeros are enforced in the target.
 Generic structural wrappers use lowering-defined predicates. Direct Oracle/Call passes
 also compose over `TypedSourceSemantics.ConstraintObservation` and independent predicates.
 `StructObjectPass.CanonicalStateRel` bridges finite observations to allocated leaf slots;
 `lowerFunc_related_iff` and the materialization bridge connect it to entry artifacts.
-Whole-entry arbitrary-witness preservation/reflection remains open. See `docs/AUDIT.md`.
+`typed_entry_correct` (`EntryCorrect`) bundles whole-entry preservation, with `forward`
+total on canonical satisfying sources, and reflection. It is not a `PresReflPass` instance. See `docs/AUDIT.md`.
 Parser and AST-to-dialect lowering remain executable but unverified.
 
 ## Invariants

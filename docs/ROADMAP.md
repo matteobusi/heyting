@@ -31,7 +31,13 @@ parameter/object-slot layout. Its related-state object theorem composes with lea
 materialization and is used by the selected-entry artifact proof. Boundary alignment
 (item 1) is complete; this is not yet one existential whole-entry pass.
 Next (item 2): package preservation/reflection for arbitrary satisfying terminal witnesses.
-Then (item 3): prove constructive transport success under explicit source hypotheses.
+Reserved-slot initialization is now enforced in emitted R1CS. `typed_source_of_r1cs`
+proves whole-entry reflection for arbitrary satisfying target witnesses, without forwarding
+premises. The counterexample regression proves its repaired target unsatisfiable.
+`typed_entry_correct` proves both directions, with `forward` total on canonical satisfying
+sources; `computeParams ≤ numParams` is certified by `lowerEntryCertified`.
+Remaining item 2 work: optional `PresReflPass` repackaging.
+Then (item 3): prove `generateSourceWitness` produces satisfying observations under explicit source hypotheses.
 
 Align the intermediate languages, satisfaction predicates, and witness relations
 used by the existing structural, leaf, and terminal results. Connect lowering-defined
