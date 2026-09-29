@@ -393,6 +393,22 @@ theorem materialize_satisfies_iff [Field F] [DecidableEq F] {ctx : OpCtx}
       · intro htruth
         exact ⟨final, rfl, hspec.1.mpr htruth⟩
 
+/-- Successful materialization of a certified leaf body leaves every initially defined
+local unchanged.
+
+Proof sketch: `materialize_spec` supplies `Preserves` for the body's SSA `defined`
+predicate, which is exactly `v < out.numParams` by `FuncDef.wf_ssa`. -/
+theorem materializeBody_preserves_params [Field F] [DecidableEq F]
+    {n i numMembers : Nat} (out : FuncDef SourceSet n i F .constraint numMembers)
+    (initial final : LocalVar → F)
+    (hmaterialize : R1CSLike.materializeBody (sourceToTargetBody out.body) initial = .ok final) :
+    ∀ v, v < out.numParams → final v = initial v := by
+  have hspec := materialize_spec out.body _ initial out.wf_ssa
+  unfold MaterializeSpec at hspec
+  rw [hmaterialize] at hspec
+  intro v hv
+  exact hspec.2 v (by simpa using hv)
+
 /-- Object observations and terminal materialization agree for any initial leaf
 environment with the certified layout's observable slots.
 

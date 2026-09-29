@@ -515,6 +515,141 @@ theorem typed_source_of_r1cs [Field F] [DecidableEq F] {n : Nat}
     TypedEntryCompilationArtifact.artifact, EntryCompilationArtifact.readback,
     EntryCompilationArtifact.ofLowering, R1CSLike.compilationArtifact, hcall.1] using hobject
 
+namespace EntryCompilationArtifact
+
+/-- Successful entry materialization is successful terminal materialization of the seed. -/
+theorem terminal_materialize_of_materialize [Field F] [DecidableEq F]
+    (artifact : EntryCompilationArtifact F) (source : SourceWitness F)
+    (witness : R1CSLike.Witness F)
+    (hmaterialize : artifact.materialize source = .ok witness) :
+    artifact.terminal.materialize (artifact.seed source) = .ok witness := by
+  unfold materialize at hmaterialize
+  split at hmaterialize
+  · simp at hmaterialize
+  · split at hmaterialize
+    · simp at hmaterialize
+    · cases h : artifact.terminal.materialize (artifact.seed source) with
+      | error fault => simp [h] at hmaterialize
+      | ok result =>
+        simp only [h, Except.ok.injEq] at hmaterialize
+        rw [hmaterialize]
+
+/-- A terminal witness agreeing with the seed on all allocated slots keeps the reserved
+prefix at zero. Proof: reserved slots lie below `numParams`, where the seed is zero. -/
+theorem reserved_zero_of_seed [Field F] (artifact : EntryCompilationArtifact F)
+    (source : SourceWitness F) (w : R1CSLike.Witness F)
+    (hpar : artifact.paramOffset = artifact.numParams - artifact.computeParams)
+    (hseed : ∀ v, v < artifact.numParams + artifact.witnessSpan → w v = artifact.seed source v) :
+    ∀ v < artifact.paramOffset, w v = 0 := by
+  intro v hv
+  have hvp : v < artifact.numParams := by omega
+  rw [hseed v (by omega)]
+  simp [seed, StructObjectPass.seedCanonicalWitness, hvp, hv]
+
+/-- A terminal witness agreeing with the seed on all allocated slots reads back the
+canonical source it was seeded from, for canonically sized sources and
+`computeParams ≤ numParams`. Proof: compare inputs and objects index by index against the
+seed, whose input and object regions are the source lists. -/
+theorem readback_compileWitness_of_seed [Field F] (artifact : EntryCompilationArtifact F)
+    (source : SourceWitness F) (w : R1CSLike.Witness F)
+    (hcanonical : artifact.CanonicalSource source)
+    (hle : artifact.computeParams ≤ artifact.numParams)
+    (hseed : ∀ v, v < artifact.numParams + artifact.witnessSpan → w v = artifact.seed source v)
+    (hpar : artifact.paramOffset = artifact.numParams - artifact.computeParams)
+    (hback : ∀ w, artifact.backend.readback (R1CSLike.compileWitness w) = w) :
+    artifact.readback (R1CSLike.compileWitness w) = source := by
+  obtain ⟨hin, hobj⟩ := hcanonical
+  have hread : artifact.readback (R1CSLike.compileWitness w) =
+      { inputs := List.ofFn fun i : Fin artifact.computeParams ↦
+          w (artifact.paramOffset + i.val)
+        objects := List.ofFn fun i : Fin artifact.witnessSpan ↦
+          w (artifact.numParams + i.val) } := by
+    simp only [readback, hback]
+  rw [hread]
+  have hoff : artifact.paramOffset + artifact.computeParams = artifact.numParams := by
+    omega
+  obtain ⟨inputs, objects⟩ := source
+  dsimp only [SourceWitness.inputs, SourceWitness.objects] at hin hobj hseed ⊢
+  have hinputs : (List.ofFn fun i : Fin artifact.computeParams ↦
+      w (artifact.paramOffset + i.val)) = inputs := by
+    apply List.ext_getElem (by simp [hin])
+    intro i h1 h2
+    simp only [List.getElem_ofFn]
+    have hp : artifact.paramOffset + i < artifact.numParams := by omega
+    rw [hseed _ (by omega)]
+    simp [seed, StructObjectPass.seedCanonicalWitness, hp, List.getElem?_eq_getElem h2]
+  have hobjects : (List.ofFn fun i : Fin artifact.witnessSpan ↦
+      w (artifact.numParams + i.val)) = objects := by
+    apply List.ext_getElem (by simp [hobj])
+    intro i h1 h2
+    simp only [List.getElem_ofFn]
+    have hi : i < artifact.witnessSpan := by simpa using h1
+    rw [hseed _ (by omega)]
+    have hs := StructObjectPass.seedCanonicalWitness_object artifact.numParams
+      artifact.witnessSpan artifact.paramOffset inputs objects i hi
+    simp only [seed]
+    rw [hs, List.getElem?_eq_getElem h2]
+    rfl
+  rw [hinputs, hobjects]
+
+end EntryCompilationArtifact
+
+/-- Direct typed-source satisfaction yields a materialized leaf witness that keeps every
+allocated slot at its seed value and satisfies the terminal program.
+
+Proof sketch: `typed_source_artifact_iff` supplies the witness. Certified SSA keeps every
+local below the object function's `numParams = callFree.numParams + span` unchanged. -/
+theorem typed_source_materialize [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
+    (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry)
+    (source : SourceWitness F)
+    (hcanonical : compiled.artifact.CanonicalSource source)
+    (hsat : TypedSourceSatisfies module entry source) :
+    ∃ w, compiled.artifact.materialize source = .ok w ∧
+      (R1CSLike.Language F).satisfies w compiled.artifact.terminal ∧
+      ∀ v, v < compiled.artifact.numParams + compiled.artifact.witnessSpan →
+        w v = compiled.artifact.seed source v := by
+  obtain ⟨w, hmat, hw⟩ := (typed_source_artifact_iff module entry compiled source
+    hcanonical).mp hsat
+  have hterm := compiled.artifact.terminal_materialize_of_materialize source w hmat
+  have hbody : R1CSLike.materializeBody
+      (R1CSLikePass.sourceToTargetBody compiled.lowering.objectFree.body)
+      (compiled.artifact.seed source) = .ok w := by
+    have hE : compiled.artifact.terminal = .mk compiled.lowering.terminal _ := rfl
+    rw [hE, compiled.lowering.terminal_eq,
+      R1CSLikePass.lowerModuleBody_eq_sourceToTargetBody] at hterm
+    exact hterm
+  have hpres := R1CSLikePass.materializeBody_preserves_params _ _ _ hbody
+  have hnp := (StructObjectPass.lowerFunc_fields compiled.lowering.callFree
+    compiled.lowering.objectFree compiled.lowering.objectErasure).1
+  exact ⟨w, hmat, hw, fun v hv ↦ hpres v (by rw [hnp]; exact hv)⟩
+
+/-- Whole-entry existential preservation: every canonical finite observation satisfying the
+independent typed-source semantics has a satisfying compiled R1CS witness that reads back to
+it exactly.
+
+The parameter-layout invariant `computeParams ≤ numParams` (reserved prefix plus compute
+inputs) is certified by `lowerEntryCertified`, and is needed for the input readback. Proof
+sketch: `typed_source_materialize` gives the leaf witness fixing all allocated slots, so
+reserved zeros and finite readback survive. The backend codec then satisfies the base R1CS,
+and `satisfies_enforceZeroPrefix_iff` adds the reserved zeros. No forwarding premise is used. -/
+theorem typed_source_exists_r1cs [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
+    (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry)
+    (source : SourceWitness F)
+    (hcanonical : compiled.artifact.CanonicalSource source)
+    (hsat : TypedSourceSatisfies module entry source) :
+    ∃ target, R1CS.satisfies target compiled.artifact.target ∧
+      compiled.artifact.readback target = source := by
+  obtain ⟨w, _, hw, hseed⟩ := typed_source_materialize module entry compiled source
+    hcanonical hsat
+  have hzero := compiled.artifact.reserved_zero_of_seed source w rfl hseed
+  refine ⟨R1CSLike.compileWitness w, ?_, ?_⟩
+  · rw [EntryCompilationArtifact.target, R1CSLike.satisfies_enforceZeroPrefix_iff]
+    exact ⟨(compiled.artifact.backend.satisfies_iff w _ rfl).mp hw, fun v hv ↦ hzero v hv⟩
+  · exact compiled.artifact.readback_compileWitness_of_seed source w hcanonical
+      compiled.lowering.computeParams_le hseed rfl (fun _ ↦ rfl)
+
 /-- Generate the canonical source-side constraint witness. Compute execution
 is modular; structural and leaf projections are delegated to their owning
 passes. Constraints are not checked here, so an unsatisfying candidate remains

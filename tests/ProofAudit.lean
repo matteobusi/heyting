@@ -33,3 +33,5 @@ any one of them as whole-compiler preservation/reflection.
 #print axioms Dialect.R1CSLike.materializeBody_of_satisfies
 #print axioms Dialect.StructObjectPass.canonicalStateRel_readback
 #print axioms Dialect.Pipeline.typed_source_of_r1cs
+#print axioms Dialect.Pipeline.typed_source_exists_r1cs
+#print axioms Dialect.R1CSLikePass.materializeBody_preserves_params
