@@ -415,6 +415,27 @@ theorem source_target_related_materialize_iff [Field F] [DecidableEq F]
     inputs objects initial hrel).symm.trans
     (materialize_satisfies_iff out.body _ initial out.wf_ssa).symm
 
+/-- An arbitrary satisfying terminal witness reflects to related finite object
+observations. Proof sketch: satisfaction makes materialization a fixed point, then
+the related-state bridge reflects it to independent object semantics. No successful
+forwarding hypothesis or generated-witness provenance is required. -/
+theorem source_of_related_terminal_satisfies [Field F]
+    {n i numMembers : Nat}
+    (fn : FuncDef StructObjectPass.SourceSet n i F .constraint numMembers)
+    (out : FuncDef SourceSet n i F .constraint numMembers)
+    (hlower : StructObjectPass.lowerFunc fn = some out)
+    (computeParams : Nat) (inputs objects : List F) (witness : LocalVar → F)
+    (hrel : StructObjectPass.CanonicalStateRel fn.numParams computeParams
+      (StructObjectPass.witnessSpan StructObjectPass.StaticState.initial.objects 0 fn.body)
+      inputs objects witness)
+    (hsat : R1CSLike.satisfies witness (sourceToTargetBody out.body)) :
+    (ObjectResidualSemantics.evalBody fn.body
+      (TypedSourceSemantics.initialState fn.numParams computeParams inputs objects)).2 := by
+  classical
+  exact (source_target_related_materialize_iff fn out hlower computeParams
+    inputs objects witness hrel).mpr
+    ⟨witness, R1CSLike.materializeBody_of_satisfies _ witness hsat, hsat⟩
+
 /-- Canonical specialization of the related-state materialization bridge.
 Proof sketch: the canonical seed agrees with itself on every allocated slot. -/
 theorem source_target_materialize_iff [Field F] [DecidableEq F]

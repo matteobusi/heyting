@@ -35,7 +35,8 @@ def failed : Except String α → Bool
   | .error _ => true
   | .ok _ => false
 
-#guard dialectCount oneStruct == some 3
+-- The inferred entry layout reserves one zero-valued parameter slot.
+#guard dialectCount oneStruct == some 4
 
 def calledModule : LLZK.Module where
   structs := [

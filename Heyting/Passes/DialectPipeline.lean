@@ -151,7 +151,9 @@ def compileEntry {F : Type} [Field F] {n : Nat}
     Except String (R1CS.System F) := do
   let lowering ← lowerEntryCertified m entry
   let numPublic := (m.structs entry).members.countP (·.isPublic)
-  pure (R1CSLike.toR1CS lowering.terminal numPublic)
+  pure (R1CSLike.enforceZeroPrefix
+    (lowering.callFree.numParams - (m.structs entry).compute.numParams)
+    (R1CSLike.toR1CS lowering.terminal numPublic))
 
 /-- Finite source observables transported by compilation. Transient locals,
 call frames, object paths, allocation counters, and the oracle cursor are not
@@ -194,9 +196,16 @@ def ofLowering {F : Type} [Field F] {n : Nat}
     backend := R1CSLike.compilationArtifact (.mk lowering.terminal numPublic)
   }
 
-/-- Exact internal R1CS owned by the artifact's backend codec. -/
+/-- Exact internal target: backend constraints plus reserved-source initialization. -/
 def target {F : Type} [Field F] (artifact : EntryCompilationArtifact F) : R1CS.System F :=
-  artifact.backend.target
+  R1CSLike.enforceZeroPrefix artifact.paramOffset artifact.backend.target
+
+/-- Every satisfying target enforces reserved source initialization, independently
+of witness provenance. Proof sketch: project the zero-prefix constraint equivalence. -/
+theorem target_reserved_zero {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
+    (w : R1CS.Witness F) (h : R1CS.satisfies w artifact.target) :
+    ∀ v < artifact.paramOffset, w (.var v) = 0 :=
+  ((R1CSLike.satisfies_enforceZeroPrefix_iff _ _ _).mp h).2
 
 /-- Place finite input and object observations in their canonical terminal local slots. -/
 def seed {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
@@ -239,8 +248,9 @@ def forward {F : Type} [Field F] [DecidableEq F]
     match artifact.backend.forward witness with
     | .error error => .error error
     | .ok target =>
-      if artifact.readback target = source then .ok target
-      else .error "canonical source witness was overwritten during transport"
+      if artifact.readback target = source ∧
+          (List.range artifact.paramOffset).all (fun v ↦ target (.var v) == 0) then .ok target
+      else .error "canonical source readback or reserved-zero check failed"
 
 end EntryCompilationArtifact
 
@@ -464,6 +474,40 @@ theorem typed_source_artifact_iff [Field F] [DecidableEq F] {n : Nat}
     module entry compiled.prefixCertificate source.inputs source.objects
   exact hprefix.symm.trans hobject
 
+/-- Every satisfying compiled R1CS witness reflects to its finite source readback.
+
+Proof sketch: target constraints force reserved parameters to zero. Terminal
+reflection supplies ordinary locals, finite readback establishes the object-layout
+relation, and the local object/leaf reflection composes with Oracle/Call simulation.
+The witness is arbitrary: no successful forwarding or generation premise occurs. -/
+theorem typed_source_of_r1cs [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
+    (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry)
+    (target : R1CS.Witness F)
+    (hsat : R1CS.satisfies target compiled.artifact.target) :
+    TypedSourceSatisfies module entry (compiled.artifact.readback target) := by
+  have hz := compiled.artifact.target_reserved_zero target hsat
+  have hraw := ((R1CSLike.satisfies_enforceZeroPrefix_iff _ _ _).mp hsat).1
+  change R1CS.satisfies target (R1CSLike.toR1CS compiled.lowering.terminal _) at hraw
+  have hleaf := R1CSLike.toR1CS_reflection _ target _ hraw
+  rw [compiled.lowering.terminal_eq,
+    R1CSLikePass.lowerModuleBody_eq_sourceToTargetBody] at hleaf
+  have hrel := StructObjectPass.canonicalStateRel_readback
+    compiled.lowering.callFree.numParams (compiled.projected.structs entry).compute.numParams
+    compiled.lowering.witnessSpan (R1CSLike.readback target) hz
+  have hobject := R1CSLikePass.source_of_related_terminal_satisfies
+    compiled.lowering.callFree compiled.lowering.objectFree compiled.lowering.objectErasure
+    (compiled.projected.structs entry).compute.numParams _ _ _ hrel hleaf
+  have hcall := CallErasure.certifyFunc_fields
+    (compiled.projected.structs entry).constrain compiled.lowering.callErased.1
+    compiled.lowering.callFree compiled.lowering.callCertification
+  rw [hcall.1, hcall.2.1] at hobject
+  apply (ObjectCallSemantics.structuralPrefix_satisfies_iff module entry
+    compiled.prefixCertificate _ _).mp
+  simpa [TypedEntryCompilationArtifact.prefixCertificate,
+    TypedEntryCompilationArtifact.artifact, EntryCompilationArtifact.readback,
+    EntryCompilationArtifact.ofLowering, R1CSLike.compilationArtifact, hcall.1] using hobject
+
 /-- Generate the canonical source-side constraint witness. Compute execution
 is modular; structural and leaf projections are delegated to their owning
 passes. Constraints are not checked here, so an unsatisfying candidate remains
@@ -560,8 +604,10 @@ theorem pipeline_witness_iff [Field F]
       simp [EntryCompilationArtifact.forward, hmaterialize, hbackend] at hforward
     | ok compiled =>
       have hforward' :
-          (if artifact.readback compiled = source then .ok compiled
-            else .error "canonical source witness was overwritten during transport") =
+          (if artifact.readback compiled = source ∧
+              (List.range artifact.paramOffset).all (fun v ↦ compiled (.var v) == 0)
+            then .ok compiled
+            else .error "canonical source readback or reserved-zero check failed") =
             (.ok target : Except String (R1CS.Witness F)) := by
         simpa [EntryCompilationArtifact.forward, hmaterialize, hbackend] using hforward
       split at hforward'
@@ -569,7 +615,14 @@ theorem pipeline_witness_iff [Field F]
         have htarget : compiled = target := Except.ok.inj hforward'
         subst target
         have hcodec := artifact.backend.satisfies_iff witness compiled hbackend
-        simpa [Source.satisfies, hmaterialize] using hcodec
+        have hzero : ∀ v < artifact.paramOffset, compiled (.var v) = 0 := by
+          simpa using hroundtrip.2
+        rw [EntryCompilationArtifact.target, R1CSLike.satisfies_enforceZeroPrefix_iff]
+        have hboth : (R1CSLike.Language F).satisfies witness artifact.terminal ↔
+            R1CS.satisfies compiled artifact.backend.target ∧
+              ∀ v < artifact.paramOffset, compiled (.var v) = 0 :=
+          hcodec.trans ⟨fun h ↦ ⟨h, hzero⟩, And.left⟩
+        simpa [Source.satisfies, hmaterialize] using hboth
       next => simp at hforward'
 
 /-- Direct typed-source satisfaction iff satisfaction of the exact internal R1CS,
@@ -633,15 +686,17 @@ theorem pipeline_readback [Field F]
       simp [EntryCompilationArtifact.forward, hmaterialize, hbackend] at hforward
     | ok compiled =>
       have hforward' :
-          (if artifact.readback compiled = source then .ok compiled
-            else .error "canonical source witness was overwritten during transport") =
+          (if artifact.readback compiled = source ∧
+              (List.range artifact.paramOffset).all (fun v ↦ compiled (.var v) == 0)
+            then .ok compiled
+            else .error "canonical source readback or reserved-zero check failed") =
             (.ok target : Except String (R1CS.Witness F)) := by
         simpa [EntryCompilationArtifact.forward, hmaterialize, hbackend] using hforward
       split at hforward'
       next hroundtrip =>
         have htarget : compiled = target := Except.ok.inj hforward'
         subst target
-        exact hroundtrip
+        exact hroundtrip.1
       next => simp at hforward'
 
 /-- Whole typed-source successful transport preserves exact canonical finite

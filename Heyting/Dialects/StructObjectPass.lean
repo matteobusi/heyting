@@ -835,6 +835,26 @@ theorem canonicalStateRel_seed [Field F] (numParams computeParams span : Nat)
   intro v _
   rfl
 
+/-- Finite readback reconstructs all observable slots of an arbitrary witness
+whose reserved parameters are zero. Proof sketch: split reserved parameters,
+ordinary parameters, and object slots; bounded `List.ofFn` lookup recovers each. -/
+theorem canonicalStateRel_readback [Field F] (numParams computeParams span : Nat)
+    (w : LocalVar → F) (hzero : ∀ v < numParams - computeParams, w v = 0) :
+    CanonicalStateRel numParams computeParams span
+      (List.ofFn fun i : Fin computeParams ↦ w (numParams - computeParams + i.val))
+      (List.ofFn fun i : Fin span ↦ w (numParams + i.val)) w := by
+  intro v hv
+  by_cases hp : v < numParams
+  · by_cases hz : v < numParams - computeParams
+    · simp [seedCanonicalWitness, hp, hz, hzero v hz]
+    · have hi : v - (numParams - computeParams) < computeParams := by omega
+      have heq : numParams - computeParams + (v - (numParams - computeParams)) = v := by
+        omega
+      simp [seedCanonicalWitness, hp, hz, hi, heq]
+  · have hi : v - numParams < span := by omega
+    have heq : numParams + (v - numParams) = v := by omega
+    simp [seedCanonicalWitness, hp, hv, hi, heq]
+
 /-- Slot agreement supplies the simulation invariant. Proof sketch: reuse the
 canonical invariant and replace only its value and object-witness equalities. -/
 theorem CanonicalStateRel.initial_rel [Field F] {numParams computeParams span : Nat}

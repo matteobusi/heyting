@@ -574,4 +574,61 @@ def witnessTransportingPass [Field F] :
     WitnessCodec.WitnessTransportingPass (Language F) (R1CS.Language F) where
   compileArtifact source := .ok (compilationArtifact source)
 
+/-- Encode canonical reserved parameters using the terminal dialect's constant
+equations. These slots are inputs, so this is constraint enforcement, not execution. -/
+def enforceZeroPrefix [Field F] (count : Nat) (system : R1CS.System F) : R1CS.System F :=
+  { system with constraints :=
+      (List.range count).flatMap (fun v ↦ compileOp (γ := ⟨0, 0, 0⟩) (.assign (.const v 0))) ++
+        system.constraints }
+
+/-- Rewriting a local with its existing value leaves the witness unchanged. -/
+theorem writeWitness_self [Field F] [DecidableEq F] (w : Witness F) (v : LocalVar) :
+    writeWitness w v (w v) = w := by
+  funext x
+  by_cases h : x = v
+  · simp [writeWitness, h]
+  · simp [writeWitness, h]
+
+/-- Every satisfying assignment is a fixed point of one terminal operation.
+Proof sketch: the operation equation identifies its assigned value with the
+existing destination; division satisfaction also excludes its failure branch. -/
+theorem materializeOp_of_satisfies [Field F] [DecidableEq F] (w : Witness F)
+    (op : Op γ F) (h : satisfiesOp w op) : materializeOp w op = .ok w := by
+  cases op with
+  | assertEq a b => rfl
+  | assign op =>
+    cases op with
+    | div d a b =>
+      simp only [satisfiesOp] at h
+      simp [materializeOp, h.1, ← h.2, writeWitness_self]
+    | _ =>
+      simp only [satisfiesOp] at h
+      simp [materializeOp, ← h, writeWitness_self]
+
+/-- A satisfying terminal witness is unchanged by whole-body materialization.
+Proof sketch: split head/tail satisfaction and apply the operation fixed-point
+lemma before the induction hypothesis. No provenance or SSA premise is needed. -/
+theorem materializeBody_of_satisfies [Field F] [DecidableEq F]
+    (body : List (Stmt Set γ F)) (w : Witness F) (h : satisfies w body) :
+    materializeBody body w = .ok w := by
+  induction body with
+  | nil => rfl
+  | cons stmt rest ih =>
+    have hs := h stmt (by simp)
+    have hr : satisfies w rest := fun s hm ↦ h s (by simp [hm])
+    rw [materializeBody, materializeOp_of_satisfies w (stmtOp stmt) hs]
+    exact ih hr
+
+/-- Zero-prefix enforcement adds exactly the canonical initialization equations.
+Proof sketch: expand list membership and the terminal constant encoding; each new
+rank-one equation simplifies to `w (.var v) = 0`. Existing constraints are unchanged. -/
+theorem satisfies_enforceZeroPrefix_iff [Field F] (count : Nat) (system : R1CS.System F)
+    (w : R1CS.Witness F) :
+    R1CS.satisfies w (enforceZeroPrefix count system) ↔
+      R1CS.satisfies w system ∧ ∀ v < count, w (.var v) = 0 := by
+  simp only [R1CS.satisfies, enforceZeroPrefix, List.forall_mem_append,
+    List.forall_mem_flatMap]
+  simp [compileOp, R1CS.satisfiesLinComb, R1CS.evalLinComb,
+    eq_comm, and_left_comm, and_comm]
+
 end Dialect.R1CSLike
