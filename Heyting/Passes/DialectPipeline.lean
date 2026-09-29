@@ -650,6 +650,48 @@ theorem typed_source_exists_r1cs [Field F] [DecidableEq F] {n : Nat}
   · exact compiled.artifact.readback_compileWitness_of_seed source w hcanonical
       compiled.lowering.computeParams_le hseed rfl (fun _ ↦ rfl)
 
+/-- Transport totality on the supported source class: a canonically sized observation that
+satisfies the independent typed-source semantics is accepted by `forward`, and the result
+satisfies the compiled R1CS and reads back to the source.
+
+Proof sketch: `forward` fails only on wrong lengths, backend-invalid division, or its final
+readback and reserved-zero checks. Canonical sizes exclude the first; source satisfaction
+makes materialization succeed (division validity is part of it); the last two hold by
+`readback_compileWitness_of_seed` and `reserved_zero_of_seed`. -/
+theorem typed_source_forward_total [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
+    (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry)
+    (source : SourceWitness F)
+    (hcanonical : compiled.artifact.CanonicalSource source)
+    (hsat : TypedSourceSatisfies module entry source) :
+    ∃ target, compiled.artifact.forward source = .ok target ∧
+      R1CS.satisfies target compiled.artifact.target ∧
+      compiled.artifact.readback target = source := by
+  obtain ⟨w, hmat, hw, hseed⟩ := typed_source_materialize module entry compiled source
+    hcanonical hsat
+  have hzero := compiled.artifact.reserved_zero_of_seed source w rfl hseed
+  have hreadback := compiled.artifact.readback_compileWitness_of_seed source w hcanonical
+    compiled.lowering.computeParams_le hseed rfl (fun _ ↦ rfl)
+  have hforward : compiled.artifact.forward source = .ok (R1CSLike.compileWitness w) := by
+    have hzeroBool : (List.range compiled.artifact.paramOffset).all
+        (fun v ↦ R1CSLike.compileWitness w (.var v) == 0) = true := by
+      simp only [List.all_eq_true, List.mem_range, beq_iff_eq]
+      exact fun v hv ↦ hzero v hv
+    have hcond : compiled.artifact.readback (R1CSLike.compileWitness w) = source ∧
+        (List.range compiled.artifact.paramOffset).all
+          (fun v ↦ R1CSLike.compileWitness w (.var v) == 0) = true :=
+      ⟨hreadback, hzeroBool⟩
+    have hb : compiled.artifact.backend.forward w = .ok (R1CSLike.compileWitness w) := rfl
+    unfold EntryCompilationArtifact.forward
+    rw [hmat]
+    dsimp only
+    rw [hb]
+    dsimp only
+    rw [if_pos hcond]
+  refine ⟨_, hforward, ?_, hreadback⟩
+  rw [EntryCompilationArtifact.target, R1CSLike.satisfies_enforceZeroPrefix_iff]
+  exact ⟨(compiled.artifact.backend.satisfies_iff w _ rfl).mp hw, fun v hv ↦ hzero v hv⟩
+
 /-- Generate the canonical source-side constraint witness. Compute execution
 is modular; structural and leaf projections are delegated to their owning
 passes. Constraints are not checked here, so an unsatisfying candidate remains
