@@ -139,6 +139,7 @@ run_lean_test() {
 
 run_lean_test "$TESTS_DIR/ReservedParameterReflection.lean"
 run_lean_test "$TESTS_DIR/EntryCorrectness.lean"
+run_lean_test "$TESTS_DIR/StatementNonVacuity.lean"
 
 # Summary
 echo "================================"
