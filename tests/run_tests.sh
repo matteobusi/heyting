@@ -116,6 +116,30 @@ else
   exit 1
 fi
 
+# Lean regression checks: `#guard` failures and elaboration errors make `lean` exit nonzero.
+run_lean_test() {
+  local test_file="$1"
+  local test_name="$(basename "$test_file" .lean)"
+  local out_dir="$OUT_BASE/lean-$test_name"
+
+  TOTAL=$((TOTAL + 1))
+  mkdir -p "$out_dir"
+  echo -e "${YELLOW}[lean]${NC} $test_name"
+
+  if (cd "$ROOT" && lake env lean "$test_file") >"$out_dir/lean.log" 2>&1; then
+    echo -e "${GREEN}  ✓${NC} All checks passed"
+    PASSED=$((PASSED + 1))
+  else
+    echo -e "${RED}  ✗${NC} Lean checks failed"
+    cat "$out_dir/lean.log"
+    FAILED=$((FAILED + 1))
+  fi
+  echo
+}
+
+run_lean_test "$TESTS_DIR/ReservedParameterReflection.lean"
+run_lean_test "$TESTS_DIR/EntryCorrectness.lean"
+
 # Summary
 echo "================================"
 echo "Test Summary"
