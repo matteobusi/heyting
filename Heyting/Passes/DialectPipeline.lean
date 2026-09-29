@@ -33,6 +33,13 @@ the terminal locals and auxiliary wires.
 - `typed_source_r1cs_iff`: successful forwarding preserves and reflects satisfaction
   for the particular source/target witness pair.
 - `typed_pipeline_readback`: successful forwarding recovers exact finite observations.
+- `typed_source_of_r1cs`: every satisfying R1CS assignment reads back to a satisfying
+  typed-source observation (reflection, no forwarding premise).
+- `typed_source_exists_r1cs`: every canonically sized satisfying observation has a
+  satisfying R1CS assignment reading back to it (preservation).
+- `typed_source_forward_total`: `forward` succeeds on those observations.
+- `typed_entry_correct` (`EntryCorrect`) and `typed_source_iff_exists_r1cs`: the bundled
+  two-direction statement and the resulting equivalence.
 
 ## Proof sketch and scope
 
@@ -41,9 +48,9 @@ the leaf materialization equivalence, and the terminal codec equivalence. Layout
 equalities in the artifact identify the exact programs and witnesses at each bridge.
 Successful forwarding supplies canonical lengths and the checked readback equation.
 
-This is not a whole-entry `PresReflPass`: arbitrary-target reflection and transport
-totality are not established here. Parsing, AST lowering, source-generation success,
-public-wire classification, and serialization remain outside the theorem.
+`EntryCorrect` is not a literal `PresReflPass` instance (finite-list observations, partial
+compilation). Parsing, AST lowering, source-generation success, public-wire classification,
+and serialization remain outside the theorems.
 -/
 
 namespace Dialect.Pipeline
@@ -351,11 +358,16 @@ def checkTypedSource [Field F] [DecidableEq F] {n : Nat}
     (entry : Fin n) (source : SourceWitness F) : Bool :=
   TypedSourceSemantics.checkAt module entry source.inputs source.objects
 
+/-- The user-facing source specification: the canonical finite observation `source` of
+`entry` satisfies the original typed module under the independent recursive interpreter
+`TypedSourceSemantics`, before Oracle, Call, or StructObject erasure. Equality failure and
+backend-invalid division make it false; it is never defined through compiler output. -/
 def TypedSourceSatisfies [Field F] [DecidableEq F] {n : Nat}
     (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
     (entry : Fin n) (source : SourceWitness F) : Prop :=
   TypedSourceSemantics.satisfiesAt module entry source.inputs source.objects
 
+/-- The executable checker decides `TypedSourceSatisfies`. -/
 theorem checkTypedSource_true_iff [Field F] [DecidableEq F] {n : Nat}
     (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
     (entry : Fin n) (source : SourceWitness F) :

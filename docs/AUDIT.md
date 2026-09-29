@@ -35,9 +35,10 @@ A.artifact.forward w = Ok z
 TypedSourceSatisfies M entry w ↔ R1CS.satisfies z A.artifact.target
 ```
 
-It also proves `A.artifact.readback z = w` under the same success premise.
-There is no claim here about arbitrary target assignments, transport totality,
-parser fidelity, serialized bytes, or public-wire visibility.
+It also proves `A.artifact.readback z = w` under the same success premise. This pointwise
+form is the base case; `typed_entry_correct` (below) adds arbitrary-target reflection,
+existential preservation and totality of `forward` on canonical satisfying sources.
+There is no claim about parser fidelity, serialized bytes, or public-wire visibility.
 
 ## Proof chain
 

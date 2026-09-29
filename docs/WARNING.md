@@ -75,6 +75,13 @@ Wire encoding is only intended for allocated constructor ranges. Global injectiv
 over all natural-number-indexed `R1CS.VarId` values would be false. Public/private
 wire ordering and finite serialization must be audited separately.
 
+**Public/private classification is unverified and looks wrong.** `R1CS.satisfies` ignores
+`numPublicInputs`, so no theorem covers it. The serializer maps `.var n` to wire `n + 1` and
+marks wires `1..numPublicInputs` public, i.e. locals `0..k-1` (the reserved `self` slot and
+the first inputs). `pub` members live at locals `numParams + encoded(member)`, which are
+different wires. Do not rely on `pub` members becoming public circuit signals until this is
+fixed and proved.
+
 ## Archived issues
 
 Retired StructIR-specific assumptions and proofs live on branch
