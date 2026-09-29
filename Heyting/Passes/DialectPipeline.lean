@@ -65,6 +65,9 @@ structure EntryLoweringArtifact {F : Type} [Field F] {n : Nat}
     (m.structs entry).members.length
   callCertification : CallErasure.certifyFunc
     (m.structs entry).constrain callErased.1 = some callFree
+  /-- Compute inputs occupy a suffix of the constraint parameters; the remaining prefix
+  is the reserved region initialized to zero. Checked by `lowerEntryCertified`. -/
+  computeParams_le : (m.structs entry).compute.numParams ≤ callFree.numParams
   objectFree : FuncDef CallPass.TargetSet n entry.val F .constraint
     (m.structs entry).members.length
   objectErasure : StructObjectPass.lowerFunc callFree = some objectFree
@@ -98,6 +101,7 @@ def lowerEntryCertified {F : Type} [Field F] {n : Nat}
       | none => .error s!"call-erased entry failed certification: \
           {(m.structs entry).name}::constrain"
       | some callFree =>
+        if hparams : (m.structs entry).compute.numParams ≤ callFree.numParams then
           match hobject : StructObjectPass.lowerFunc callFree with
           | none => .error s!"StructObject-erased entry failed certification: \
               {(m.structs entry).name}::constrain"
@@ -109,11 +113,14 @@ def lowerEntryCertified {F : Type} [Field F] {n : Nat}
                 callErasure := herase
                 callFree
                 callCertification := hcall
+                computeParams_le := hparams
                 objectFree
                 objectErasure := hobject
                 terminal := lowered
                 terminal_eq := rfl
               }
+        else .error s!"compute function has more parameters than constrain function: \
+          {(m.structs entry).name}"
 
 /-- Erase calls from the primary object-aware frontend module. -/
 noncomputable def eraseCalls {F : Type} [Field F] {n : Nat}
