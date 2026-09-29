@@ -692,6 +692,60 @@ theorem typed_source_forward_total [Field F] [DecidableEq F] {n : Nat}
   rw [EntryCompilationArtifact.target, R1CSLike.satisfies_enforceZeroPrefix_iff]
   exact ⟨(compiled.artifact.backend.satisfies_iff w _ rfl).mp hw, fun v hv ↦ hzero v hv⟩
 
+/-- Finite readback always has canonical shape. Proof: `List.ofFn` has the indexing length. -/
+theorem EntryCompilationArtifact.canonicalSource_readback [Field F]
+    (artifact : EntryCompilationArtifact F) (target : R1CS.Witness F) :
+    artifact.CanonicalSource (artifact.readback target) := by
+  simp [EntryCompilationArtifact.CanonicalSource, EntryCompilationArtifact.readback]
+
+/-- Whole-entry correctness of a compiled typed entry, in the two `PresReflPass` directions.
+
+* `preservation`: every canonically sized source observation satisfying the independent
+  typed-source semantics is accepted by the executable `forward`, and the resulting R1CS
+  witness satisfies the target and reads back to the source.
+* `reflection`: every satisfying R1CS assignment, however obtained, reads back to a
+  canonically sized source observation that satisfies the typed-source semantics.
+
+This is not literally a `PresReflPass` instance: source observations are finite lists rather
+than functions on variables, and compilation is partial with a certificate per entry. -/
+structure EntryCorrect [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
+    (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry) : Prop where
+  preservation : ∀ source : SourceWitness F, compiled.artifact.CanonicalSource source →
+    TypedSourceSatisfies module entry source →
+      ∃ target, compiled.artifact.forward source = .ok target ∧
+        R1CS.satisfies target compiled.artifact.target ∧
+        compiled.artifact.readback target = source
+  reflection : ∀ target : R1CS.Witness F, R1CS.satisfies target compiled.artifact.target →
+    compiled.artifact.CanonicalSource (compiled.artifact.readback target) ∧
+      TypedSourceSatisfies module entry (compiled.artifact.readback target)
+
+/-- Every successfully compiled typed entry is correct in both directions.
+Proof: `typed_source_forward_total` and `typed_source_of_r1cs`, plus canonical readback shape. -/
+theorem typed_entry_correct [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
+    (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry) :
+    EntryCorrect module entry compiled where
+  preservation source hcanonical hsat :=
+    typed_source_forward_total module entry compiled source hcanonical hsat
+  reflection target hsat :=
+    ⟨compiled.artifact.canonicalSource_readback target,
+      typed_source_of_r1cs module entry compiled target hsat⟩
+
+/-- Source satisfaction of a canonical observation is equivalent to the existence of a
+satisfying R1CS assignment that reads back to it. -/
+theorem typed_source_iff_exists_r1cs [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F)
+    (entry : Fin n) (compiled : TypedEntryCompilationArtifact module entry)
+    (source : SourceWitness F) (hcanonical : compiled.artifact.CanonicalSource source) :
+    TypedSourceSatisfies module entry source ↔
+      ∃ target, R1CS.satisfies target compiled.artifact.target ∧
+        compiled.artifact.readback target = source := by
+  constructor
+  · exact typed_source_exists_r1cs module entry compiled source hcanonical
+  · rintro ⟨target, hsat, rfl⟩
+    exact typed_source_of_r1cs module entry compiled target hsat
+
 /-- Generate the canonical source-side constraint witness. Compute execution
 is modular; structural and leaf projections are delegated to their owning
 passes. Constraints are not checked here, so an unsatisfying candidate remains

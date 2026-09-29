@@ -35,4 +35,6 @@ any one of them as whole-compiler preservation/reflection.
 #print axioms Dialect.Pipeline.typed_source_of_r1cs
 #print axioms Dialect.Pipeline.typed_source_exists_r1cs
 #print axioms Dialect.Pipeline.typed_source_forward_total
+#print axioms Dialect.Pipeline.typed_entry_correct
+#print axioms Dialect.Pipeline.typed_source_iff_exists_r1cs
 #print axioms Dialect.R1CSLikePass.materializeBody_preserves_params
