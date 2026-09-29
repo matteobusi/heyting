@@ -40,6 +40,12 @@ Witness generation checks original typed-source constraints first, erased
 artifact constraints second as differential assertion, then transports to R1CS.
 Failure messages distinguish runtime/lowering faults from constraint rejection.
 Argument, lowering, runtime, and constraint errors return nonzero process status.
+When witness generation is requested (`--auto` or `--input`), a witness failure aborts
+before any output is written, so no `.r1cs` file is produced. Compiling without a witness
+request writes the R1CS only.
+A struct without a `constrain` function is rejected (it would compile to an unconstrained
+circuit); a struct without `compute` is accepted but cannot produce a witness. Duplicate
+member names are rejected.
 Entries whose compute function has more parameters than the constrain function are
 rejected at lowering.
 

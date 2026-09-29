@@ -125,4 +125,47 @@ def malformedCall : LLZK.Module where
 -- The AST becomes a typed source module, but call erasure rejects bad arity.
 #guard failed (Dialect.Pipeline.compileAST (F := F) malformedCall)
 
+/-- A struct with only `compute` would compile to an unconstrained circuit. -/
+def missingConstrain : LLZK.Module where
+  structs := [{
+    name := "Main"
+    members := []
+    funcs := [{
+      name := "compute"
+      params := [feltParam "x"]
+      returnType := some (.structTy "Main")
+      body := [.structNew pos "self" "Main", .funcReturn pos (some "self")]
+      pos := pos
+    }]
+    pos := pos
+  }]
+  freeFuncs := []
+  pos := pos
+
+#guard failed (lowerFull (F := F) missingConstrain)
+#guard failed (Dialect.Pipeline.compileAST (F := F) missingConstrain)
+
+/-- A typo in the function name is the same failure, not a silent no-op. -/
+def misspelledConstrain : LLZK.Module :=
+  { oneStruct with structs := oneStruct.structs.map fun sd =>
+      { sd with funcs := sd.funcs.map fun f => { f with name := "constrian" } } }
+
+#guard failed (Dialect.Pipeline.compileAST (F := F) misspelledConstrain)
+
+-- Constraint-only structs (no `compute`) remain accepted.
+#guard !failed (lowerFull (F := F) oneStruct)
+
+def duplicateMembers : LLZK.Module :=
+  { objectModule with structs := objectModule.structs.map fun sd =>
+      { sd with members := sd.members ++ sd.members } }
+
+#guard failed (lowerFull (F := F) duplicateMembers)
+#guard failed (Dialect.Pipeline.compileAST (F := F) duplicateMembers)
+
+-- Free functions are rejected rather than silently skipped.
+def withFreeFunction : LLZK.Module :=
+  { oneStruct with freeFuncs := [constrain [feltParam "x"] []] }
+
+#guard failed (Dialect.Pipeline.compileAST (F := F) withFreeFunction)
+
 end LLZK.DialectLowering.Tests

@@ -103,7 +103,10 @@ def lowerMemberType (n : Nat) (structIndex : HashMap String Nat)
 
 def lowerMembers (n : Nat) (structIndex : HashMap String Nat)
     (decls : List LLZK.MemberDecl) :
-    Except String (List (Dialect.MemberDecl n)) :=
+    Except String (List (Dialect.MemberDecl n)) := do
+  let names := decls.map (·.name)
+  if names.eraseDups.length != names.length then
+    throw s!"duplicate member names: {names}"
   decls.mapM fun member => do
     let ty ← lowerMemberType n structIndex member.ty
     pure { name := member.name, type := ty, isPublic := member.isPublic }
@@ -278,6 +281,10 @@ def lowerStruct {Δ : DialectSet} (builder : Builder Δ)
   let memberIndex := buildMemberIndex sd.members
   let computeAst := sd.funcs.find? (fun f => f.name == "compute")
   let constrainAst := sd.funcs.find? (fun f => f.name == "constrain")
+  -- A missing @constrain would silently yield an unconstrained circuit. A missing
+  -- @compute is allowed: constraint-only structs simply have no witness program.
+  if constrainAst.isNone then
+    throw s!"struct {sd.name} has no @constrain function"
   let computeNumParams := computeAst.map (·.params.length) |>.getD 1
   let constrainNumParams := constrainAst.map (·.params.length) |>.getD 1
   let computeRaw : List (Dialect.Stmt Δ ⟨n, i, members.length⟩ F) ×
