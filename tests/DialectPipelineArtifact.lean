@@ -19,8 +19,10 @@ def artifact : EntryCompilationArtifact F := {
   computeParams := 2
   paramOffset := 0
   witnessSpan := 2
-  numPublicInputs := 0
-  numPublicInputs_eq := rfl
+  publicOutputSlots := []
+  publicInputSlots := []
+  publicOutputSlots_lt := by simp
+  publicInputSlots_lt := by simp
   backend := R1CSLike.compilationArtifact terminal
 }
 

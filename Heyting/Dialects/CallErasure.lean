@@ -667,6 +667,7 @@ def eraseStructDef {residual : DialectSet} (config : ResidualSyntax residual F)
   pure {
     name := (m.structs i).name
     members := (m.structs i).members
+    inputIsPublic := (m.structs i).inputIsPublic
     compute := compute
     constrain := constrain
   }
@@ -755,14 +756,9 @@ def recontextualizeObjectFeltConstrain {sourceCtx targetCtx : OpCtx} :
   | ⟨0, _⟩, op => by
       cases op with
       | newStruct dest => exact some (.newStruct dest)
-      | readMember dest self member =>
-        if h : member.val < targetCtx.numMembers then
-          exact some (.readMember dest self ⟨member.val, h⟩)
-        else exact none
-      | writeMember self member src =>
-        if h : member.val < targetCtx.numMembers then
-          exact some (.writeMember self ⟨member.val, h⟩ src)
-        else exact none
+      | readMember dest self member => exact some (.readMember dest self member)
+      | writeMember self member src => exact some (.writeMember self member src)
+      | writeObject self member src => exact some (.writeObject self member src)
   | ⟨1, _⟩, op => by
       cases op with
       | add d a b => exact some (.add d a b)
@@ -801,14 +797,8 @@ private theorem objectFeltConstrainTransportMetadata [Zero F]
           ([StructObject.sig, Felt.sig, ConstrainEq.sig].get d).cap op
   | ⟨0, _⟩, op, out, h => by
       cases op <;>
-        simp [objectFeltConstrainSyntax, recontextualizeObjectFeltConstrain] at h
-      all_goals
-        first
-        | rcases h with ⟨_, hEq⟩
-          subst out
-          exact ⟨rfl, rfl, rfl⟩
-        | subst out
-          exact ⟨rfl, rfl, rfl⟩
+        simp [objectFeltConstrainSyntax, recontextualizeObjectFeltConstrain] at h <;>
+        subst out <;> exact ⟨rfl, rfl, rfl⟩
   | ⟨1, _⟩, op, out, h => by
       cases op <;>
         simp [objectFeltConstrainSyntax, recontextualizeObjectFeltConstrain] at h <;>

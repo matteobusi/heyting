@@ -12,26 +12,35 @@ Parses subset of LLZK MLIR textual IR accepted by typed dialect frontend:
 modules, struct definitions, member declarations, compute/constrain
 functions, Felt operations, constraints, calls, Oracle reads, and objects.
 
-Unsupported constructs are skipped with warnings when possible, or
-rejected with errors when they appear in critical positions.
+The parser never skips input. Every token is consumed by a rule of the supported
+subset, or parsing stops with a positioned error. In particular:
+
+- type annotations are parsed as types, not skipped up to a statement keyword;
+- attribute dictionaries accept only attributes whose meaning the compiler implements
+  or which do not affect R1CS semantics (`column`, `signal`, function capability flags);
+- template parameters, affine map operands, multi-result functions, custom fields,
+  anonymous nested modules, and split-input files are errors;
+- `!felt.type<"name">` field names are recorded in `Module.fields` for the CLI to check.
+
+Symbol references are absolute paths from the root module, as in upstream LLZK.
 -/
 
 namespace LLZK
 
 /-! ## Parser state -/
 
-/-- Parser state: a cursor into a token array with error accumulation. -/
+/-- Parser state: a cursor into a token array and the field names seen so far. -/
 structure ParseState where
-  tokens   : Array PosToken
-  cursor   : Nat
-  warnings : List String
+  tokens : Array PosToken
+  cursor : Nat
+  fields : List String
   deriving Repr
 
 namespace ParseState
 
 /-- Create initial parser state from token list. -/
 def init (tokens : List PosToken) : ParseState :=
-  { tokens := tokens.toArray, cursor := 0, warnings := [] }
+  { tokens := tokens.toArray, cursor := 0, fields := [] }
 
 /-- Test whether parser cursor has reached end of token array. -/
 def atEnd (s : ParseState) : Bool :=
@@ -52,10 +61,6 @@ def peekPos (s : ParseState) : Pos := s.peek.pos
 /-- Advance parser cursor by one token. -/
 def advance (s : ParseState) : ParseState :=
   { s with cursor := s.cursor + 1 }
-
-/-- Append warning message to parser state. -/
-def addWarning (s : ParseState) (msg : String) : ParseState :=
-  { s with warnings := s.warnings ++ [msg] }
 
 end ParseState
 
@@ -78,9 +83,9 @@ def getPeek : Parser Token := do
 def advance : Parser Unit :=
   modify ParseState.advance
 
-/-- Record non-fatal parser warning. -/
-def warn (msg : String) : Parser Unit :=
-  modify fun s => s.addWarning msg
+/-- Throw a parse error at the current position. -/
+def failHere {α : Type} (msg : String) : Parser α := do
+  throw s!"{← getPos}: {msg}"
 
 /-- Consume exact token or throw parse error with current position. -/
 def expect (tok : Token) (msg : String := "") : Parser Unit := do
@@ -107,12 +112,26 @@ def expectSSAName : Parser SSAName := do
   | .ssaName n => do modify ParseState.advance; return n
   | other => throw s!"{s.peekPos}: expected SSA name (%name), got {other}"
 
-/-- Consume symbol name token `@name`. -/
+/-- Consume one symbol name token `@name`. -/
 def expectSymName : Parser SymName := do
   let s ← get
   match s.peekTok with
   | .symName n => do modify ParseState.advance; return n
   | other => throw s!"{s.peekPos}: expected symbol name (@name), got {other}"
+
+/-- Consume a possibly nested symbol reference `@A::@B::@c`.
+The tokenizer keeps the `::` separator on each leading part, so the parts concatenate
+to the path `A::B::c`. A trailing `::` without a following part is an error. -/
+partial def expectSymRef : Parser SymName := do
+  let first ← expectSymName
+  let rec loop (acc : SymName) : Parser SymName := do
+    if acc.endsWith "::" then
+      match ← getPeek with
+      | .symName part => advance; loop (acc ++ part)
+      | other => failHere s!"expected symbol after '{acc}', got {other}"
+    else
+      return acc
+  loop first
 
 /-- Consume integer literal token. -/
 def expectIntLit : Parser Int := do
@@ -121,194 +140,202 @@ def expectIntLit : Parser Int := do
   | .intLit v => do modify ParseState.advance; return v
   | other => throw s!"{s.peekPos}: expected integer literal, got {other}"
 
-/-- Test whether current token is keyword `kw`. -/
-def isKeyword (kw : String) : Parser Bool := do
-  let s ← get
-  match s.peekTok with
-  | .keyword k => return k == kw
-  | _ => return false
+/-! ## Fields -/
 
-/-- Test whether current token is exactly `tok`. -/
-def isToken (tok : Token) : Parser Bool := do
-  let s ← get
-  return s.peekTok == tok
+/-- Prime-field names known to upstream LLZK (`llzk::Field`) and to the CLI. -/
+def knownFields : List String :=
+  ["bn128", "bn254", "babybear", "goldilocks", "mersenne31", "koalabear"]
+
+/-- Parse a field specifier `<"name">` and record the field name. -/
+def parseFieldSpec : Parser Unit := do
+  expect .langle
+  let pos ← getPos
+  match ← getPeek with
+  | .keyword k =>
+    if k.startsWith "\"" && k.endsWith "\"" && k.length ≥ 2 then
+      let name := (k.drop 1).dropEnd 1 |>.toString
+      unless knownFields.contains name do
+        throw s!"{pos}: unsupported prime field \"{name}\"; supported: {knownFields}"
+      advance
+      modify fun s => { s with fields := s.fields ++ [name] }
+    else throw s!"{pos}: expected quoted field name, got '{k}'"
+  | other => throw s!"{pos}: expected quoted field name, got {other}"
+  expect .rangle
 
 /-! ## Type parsing -/
 
-/-- Skip tokens matching `<...>` with nesting. State-passing to avoid termination issues. -/
+/-- Skip one balanced `<...>` group whose opening `<` was already consumed.
+Used only for types outside the subset (`!array.type<...>`), which lowering rejects. -/
 private partial def skipAngleAux (s : ParseState) (depth : Nat) : ParseState :=
   if depth == 0 then s
   else if s.atEnd then s
   else match s.peekTok with
   | .langle => skipAngleAux s.advance (depth + 1)
   | .rangle => skipAngleAux s.advance (depth - 1)
+  | .eof => s
   | _ => skipAngleAux s.advance depth
 
-/-- Parse a type. We handle:
-- `!felt.type` (with optional `<"fieldname">`)
-- `!struct.type<@Name>` (with optional namespacing `@Mod::@Name`)
-- Other `!type` tokens → `Ty.other` -/
+/-- Parse the body of a struct type after its `<`: `@Path` with optional empty `<[]>`,
+then `>`. Non-empty template arguments are rejected. -/
+def parseStructTypeArgs : Parser Ty := do
+  let name ← expectSymRef
+  if (← getPeek) == .langle then
+    advance
+    expect .lbracket "template arguments are not supported"
+    expect .rbracket "template arguments are not supported (only empty '<[]>' is accepted)"
+    expect .rangle
+  expect .rangle
+  return .structTy name
+
+/-- Test whether a bare keyword names an MLIR builtin integer/index type. -/
+private def isBuiltinTypeKeyword (k : String) : Bool :=
+  k == "index" || k == "none" ||
+    (k.startsWith "i" && k.length > 1 && (k.drop 1).all Char.isDigit)
+
+/-- Parse a type:
+- `!felt.type` with optional field `<"name">`;
+- `!struct.type<@Path>` or the elided form `<@Path>`, with optional empty `<[]>`;
+- other `!name<...>` and builtin `index`/`iN`/`none` types → `Ty.other` (rejected by lowering
+  wherever a value of that type would matter). -/
 def parseType : Parser Ty := do
-  let s ← get
-  match s.peekTok with
+  match ← getPeek with
+  | .typeName "felt.type" =>
+    advance
+    if (← getPeek) == .langle then parseFieldSpec
+    return .felt
+  | .typeName "struct.type" =>
+    advance
+    expect .langle "expected '<' after !struct.type"
+    parseStructTypeArgs
   | .typeName name =>
-    if name == "felt.type" then
-      set s.advance
-      let s' ← get
-      if s'.peekTok == .langle then
-        set (skipAngleAux s'.advance 1)
-      return .felt
-    else if name == "struct.type" then
-      set s.advance
-      let s' ← get
-      if s'.peekTok == .langle then
-        set s'.advance
-        let s'' ← get
-        match s''.peekTok with
-        | .symName structName =>
-          set s''.advance
-          let s''' ← get
-          set (skipAngleAux s''' 1)
-          return .structTy structName
-        | other => throw s!"{s''.peekPos}: expected @Name in struct type, got {other}"
-      else throw s!"{s'.peekPos}: expected '<' after struct.type"
-    else do
-      set s.advance
-      -- Skip optional angle-bracket parameters for other types (e.g., !array.type<...>)
-      let s' ← get
-      if s'.peekTok == .langle then
-        set (skipAngleAux s'.advance 1)
-      return .other name
+    advance
+    if (← getPeek) == .langle then
+      let s ← get
+      set (skipAngleAux s.advance 1)
+    return .other name
+  | .langle =>
+    advance
+    parseStructTypeArgs
   | .keyword k =>
-    -- Handle bare MLIR builtin types like `index`, `i1`, `i32`, `none`
-    if k == "index" || k == "none" || k.startsWith "i" || k.startsWith "f" then
-      set s.advance
+    if isBuiltinTypeKeyword k then
+      advance
       return .other k
-    else
-      throw s!"{s.peekPos}: expected type (!...), got keyword '{k}'"
-  | other => throw s!"{s.peekPos}: expected type (!...), got {other}"
+    else failHere s!"expected type, got keyword '{k}'"
+  | other => failHere s!"expected type, got {other}"
 
-/-- Try to parse a type, returning none if not a type token. -/
-def tryParseType : Parser (Option Ty) := do
-  let s ← get
-  match s.peekTok with
-  | .typeName _ =>
-    try
-      let ty ← parseType
-      return some ty
-    catch _ =>
-      set s  -- restore state on failure
-      return none
-  | _ => return none
+/-- Parse a parenthesized type list `( t, ... )`; the `(` is the current token. -/
+private partial def parseTypeTuple : Parser Unit := do
+  expect .lparen
+  if (← getPeek) == .rparen then
+    advance
+    return
+  let _ ← parseType
+  while (← getPeek) == .comma do
+    advance
+    let _ ← parseType
+  expect .rparen
 
-/-! ## Statement parsing -/
+/-- Parse an optional operation type annotation:
+`: t (, t)*` or `: (t, ...) -> t` or `: (t, ...) -> (t, ...)`.
+Annotations restate operand types and are not used by lowering, but they are fully
+parsed so that no following statement can be consumed with them. -/
+partial def parseTypeAnnotation : Parser Unit := do
+  unless (← getPeek) == .colon do return
+  advance
+  if (← getPeek) == .lparen then
+    parseTypeTuple
+    expect .arrow "expected '->' in function type annotation"
+    if (← getPeek) == .lparen then parseTypeTuple
+    else let _ ← parseType
+  else
+    let _ ← parseType
+    while (← getPeek) == .comma do
+      advance
+      let _ ← parseType
 
-/-- Skip tokens until we hit a token that plausibly starts a new statement.
-A new statement starts with: `%name = ...` (assignment), a statement-starting keyword,
-`}` (end of block), or EOF.
-We look ahead to distinguish `%name` as an argument (not followed by `=`)
-from `%name =` as a new assignment. -/
-private partial def skipToNextStmtAux (s : ParseState) : ParseState :=
-  if s.atEnd then s
-  else match s.peekTok with
-  | .eof => s
-  | .rbrace => s
-  | .ssaName _ =>
-    -- Check if next token after the SSA name is `=` → new statement
-    let s' := s.advance
-    if s'.atEnd then s
-    else if s'.peekTok == .equals then s  -- `%name =` → new statement starts here
-    else skipToNextStmtAux s'  -- `%name` used as argument, keep skipping
-  | .keyword k =>
-    -- Check if this keyword starts a statement
-    if k == "felt.add" || k == "felt.sub" || k == "felt.mul" ||
-       k == "felt.div" || k == "felt.neg" || k == "felt.inv" || k == "felt.const" ||
-       k == "constrain.eq" || k == "function.return" ||
-       k == "function.call" || k == "function.def" ||
-       k == "struct.new" || k == "struct.readm" || k == "struct.writem" ||
-       k == "struct.def" || k == "struct.member" || k == "llzk.nondet" ||
-       k == "module" then s
-    else skipToNextStmtAux s.advance
-  | _ => skipToNextStmtAux s.advance
+/-! ## Attributes -/
 
-/-- Skip optional type annotations (`: !type` or `: (!type, !type) -> !type`).
-Uses the same look-ahead logic as `skipToNextStmtAux` to avoid stopping
-prematurely on SSA names that are arguments rather than new statements. -/
-private partial def skipTypeAnnotationAux (s : ParseState) : ParseState :=
-  if s.atEnd then s
-  else match s.peekTok with
-  | .eof => s
-  | .rbrace => s
-  | .ssaName _ =>
-    let s' := s.advance
-    if s'.atEnd then s
-    else if s'.peekTok == .equals then s
-    else skipTypeAnnotationAux s'
-  | .keyword k =>
-    if k == "felt.add" || k == "felt.sub" || k == "felt.mul" ||
-       k == "felt.div" || k == "felt.neg" || k == "felt.inv" || k == "felt.const" ||
-       k == "constrain.eq" || k == "function.return" ||
-       k == "function.call" || k == "function.def" ||
-       k == "struct.new" || k == "struct.readm" || k == "struct.writem" ||
-       k == "struct.def" || k == "struct.member" || k == "llzk.nondet" ||
-       k == "module" then s
-    else skipTypeAnnotationAux s.advance
-  | _ => skipTypeAnnotationAux s.advance
+/-- One attribute dictionary entry: its name, position, and type value if it has one. -/
+structure AttrEntry where
+  name  : String
+  pos   : Pos
+  value : Option Ty := none
 
-def skipTypeAnnotation : Parser Unit := do
-  let s ← get
-  if s.peekTok == .colon then
-    set (skipTypeAnnotationAux s.advance)
+/-- Skip an attribute value up to the next `,` or `}` at nesting depth zero. -/
+private partial def skipAttrValue (depth : Nat) : Parser Unit := do
+  match ← getPeek with
+  | .eof => failHere "unterminated attribute value"
+  | .comma => if depth == 0 then return else advance; skipAttrValue depth
+  | .rbrace => if depth == 0 then return else advance; skipAttrValue (depth - 1)
+  | .lbrace | .langle | .lparen | .lbracket => advance; skipAttrValue (depth + 1)
+  | .rangle | .rparen | .rbracket => advance; skipAttrValue (depth - 1)
+  | _ => advance; skipAttrValue depth
 
-/-- Skip braces with nesting. -/
-private partial def skipBracesAux (s : ParseState) (depth : Nat) : ParseState :=
-  if depth == 0 then s
-  else if s.atEnd then s
-  else match s.peekTok with
-  | .lbrace => skipBracesAux s.advance (depth + 1)
-  | .rbrace => skipBracesAux s.advance (depth - 1)
-  | .eof => s
-  | _ => skipBracesAux s.advance depth
+/-- Parse an attribute dictionary `{ name (= value)?, ... }` (current token `{`).
+Every attribute name must be in `allowed`. Values of `typed` attributes are parsed as types
+and returned; values of `opaqueValues` attributes are metadata without semantic effect and
+are skipped; any other attribute must not have a value. -/
+partial def parseAttrDict (context : String) (allowed : List String)
+    (opaqueValues : List String := []) (typed : List String := []) :
+    Parser (List AttrEntry) := do
+  expect .lbrace
+  let mut entries : List AttrEntry := []
+  if (← getPeek) == .rbrace then
+    advance
+    return entries
+  repeat
+    let pos ← getPos
+    let name ← match ← getPeek with
+      | .keyword k => advance; pure k
+      | other => failHere s!"expected attribute name in {context}, got {other}"
+    unless allowed.contains name do
+      throw s!"{pos}: unsupported attribute '{name}' in {context}; supported: {allowed}"
+    if entries.any (·.name == name) then
+      throw s!"{pos}: duplicate attribute '{name}' in {context}"
+    let mut value : Option Ty := none
+    if (← getPeek) == .equals then
+      advance
+      if typed.contains name then value := some (← parseType)
+      else if opaqueValues.contains name then skipAttrValue 0
+      else throw s!"{pos}: attribute '{name}' in {context} takes no value"
+    else if typed.contains name then
+      throw s!"{pos}: attribute '{name}' in {context} requires a value"
+    entries := entries ++ [{ name, pos, value }]
+    match ← getPeek with
+    | .comma => advance
+    | .rbrace => advance; break
+    | other => failHere s!"expected ',' or '}' in {context}, got {other}"
+  return entries
 
-/-- Scan tokens between `{` and `}` for the keyword `"llzk.pub"`.
-    Returns `true` if found; consumes through the closing `}`.
-    Any other tokens are silently skipped. -/
-private partial def scanBracesForPub (s : ParseState) (depth : Nat) (found : Bool) :
-    ParseState × Bool :=
-  if depth == 0 then (s, found)
-  else if s.atEnd then (s, found)
-  else match s.peekTok with
-       | .lbrace              => scanBracesForPub s.advance (depth + 1) found
-       | .rbrace              => scanBracesForPub s.advance (depth - 1) found
-       | .eof                 => (s, found)
-       | .keyword "llzk.pub"  => scanBracesForPub s.advance depth true
-       | _                    => scanBracesForPub s.advance depth found
+/-- Member attributes. `column` and `signal` mark PLONKish columns and circom signals;
+they do not change R1CS semantics (offset reads that use columns are unsupported). -/
+def memberAttrs : List String := ["llzk.pub", "column", "signal"]
 
-/-- Parse optional `{llzk.pub}` attributes on a `struct.member`.
-    Returns `true` if the attribute block was present and contained `llzk.pub`,
-    `false` if absent or if it contained no `llzk.pub`.
-    All other attribute tokens are silently ignored. -/
-def parseIsPub : Parser Bool := do
-  let s ← get
-  if s.peekTok == .lbrace then
-    let (s', found) := scanBracesForPub s.advance 1 false
-    set s'
-    return found
+/-- Function attributes. The capability flags only widen which operations a body may
+contain, and every supported operation is checked by lowering; `llzk.derived` is metadata.
+`extern` (a body-less declaration) is rejected. -/
+def funcAttrs : List String :=
+  ["function.allow_constraint", "function.allow_witness",
+    "function.allow_non_native_field_ops", "llzk.derived"]
+
+/-- Parse an optional `{...}` attribute dictionary on a member or parameter and return
+whether it contains `llzk.pub`. -/
+def parseOptPubAttrs (context : String) (allowed : List String) : Parser Bool := do
+  if (← getPeek) == .lbrace then
+    let entries ← parseAttrDict context allowed
+    return entries.any (·.name == "llzk.pub")
   else
     return false
 
-/-- Skip optional attributes block `{ ... }`. -/
-def skipAttributes : Parser Unit := do
-  let _ ← parseIsPub
-
-/-- Skip optional keyword `attributes` followed by `{ ... }`. -/
-def skipAttributesKw : Parser Unit := do
-  let s ← get
-  match s.peekTok with
+/-- Parse an optional `attributes {...}` clause on a function definition. -/
+def parseFuncAttrsKw : Parser Unit := do
+  match ← getPeek with
   | .keyword "attributes" =>
-    set s.advance
-    skipAttributes
+    advance
+    let _ ← parseAttrDict "function attributes" funcAttrs
   | _ => pure ()
+
+/-! ## Statement parsing -/
 
 /-- Parse a binary felt operation. -/
 def parseFeltBinop (pos : Pos) (dest : SSAName)
@@ -316,53 +343,35 @@ def parseFeltBinop (pos : Pos) (dest : SSAName)
   let src1 ← expectSSAName
   expect .comma
   let src2 ← expectSSAName
-  skipTypeAnnotation
+  parseTypeAnnotation
   return mkStmt pos dest src1 src2
 
 /-- Parse a felt.neg operation. -/
 def parseFeltNeg (pos : Pos) (dest : SSAName) : Parser Stmt := do
   let src ← expectSSAName
-  skipTypeAnnotation
+  parseTypeAnnotation
   return .feltNeg pos dest src
 
 /-- Parse a felt.inv operation. -/
 def parseFeltInv (pos : Pos) (dest : SSAName) : Parser Stmt := do
   let src ← expectSSAName
-  skipTypeAnnotation
+  parseTypeAnnotation
   return .feltInv pos dest src
 
 /-- Parse a felt.const operation.
 Handles `felt.const 42`, `felt.const 42 <"babybear">`, and `felt.const 42 : !felt.type`. -/
 def parseFeltConst (pos : Pos) (dest : SSAName) : Parser Stmt := do
   let value ← expectIntLit
-  -- Skip optional `<"fieldname">` (e.g., `<"babybear">`)
-  let tok ← getPeek
-  if tok == .langle then do
-    let s ← get
-    set (skipAngleAux s.advance 1)
-  skipTypeAnnotation
+  if (← getPeek) == .langle then parseFieldSpec
+  parseTypeAnnotation
   return .feltConst pos dest value
 
 /-- Parse struct.new: `%dest = struct.new : !struct.type<@Name>` or shorthand `: <@Name>`. -/
 def parseStructNew (pos : Pos) (dest : SSAName) : Parser Stmt := do
   expect .colon
-  -- Handle shorthand `<@Name>` (without `!struct.type`)
-  let tok ← getPeek
-  if tok == .langle then
-    advance  -- consume '<'
-    let name ← expectSymName
-    -- Consume the closing '>' (and nested angle content if present)
-    let s ← get
-    if s.peekTok == .rangle then
-      set s.advance
-    else
-      set (skipAngleAux s 1)
-    return .structNew pos dest name
-  else
-    let ty ← parseType
-    match ty with
-    | .structTy name => return .structNew pos dest name
-    | _ => throw s!"{pos}: struct.new requires !struct.type<@Name>"
+  match ← parseType with
+  | .structTy name => return .structNew pos dest name
+  | _ => throw s!"{pos}: struct.new requires !struct.type<@Name>"
 
 /-- Parse struct.readm: `%dest = struct.readm %self[@member] : ...` -/
 def parseReadMember (pos : Pos) (dest : SSAName) : Parser Stmt := do
@@ -370,7 +379,9 @@ def parseReadMember (pos : Pos) (dest : SSAName) : Parser Stmt := do
   expect .lbracket
   let member ← expectSymName
   expect .rbracket
-  skipTypeAnnotation
+  if (← getPeek) == .lbrace then
+    failHere "struct.readm with offset/map operands is not supported"
+  parseTypeAnnotation
   return .readMember pos dest self member
 
 /-- Parse struct.writem: `struct.writem %self[@member] = %src : ...` -/
@@ -381,7 +392,7 @@ def parseWriteMember (pos : Pos) : Parser Stmt := do
   expect .rbracket
   expect .equals
   let src ← expectSSAName
-  skipTypeAnnotation
+  parseTypeAnnotation
   return .writeMember pos self member src
 
 /-- Parse constrain.eq: `constrain.eq %a, %b : !felt.type` -/
@@ -389,7 +400,7 @@ def parseConstrainEq (pos : Pos) : Parser Stmt := do
   let src1 ← expectSSAName
   expect .comma
   let src2 ← expectSSAName
-  skipTypeAnnotation
+  parseTypeAnnotation
   return .constrainEq pos src1 src2
 
 /-- Parse comma-separated SSA args until `)`. -/
@@ -403,14 +414,10 @@ private partial def parseArgsLoop (args : List SSAName) : Parser (List SSAName) 
     return args
 
 /-- Parse function.call: `%dest = function.call @target(%args) : ...`
-or void: `function.call @target(%args) : ...`
-Handles qualified names like `@Mod::@func`. -/
+or void: `function.call @target(%args) : ...`. The target is an absolute path such as
+`@Mod::@Struct::@compute`. Affine map operands `{...}` are rejected. -/
 def parseFuncCall (pos : Pos) (dest : Option SSAName) : Parser Stmt := do
-  let mut target ← expectSymName
-  -- Handle qualified names: @Mod::@func tokenizes as symName "Mod::" then symName "func"
-  while (← getPeek) matches .symName _ do
-    let part ← expectSymName
-    target := target ++ part
+  let target ← expectSymRef
   expect .lparen
   let firstTok ← getPeek
   let args ← if firstTok != .rparen then do
@@ -419,11 +426,9 @@ def parseFuncCall (pos : Pos) (dest : Option SSAName) : Parser Stmt := do
   else
     pure []
   expect .rparen
-  -- Skip optional template instantiation `{(%i)}` or similar
-  let tok ← getPeek
-  if tok == .lbrace then
-    skipAttributes
-  skipTypeAnnotation
+  if (← getPeek) == .lbrace then
+    failHere "function.call with affine map operands is not supported"
+  parseTypeAnnotation
   return .call pos dest target args
 
 /-- Parse function.return: `function.return %v : ...` or `function.return` -/
@@ -432,7 +437,9 @@ def parseFuncReturn (pos : Pos) : Parser Stmt := do
   match tok with
   | .ssaName _ =>
     let v ← expectSSAName
-    skipTypeAnnotation
+    if (← getPeek) == .comma then
+      failHere "function.return with multiple values is not supported"
+    parseTypeAnnotation
     return .funcReturn pos (some v)
   | _ => return .funcReturn pos none
 
@@ -444,145 +451,106 @@ def parseNondet (pos : Pos) (dest : SSAName) : Parser Stmt := do
   | .felt => return .nondet pos dest
   | other => throw s!"{pos}: llzk.nondet with non-felt type ({repr other}) not supported"
 
-/-- Parse a single statement. Returns None if we should skip (e.g., unsupported). -/
-partial def parseStmt : Parser (Option Stmt) := do
+/-- Parse a single statement. Every operation outside the supported subset is an error. -/
+partial def parseStmt : Parser Stmt := do
   let pos ← getPos
-  let tok ← getPeek
-  match tok with
-  | .eof => return none
-  | .rbrace => return none
+  match ← getPeek with
   | .ssaName dest => do
     advance  -- consume %dest
-    expect .equals s!"{pos}: expected '=' after %{dest}"
-    let opTok ← getPeek
-    match opTok with
+    if (← getPeek) == .comma then
+      failHere s!"operations with multiple results are not supported (at %{dest})"
+    expect .equals s!"expected '=' after %{dest}"
+    match ← getPeek with
     | .keyword op =>
       advance  -- consume the op keyword
       match op with
-      | "felt.add" => some <$> parseFeltBinop pos dest .feltAdd
-      | "felt.sub" => some <$> parseFeltBinop pos dest .feltSub
-      | "felt.mul" => some <$> parseFeltBinop pos dest .feltMul
-      | "felt.div" => some <$> parseFeltBinop pos dest .feltDiv
-      | "felt.neg" => some <$> parseFeltNeg pos dest
-      | "felt.inv" => some <$> parseFeltInv pos dest
-      | "felt.const" => some <$> parseFeltConst pos dest
-      | "struct.new" => some <$> parseStructNew pos dest
-      | "struct.readm" => some <$> parseReadMember pos dest
-      | "function.call" => some <$> parseFuncCall pos (some dest)
-      | "llzk.nondet" => some <$> parseNondet pos dest
-      | _ =>
-        warn s!"{pos}: skipping unsupported operation '{op}'"
-        -- Skip remaining tokens until next statement starts
-        let s ← get
-        set (skipToNextStmtAux s)
-        return some (.skipped pos op)
-    | _ =>
-      warn s!"{pos}: skipping unexpected token after '=': {opTok}"
-      let s ← get
-      set (skipToNextStmtAux s)
-      return some (.skipped pos (toString opTok))
+      | "felt.add" => parseFeltBinop pos dest .feltAdd
+      | "felt.sub" => parseFeltBinop pos dest .feltSub
+      | "felt.mul" => parseFeltBinop pos dest .feltMul
+      | "felt.div" => parseFeltBinop pos dest .feltDiv
+      | "felt.neg" => parseFeltNeg pos dest
+      | "felt.inv" => parseFeltInv pos dest
+      | "felt.const" => parseFeltConst pos dest
+      | "struct.new" => parseStructNew pos dest
+      | "struct.readm" => parseReadMember pos dest
+      | "function.call" => parseFuncCall pos (some dest)
+      | "llzk.nondet" => parseNondet pos dest
+      | _ => throw s!"{pos}: unsupported operation '{op}'"
+    | other => throw s!"{pos}: expected operation name after '=', got {other}"
   | .keyword kw =>
     advance  -- consume the keyword
     match kw with
-    | "struct.writem" => some <$> parseWriteMember pos
-    | "constrain.eq" => some <$> parseConstrainEq pos
-    | "function.call" => some <$> parseFuncCall pos none
-    | "function.return" => some <$> parseFuncReturn pos
-    | _ =>
-      warn s!"{pos}: skipping unsupported keyword statement '{kw}'"
-      -- Skip remaining tokens until next statement starts
-      let s ← get
-      set (skipToNextStmtAux s)
-      return some (.skipped pos kw)
-  | _ =>
-    advance
-    return some (.skipped pos (toString tok))
+    | "struct.writem" => parseWriteMember pos
+    | "constrain.eq" => parseConstrainEq pos
+    | "function.call" => parseFuncCall pos none
+    | "function.return" => parseFuncReturn pos
+    | _ => throw s!"{pos}: unsupported operation '{kw}'"
+  | other => throw s!"{pos}: expected statement, got {other}"
 
-/-- Parse a function body (list of statements between `{` and `}`). -/
+/-- Parse a function body: statements up to the closing `}` (not consumed). -/
 partial def parseBody : Parser (List Stmt) := do
-  let tok ← getPeek
-  match tok with
+  match ← getPeek with
   | .rbrace => return []
-  | .eof => return []
+  | .eof => failHere "unexpected end of input in function body"
   | _ =>
-    let stmt? ← parseStmt
-    match stmt? with
-    | some stmt => do
-      let rest ← parseBody
-      return stmt :: rest
-    | none => return []
+    let stmt ← parseStmt
+    let rest ← parseBody
+    return stmt :: rest
 
 /-! ## Top-level declarations -/
+
+/-- Parse one parameter `%name : type {attrs}?`. -/
+private def parseParam : Parser ParamDecl := do
+  let name ← expectSSAName
+  expect .colon
+  let ty ← parseType
+  let isPublic ← parseOptPubAttrs "parameter attributes" ["llzk.pub"]
+  return { name, ty, isPublic }
 
 /-- Parse comma-separated parameters until `)`. -/
 private partial def parseParamsLoop (params : List ParamDecl) : Parser (List ParamDecl) := do
   let tok ← getPeek
   if tok == .comma then
     advance
-    let name ← expectSSAName
-    expect .colon
-    let ty ← parseType
-    parseParamsLoop (params ++ [{ name, ty }])
+    let p ← parseParam
+    parseParamsLoop (params ++ [p])
   else
     return params
 
-/-- Parse a parameter list: `(%name: !type, %name: !type)`. -/
+/-- Parse a parameter list: `(%name: !type {llzk.pub}?, ...)`. -/
 def parseParams : Parser (List ParamDecl) := do
   expect .lparen
   let tok ← getPeek
   let params ← if tok != .rparen then do
-    let name ← expectSSAName
-    expect .colon
-    let ty ← parseType
-    parseParamsLoop [{ name, ty }]
+    let p ← parseParam
+    parseParamsLoop [p]
   else
     pure []
   expect .rparen
   return params
 
-/-- Skip comma-separated multi-return types. -/
-private partial def skipMultiRetLoop : Parser Unit := do
-  let tok ← getPeek
-  if tok == .comma then
-    advance
-    let _ ← parseType
-    skipMultiRetLoop
-
 /-- Parse a function definition:
-`function.def @name(%params) -> !type attributes {...} { body }` -/
-def parseFuncDef : Parser FuncDef := do
+`function.def @name(%params) -> !type attributes {...} { body }`.
+`prefix` is the absolute module path (`"M::"` or `""`) of the enclosing scope. -/
+def parseFuncDef (pfx : String := "") : Parser FuncDef := do
   let pos ← getPos
   expectKeyword "function.def"
-  -- Skip optional `private` keyword
-  let tok ← getPeek
-  match tok with
-  | .keyword "private" => advance
-  | _ => pure ()
+  -- `private` only restricts symbol visibility.
+  if (← getPeek) == .keyword "private" then advance
   let name ← expectSymName
   let params ← parseParams
-  -- Optional return type: `-> !type`
   let mut retType : Option Ty := none
-  let arrowTok ← getPeek
-  if arrowTok == .arrow then
+  if (← getPeek) == .arrow then
     advance
-    let tok2 ← getPeek
-    if tok2 == .lparen then
-      -- Multi-return; parse first type, skip rest
-      advance
-      let ty ← parseType
-      retType := some ty
-      skipMultiRetLoop
-      expect .rparen
-    else
-      let ty ← parseType
-      retType := some ty
-  -- Skip optional attributes
-  skipAttributesKw
-  -- Parse body
-  expect .lbrace
+    if (← getPeek) == .lparen then
+      failHere s!"function @{name}: parenthesized or multiple result types are not supported"
+    retType := some (← parseType)
+  parseFuncAttrsKw
+  expect .lbrace s!"function @{name} has no body (external declarations are not \
+supported)"
   let body ← parseBody
   expect .rbrace
-  return { name, params, returnType := retType, body, pos }
+  return { name := pfx ++ name, params, returnType := retType, body, pos }
 
 /-- Parse a member declaration: `struct.member @name : !type {llzk.pub}?` -/
 def parseMemberDecl : Parser MemberDecl := do
@@ -591,189 +559,145 @@ def parseMemberDecl : Parser MemberDecl := do
   let name ← expectSymName
   expect .colon
   let ty ← parseType
-  -- Parse optional attributes; returns true iff `{llzk.pub}` was present.
-  let isPublic ← parseIsPub
+  let isPublic ← parseOptPubAttrs "member attributes" memberAttrs
   return { name, ty, isPublic, pos }
-
-/-- Skip angle brackets with nesting, used for template params. -/
-private partial def skipAngleParser : Parser Unit := do
-  let s ← get
-  if s.atEnd then return ()
-  let tok ← getPeek
-  match tok with
-  | .langle => do advance; skipAngleParser; skipAngleParser
-  | .rangle => advance
-  | .eof => return ()
-  | _ => do advance; skipAngleParser
 
 /-- Parse members and functions inside a struct body. -/
 private partial def parseStructBody (members : List MemberDecl) (funcs : List FuncDef) :
     Parser (List MemberDecl × List FuncDef) := do
-  let tok ← getPeek
-  match tok with
+  match ← getPeek with
   | .rbrace => return (members, funcs)
-  | .eof => return (members, funcs)
   | .keyword "struct.member" =>
     let m ← parseMemberDecl
     parseStructBody (members ++ [m]) funcs
   | .keyword "function.def" =>
     let f ← parseFuncDef
     parseStructBody members (funcs ++ [f])
-  | _ =>
-    warn s!"{(← getPos)}: unexpected token in struct body: {tok}, skipping"
-    advance
-    parseStructBody members funcs
+  | other => failHere s!"expected struct.member or function.def in struct body, got {other}"
 
-/-- Parse a struct definition:
-`struct.def @Name { members... functions... }` -/
-def parseStructDef : Parser StructDef := do
+/-- Parse a struct definition `struct.def @Name { members... functions... }`.
+Only the empty template parameter list `<[]>` is accepted. -/
+def parseStructDef (pfx : String := "") : Parser StructDef := do
   let pos ← getPos
   expectKeyword "struct.def"
   let name ← expectSymName
-  -- Skip optional template parameters `<[...]>`
-  let tok ← getPeek
-  if tok == .langle then
-    warn s!"{pos}: struct '{name}' has template parameters — templates not supported, \
-skipping parameters"
+  if (← getPeek) == .langle then
     advance
-    skipAngleParser
+    expect .lbracket s!"struct '{name}': malformed template parameters"
+    expect .rbracket s!"struct '{name}' has template parameters; templates are not \
+supported"
+    expect .rangle
   expect .lbrace
   let (members, funcs) ← parseStructBody [] []
   expect .rbrace
-  return { name, members, funcs, pos }
+  return { name := pfx ++ name, members, funcs, pos }
+
+/-- Module attributes. `llzk.lang` is a language tag and its value is metadata;
+`llzk.main` selects the entry struct and is accepted only on the root module. -/
+private def parseModuleAttrs (isRoot : Bool) : Parser (Option SymName) := do
+  unless (← getPeek) == .keyword "attributes" do return none
+  advance
+  let allowed := if isRoot then ["llzk.lang", "llzk.main"] else ["llzk.lang"]
+  let entries ← parseAttrDict "module attributes" allowed (opaqueValues := ["llzk.lang"])
+    (typed := ["llzk.main"])
+  match entries.find? (·.name == "llzk.main") with
+  | none => return none
+  | some { value := some (.structTy name), .. } => return some name
+  | some entry => throw s!"{entry.pos}: llzk.main must be a struct type"
+
+mutual
 
 /-- Parse struct definitions, nested modules, and free functions at module level. -/
-private partial def parseModuleBody (structs : List StructDef) (freeFuncs : List FuncDef) :
-    Parser (List StructDef × List FuncDef) := do
-  let tok ← getPeek
-  match tok with
+private partial def parseModuleBody (pfx : String) (structs : List StructDef)
+    (freeFuncs : List FuncDef) : Parser (List StructDef × List FuncDef) := do
+  match ← getPeek with
   | .rbrace => return (structs, freeFuncs)
-  | .eof => return (structs, freeFuncs)
   | .keyword "struct.def" =>
-    let sd ← parseStructDef
-    parseModuleBody (structs ++ [sd]) freeFuncs
+    let sd ← parseStructDef pfx
+    parseModuleBody pfx (structs ++ [sd]) freeFuncs
   | .keyword "module" =>
-    let nested ← parseModule
-    parseModuleBody (structs ++ nested.structs) (freeFuncs ++ nested.freeFuncs)
+    let (nestedStructs, nestedFuncs) ← parseNestedModule pfx
+    parseModuleBody pfx (structs ++ nestedStructs) (freeFuncs ++ nestedFuncs)
   | .keyword "function.def" =>
-    let f ← parseFuncDef
-    parseModuleBody structs (freeFuncs ++ [f])
-  | _ =>
-    warn s!"{(← getPos)}: unexpected token at module level: {tok}, skipping"
-    advance
-    parseModuleBody structs freeFuncs
-where
-  /-- Parse a top-level or nested module.
-  Handles `module { ... }`, `module attributes {...} { ... }`,
-  and `module @Name attributes {...} { ... }`. -/
-  parseModule : Parser Module := do
-    let pos ← getPos
-    expectKeyword "module"
-    -- Skip optional module name `@Name`
-    let tok ← getPeek
-    match tok with
-    | .symName _ => advance
-    | _ => pure ()
-    skipAttributesKw
-    expect .lbrace
-    let (structs, freeFuncs) ← parseModuleBody [] []
-    expect .rbrace
-    return { structs, freeFuncs, pos }
+    let f ← parseFuncDef pfx
+    parseModuleBody pfx structs (freeFuncs ++ [f])
+  | other => failHere s!"expected struct.def, function.def, or module at module level, \
+got {other}"
 
-/-- Parse a top-level module. Handles optional `@name` after `module`. -/
+/-- Parse a named nested module `module @Name attributes {...}? { ... }`. Its symbols
+get the absolute prefix `pfx ++ "Name::"`. Anonymous nested modules are rejected because
+their symbols are not reachable by an absolute path. -/
+private partial def parseNestedModule (pfx : String) :
+    Parser (List StructDef × List FuncDef) := do
+  let pos ← getPos
+  expectKeyword "module"
+  let name ← match ← getPeek with
+    | .symName n => advance; pure n
+    | _ => throw s!"{pos}: anonymous nested modules are not supported"
+  let _ ← parseModuleAttrs false
+  expect .lbrace
+  let result ← parseModuleBody (pfx ++ name ++ "::") [] []
+  expect .rbrace
+  return result
+
+end
+
+/-- Parse the root module `module @Name? attributes {...}? { ... }`. The root module name
+is not part of symbol paths. -/
 def parseModule : Parser Module := do
   let pos ← getPos
   expectKeyword "module"
-  -- Skip optional module name `@Name`
-  let tok ← getPeek
-  match tok with
-  | .symName _ => advance
-  | _ => pure ()
-  skipAttributesKw
+  if let .symName _ := (← getPeek) then advance
+  let main ← parseModuleAttrs true
   expect .lbrace
-  let (structs, freeFuncs) ← parseModuleBody [] []
+  let (structs, freeFuncs) ← parseModuleBody "" [] []
   expect .rbrace
-  return { structs, freeFuncs, pos }
+  return { structs, freeFuncs, pos, main }
 
 /-! ## Entry point -/
 
-/-- Split input on `// -----` separators (used by LLZK test infrastructure). -/
-private def splitSections (input : String) : List String :=
+/-- Detect `// -----` split-input-file separators used by upstream LLZK tests. -/
+private def hasSplitMarker (input : String) : Option Nat :=
   let lines := input.splitOn "\n"
-  let rec go (acc : List String) (cur : List String) : List String → List String
-    | [] =>
-      let seg := "\n".intercalate cur.reverse
-      if seg.trimAscii.isEmpty then acc.reverse else (acc ++ [seg]).reverse
-    | l :: ls =>
-      if l.trimAsciiStart.startsWith "// -----" || l.trimAsciiStart.startsWith "//-----" then
-        let seg := "\n".intercalate cur.reverse
-        let acc' := if seg.trimAscii.isEmpty then acc else acc ++ [seg]
-        go acc' [] ls
-      else
-        go acc (l :: cur) ls
-  go [] [] lines
+  (lines.zipIdx.find? fun (l, _) =>
+    let t := l.trimAsciiStart
+    t.startsWith "// -----" || t.startsWith "//-----").map (·.2 + 1)
 
-/-- Parse a single section: either a `module { ... }` or bare declarations. -/
-private partial def parseSection (tokens : List PosToken) :
-    Except String (Module × List String) := do
-  let s := ParseState.init tokens
-  let (mod, s') ← (do
-    let tok ← getPeek
-    match tok with
-    | .keyword "module" => parseModule
-    | .keyword "struct.def" =>
-      -- Bare struct at top level (no module wrapper)
-      let pos ← getPos
-      let (structs, freeFuncs) ← parseBareTopLevel [] []
-      return { structs, freeFuncs, pos }
-    | .keyword "function.def" =>
-      let pos ← getPos
-      let (structs, freeFuncs) ← parseBareTopLevel [] []
-      return { structs, freeFuncs, pos }
-    | .eof => return { structs := [], freeFuncs := [], pos := ⟨0, 0⟩ }
-    | other =>
-      let pos ← getPos
-      throw s!"{pos}: expected 'module' or 'struct.def', got {other}"
-    ).run s
-  return (mod, s'.warnings)
-where
-  parseBareTopLevel (structs : List StructDef) (freeFuncs : List FuncDef) :
-      Parser (List StructDef × List FuncDef) := do
-    let tok ← getPeek
-    match tok with
-    | .eof => return (structs, freeFuncs)
-    | .keyword "struct.def" =>
-      let sd ← parseStructDef
-      parseBareTopLevel (structs ++ [sd]) freeFuncs
-    | .keyword "function.def" =>
-      let f ← parseFuncDef
-      parseBareTopLevel structs (freeFuncs ++ [f])
+/-- Parse bare top-level declarations (no module wrapper) up to end of input. -/
+private partial def parseBareTopLevel (structs : List StructDef) (freeFuncs : List FuncDef) :
+    Parser (List StructDef × List FuncDef) := do
+  match ← getPeek with
+  | .eof => return (structs, freeFuncs)
+  | .keyword "struct.def" =>
+    let sd ← parseStructDef
+    parseBareTopLevel (structs ++ [sd]) freeFuncs
+  | .keyword "function.def" =>
+    let f ← parseFuncDef
+    parseBareTopLevel structs (freeFuncs ++ [f])
+  | other => failHere s!"expected struct.def or function.def at top level, got {other}"
+
+/-- Parse an LLZK source string into a Module AST: either one root `module { ... }` or
+bare top-level declarations. Split-input files (`// -----`) are rejected because their
+sections are independent programs; compile each section separately. -/
+def parse (input : String) : Except String Module := do
+  if let some line := hasSplitMarker input then
+    throw s!"{line}:1: split-input-file separator '// -----' is not supported; \
+compile each section as a separate file"
+  let tokens ← tokenize input
+  let parser : Parser Module := do
+    let pos ← getPos
+    match ← getPeek with
     | .keyword "module" =>
-      let mod ← parseModule
-      parseBareTopLevel (structs ++ mod.structs) (freeFuncs ++ mod.freeFuncs)
-    | _ =>
-      warn s!"{(← getPos)}: unexpected token at top level: {tok}, skipping"
-      advance
-      parseBareTopLevel structs freeFuncs
-
-/-- Parse an LLZK source string into a Module AST.
-Handles `// -----` split-input-file separators by parsing each section
-independently and merging the resulting structs. -/
-def parse (input : String) : Except String (Module × List String) := do
-  let sections := splitSections input
-  let mut allStructs : List StructDef := []
-  let mut allFreeFuncs : List FuncDef := []
-  let mut allWarnings : List String := []
-  for sect in sections do
-    let tokens ← tokenize sect
-    -- Skip sections that are only CHECK/RUN comments (empty after tokenization)
-    let nonEof := tokens.filter fun pt => pt.tok != .eof
-    if nonEof.isEmpty then continue
-    match ← parseSection tokens with
-    | (mod, warnings) =>
-      allStructs := allStructs ++ mod.structs
-      allFreeFuncs := allFreeFuncs ++ mod.freeFuncs
-      allWarnings := allWarnings ++ warnings
-  return ({ structs := allStructs, freeFuncs := allFreeFuncs, pos := ⟨1, 1⟩ }, allWarnings)
+      let m ← parseModule
+      unless (← getPeek) == .eof do
+        failHere "unexpected content after the root module"
+      return m
+    | .keyword "struct.def" | .keyword "function.def" =>
+      let (structs, freeFuncs) ← parseBareTopLevel [] []
+      return { structs, freeFuncs, pos }
+    | .eof => failHere "empty input"
+    | other => failHere s!"expected 'module' or 'struct.def', got {other}"
+  let (m, s) ← parser.run (ParseState.init tokens)
+  return { m with fields := s.fields.eraseDups }
 
 end LLZK

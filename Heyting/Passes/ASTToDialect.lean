@@ -24,6 +24,14 @@ Functions are accepted only after executable capability and SSA checks provide
 the proofs required by `Dialect.FuncDef`. These intrinsic certificates establish
 well-formedness of the result, not fidelity to the untyped AST or upstream LLZK semantics.
 Parsing, symbol/member resolution, and this translation remain unverified.
+
+Before translation, `checkFunc` gives every SSA value a type (`!felt.type` or a struct
+type) and rejects ill-typed programs instead of lowering them with a guessed meaning:
+felt operations and `constrain.eq` need felt operands; `struct.readm`/`struct.writem`
+resolve the member in the struct type of the object operand, not in the enclosing struct;
+reads of another struct's members need `{llzk.pub}` (as in upstream LLZK); writes and
+`struct.new` only target the enclosing struct; call arguments, results, member writes,
+and returns must match the declared types.
 -/
 
 namespace LLZK.DialectLowering
@@ -76,18 +84,147 @@ private def lookupSSA (ssaMap : HashMap String Nat) (name : String) :
   | some n => .ok n
   | none => .error s!"undefined SSA variable: %{name}"
 
-private def buildMemberIndex (decls : List LLZK.MemberDecl) : HashMap String Nat :=
-  decls.zipIdx.foldl
-    (fun result (entry : LLZK.MemberDecl × Nat) =>
-      result.insert entry.1.name entry.2) ∅
+/-- AST struct table indexed by absolute struct name. -/
+abbrev StructTable := HashMap String LLZK.StructDef
 
-private def lookupMember (memberIndex : HashMap String Nat) (numMembers : Nat)
-    (name : String) : Except String (Fin numMembers) := do
-  let index ← match memberIndex.get? name with
-    | some index => pure index
-    | none => throw s!"unknown member: @{name}"
-  if h : index < numMembers then pure ⟨index, h⟩
-  else throw s!"member index {index} ≥ numMembers={numMembers}"
+/-- Value types of the supported subset. -/
+private def valueTypeName : LLZK.Ty → String
+  | .felt => "!felt.type"
+  | .structTy name => s!"!struct.type<@{name}>"
+  | .other name => s!"!{name}"
+
+private def sameType : LLZK.Ty → LLZK.Ty → Bool
+  | .felt, .felt => true
+  | .structTy a, .structTy b => a == b
+  | _, _ => false
+
+/-- Require a parameter or result type in the subset: `!felt.type` or a known struct. -/
+private def checkValueType (table : StructTable) (what : String) :
+    LLZK.Ty → Except String Unit
+  | .felt => pure ()
+  | .structTy name =>
+    if table.contains name then pure () else throw s!"{what}: unknown struct type @{name}"
+  | .other name => throw s!"{what}: unsupported type !{name}"
+
+/-- Look up the struct a value of type `ty` refers to. -/
+private def objectStruct (table : StructTable) (what : String) :
+    LLZK.Ty → Except String LLZK.StructDef
+  | .structTy name => match table.get? name with
+    | some sd => pure sd
+    | none => throw s!"{what}: unknown struct type @{name}"
+  | ty => throw s!"{what}: expected a struct value, got {valueTypeName ty}"
+
+/-- Resolve `obj[@member]` in the struct type of `obj`. Returns the member index and type.
+`requirePublic` enforces the upstream rule that a struct reads only the public members of
+another struct. -/
+private def resolveMember (table : StructTable) (current : String) (objTy : LLZK.Ty)
+    (member : String) (requirePublic : Bool) : Except String (Nat × LLZK.Ty) := do
+  let sd ← objectStruct table s!"member @{member}" objTy
+  match sd.members.zipIdx.find? (·.1.name == member) with
+  | none => throw s!"unknown member: @{member} in struct @{sd.name}"
+  | some (decl, index) =>
+    if requirePublic && sd.name != current && !decl.isPublic then
+      throw s!"struct @{current} reads private member @{member} of struct @{sd.name}; \
+only {"{"}llzk.pub} members of other structs are readable"
+    pure (index, decl.ty)
+
+/-- Signature of `@kind` of struct `name`: parameter types and result type. A struct
+without `@compute` has the implicit compute signature used by `lowerStruct`. -/
+private def calleeSignature (table : StructTable) (structName kind : String) :
+    Except String (List LLZK.Ty × Option LLZK.Ty) := do
+  let sd ← match table.get? structName with
+    | some sd => pure sd
+    | none => throw s!"unknown callee struct: {structName}"
+  match sd.funcs.find? (·.name == kind) with
+  | some fn => pure (fn.params.map (·.ty), fn.returnType)
+  | none => throw s!"callee @{structName} has no @{kind} function"
+
+/-- Type-check one function body and return the type of every SSA value.
+See the module documentation for the rules. -/
+def checkFunc (table : StructTable) (current : String) (kind : String)
+    (fn : LLZK.FuncDef) : Except String (HashMap String LLZK.Ty) := do
+  let label := s!"@{current}::@{kind}"
+  let mut env : HashMap String LLZK.Ty := ∅
+  for param in fn.params do
+    checkValueType table s!"{label} parameter %{param.name}" param.ty
+    env := env.insert param.name param.ty
+  if let some ty := fn.returnType then
+    checkValueType table s!"{label} result" ty
+  let typeOf (env : HashMap String LLZK.Ty) (name : String) : Except String LLZK.Ty :=
+    match env.get? name with
+    | some ty => pure ty
+    | none => throw s!"{label}: undefined SSA variable: %{name}"
+  let requireFelt (env : HashMap String LLZK.Ty) (pos : LLZK.Pos) (names : List String) :
+      Except String Unit :=
+    names.forM fun name => do
+      let ty ← typeOf env name
+      unless sameType ty .felt do
+        throw s!"{pos}: {label}: %{name} has type {valueTypeName ty}, expected !felt.type"
+  for stmt in fn.body do
+    match stmt with
+    | .feltAdd pos dest a b | .feltSub pos dest a b | .feltMul pos dest a b
+    | .feltDiv pos dest a b =>
+      requireFelt env pos [a, b]; env := env.insert dest .felt
+    | .feltNeg pos dest a | .feltInv pos dest a =>
+      requireFelt env pos [a]; env := env.insert dest .felt
+    | .feltConst _ dest _ | .nondet _ dest => env := env.insert dest .felt
+    | .constrainEq pos a b => requireFelt env pos [a, b]
+    | .structNew pos dest name =>
+      unless name == current do
+        throw s!"{pos}: {label}: struct.new of @{name}; only the enclosing struct \
+@{current} can be created"
+      env := env.insert dest (.structTy name)
+    | .readMember pos dest obj member =>
+      let (_, ty) ← resolveMember table current (← typeOf env obj) member true
+        |>.mapError (s!"{pos}: {label}: " ++ ·)
+      env := env.insert dest ty
+    | .writeMember pos obj member src =>
+      let objTy ← typeOf env obj
+      unless sameType objTy (.structTy current) do
+        throw s!"{pos}: {label}: struct.writem on {valueTypeName objTy}; only members of \
+the enclosing struct @{current} can be written"
+      let (_, memberTy) ← resolveMember table current objTy member false
+        |>.mapError (s!"{pos}: {label}: " ++ ·)
+      let srcTy ← typeOf env src
+      unless sameType srcTy memberTy do
+        throw s!"{pos}: {label}: member @{member} has type {valueTypeName memberTy}, \
+written value %{src} has type {valueTypeName srcTy}"
+    | .call pos dest target args =>
+      let (structName, fnName) := LLZK.ASTAnalysis.parseCallTarget target
+      let (paramTys, resultTy) ← calleeSignature table structName fnName
+        |>.mapError (s!"{pos}: {label}: " ++ ·)
+      unless paramTys.length == args.length do
+        throw s!"{pos}: {label}: @{target} expects {paramTys.length} arguments, \
+got {args.length}"
+      for (arg, paramTy) in args.zip paramTys do
+        let argTy ← typeOf env arg
+        unless sameType argTy paramTy do
+          throw s!"{pos}: {label}: argument %{arg} of @{target} has type \
+{valueTypeName argTy}, expected {valueTypeName paramTy}"
+      if let some d := dest then
+        match resultTy with
+        | some ty => env := env.insert d ty
+        | none => throw s!"{pos}: {label}: @{target} returns no value"
+    | .funcReturn pos value =>
+      match value, fn.returnType with
+      | none, _ => pure ()
+      | some v, some ty =>
+        let vTy ← typeOf env v
+        unless sameType vTy ty do
+          throw s!"{pos}: {label}: returns %{v} of type {valueTypeName vTy}, \
+declared result type is {valueTypeName ty}"
+      | some _, none => throw s!"{pos}: {label}: returns a value but declares no result"
+  pure env
+
+/-- Member index and declared type of `obj[@member]`, resolved in the struct type of `obj`
+(dialect member indices are relative to the object's struct). -/
+private def lookupMember (table : StructTable) (current : String)
+    (types : HashMap String LLZK.Ty) (obj member : String) :
+    Except String (Nat × LLZK.Ty) := do
+  let objTy ← match types.get? obj with
+    | some ty => pure ty
+    | none => throw s!"undefined SSA variable: %{obj}"
+  resolveMember table current objTy member true
 
 def lowerMemberType (n : Nat) (structIndex : HashMap String Nat)
     (ty : LLZK.Ty) : Except String (Dialect.MemberType n) :=
@@ -123,7 +260,8 @@ private def requireCallTarget (kind : String) (target : String) :
 def lowerComputeBody {Δ : DialectSet} (builder : Builder Δ)
     {F : Type} [IntCast F] [OfNat F 0]
     (n i : Nat) (structIndex : HashMap String Nat)
-    (memberIndex ssaMap : HashMap String Nat) (numMembers : Nat)
+    (table : StructTable) (current : String) (types : HashMap String LLZK.Ty)
+    (ssaMap : HashMap String Nat) (numMembers : Nat)
     (stmts : List LLZK.Stmt) :
     Except String
       (List (Dialect.Stmt Δ ⟨n, i, numMembers⟩ F) × Option LocalVar) := do
@@ -177,23 +315,26 @@ def lowerComputeBody {Δ : DialectSet} (builder : Builder Δ)
     | .readMember _ dest self member =>
       result := result ++ [builder.structObject
         (.readMember (← lookupSSA ssaMap dest) (← lookupSSA ssaMap self)
-          (← lookupMember memberIndex numMembers member))]
+          (← lookupMember table current types self member).1)]
     | .writeMember _ self member src =>
-      result := result ++ [builder.structObject
-        (.writeMember (← lookupSSA ssaMap self)
-          (← lookupMember memberIndex numMembers member)
-          (← lookupSSA ssaMap src))]
+      -- A struct-typed member stores a sub-component (`writeObject` copies its subtree);
+      -- a felt member stores a value.
+      let (index, memberTy) ← lookupMember table current types self member
+      let selfVar ← lookupSSA ssaMap self
+      let srcVar ← lookupSSA ssaMap src
+      result := result ++ [builder.structObject (match memberTy with
+        | .structTy _ => .writeObject selfVar index srcVar
+        | _ => .writeMember selfVar index srcVar)]
     | .nondet _ dest =>
       result := result ++ [builder.oracle (F := F)
         (.next (← lookupSSA ssaMap dest))]
-    | .skipped _ opName =>
-      throw s!"unsupported parsed operation in compute body: {opName}"
   pure (result, returnVar)
 
 def lowerConstrainBody {Δ : DialectSet} (builder : Builder Δ)
     {F : Type} [IntCast F]
     (n i : Nat) (structIndex : HashMap String Nat)
-    (memberIndex ssaMap : HashMap String Nat) (numMembers : Nat)
+    (table : StructTable) (current : String) (types : HashMap String LLZK.Ty)
+    (ssaMap : HashMap String Nat) (numMembers : Nat)
     (stmts : List LLZK.Stmt) :
     Except String (List (Dialect.Stmt Δ ⟨n, i, numMembers⟩ F)) := do
   let mut result : List (Dialect.Stmt Δ ⟨n, i, numMembers⟩ F) := []
@@ -245,13 +386,11 @@ def lowerConstrainBody {Δ : DialectSet} (builder : Builder Δ)
     | .readMember _ dest self member =>
       result := result ++ [builder.structObject
         (.readMember (← lookupSSA ssaMap dest) (← lookupSSA ssaMap self)
-          (← lookupMember memberIndex numMembers member))]
+          (← lookupMember table current types self member).1)]
     | .structNew _ _ _ | .writeMember _ _ _ _ =>
       throw "struct allocation and writes are not valid in constrain body"
     | .nondet _ _ =>
       throw "llzk.nondet is not valid in constrain body"
-    | .skipped _ opName =>
-      throw s!"unsupported parsed operation in constrain body: {opName}"
   pure result
 
 def certifyFunc {Δ : DialectSet} {F : Type}
@@ -272,33 +411,69 @@ def certifyFunc {Δ : DialectSet} {F : Type}
     else .error s!"{label} body fails SSA check"
   else .error s!"{label} body contains operations with invalid capabilities"
 
+/-- Public-input flags of a struct: `{llzk.pub}` on each `@compute` parameter. The same
+inputs are the trailing `@constrain` parameters (after the reserved prefix, such as `%self`),
+and both functions must mark them identically. Reserved-prefix parameters cannot be public.
+A struct without `@compute` takes its single implicit input from its last `@constrain`
+parameter. -/
+def inputPublicity (sd : LLZK.StructDef) (compute? : Option LLZK.FuncDef)
+    (constrain : LLZK.FuncDef) : Except String (List Bool) := do
+  let computeFlags := match compute? with
+    | some fn => fn.params.map (·.isPublic)
+    | none => [constrain.params.getLast?.map (·.isPublic) |>.getD false]
+  let constrainFlags := constrain.params.map (·.isPublic)
+  if constrainFlags.length < computeFlags.length then
+    -- The layout certificate rejects this later with a precise message.
+    return computeFlags
+  let offset := constrainFlags.length - computeFlags.length
+  if (constrainFlags.take offset).any id then
+    throw s!"struct @{sd.name}: @constrain parameters before the inputs (such as %self) \
+cannot be {"{"}llzk.pub}"
+  unless constrainFlags.drop offset == computeFlags do
+    throw s!"struct @{sd.name}: {"{"}llzk.pub} on @compute parameters {computeFlags} differs \
+from the matching @constrain parameters {constrainFlags.drop offset}"
+  pure computeFlags
+
 def lowerStruct {Δ : DialectSet} (builder : Builder Δ)
     {F : Type} [Field F] [IntCast F]
-    (n i : Nat) (hi : i < n) (structIndex : HashMap String Nat)
+    (n i : Nat) (hi : i < n) (structIndex : HashMap String Nat) (table : StructTable)
     (sd : LLZK.StructDef) :
     Except String (Dialect.StructDef Δ n ⟨i, hi⟩ F) := do
   let members ← lowerMembers n structIndex sd.members
-  let memberIndex := buildMemberIndex sd.members
+  for fn in sd.funcs do
+    unless fn.name == "compute" || fn.name == "constrain" do
+      throw s!"struct @{sd.name}: unsupported function @{fn.name}; only @compute and \
+@constrain are supported"
+    if (sd.funcs.filter (·.name == fn.name)).length > 1 then
+      throw s!"struct @{sd.name}: duplicate function @{fn.name}"
   let computeAst := sd.funcs.find? (fun f => f.name == "compute")
-  let constrainAst := sd.funcs.find? (fun f => f.name == "constrain")
   -- A missing @constrain would silently yield an unconstrained circuit. A missing
   -- @compute is allowed: constraint-only structs simply have no witness program.
-  if constrainAst.isNone then
-    throw s!"struct {sd.name} has no @constrain function"
+  let constrainFn ← match sd.funcs.find? (fun f => f.name == "constrain") with
+    | some fn => pure fn
+    | none => throw s!"struct {sd.name} has no @constrain function"
+  let inputIsPublic ← inputPublicity sd computeAst constrainFn
+  -- The witness of a struct is the object its @compute returns; a struct with members must
+  -- return its own type, as in upstream LLZK, or the member values would be unobservable.
+  if let some fn := computeAst then
+    unless sd.members.isEmpty do
+      unless (match fn.returnType with | some (.structTy t) => t == sd.name | _ => false) do
+        throw s!"struct @{sd.name}: @compute must return !struct.type<@{sd.name}> because the \
+struct has members"
   let computeNumParams := computeAst.map (·.params.length) |>.getD 1
-  let constrainNumParams := constrainAst.map (·.params.length) |>.getD 1
+  let constrainNumParams := constrainFn.params.length
   let computeRaw : List (Dialect.Stmt Δ ⟨n, i, members.length⟩ F) ×
       Option LocalVar ← match computeAst with
     | none => pure ([], none)
     | some fn =>
-      lowerComputeBody (F := F) builder n i structIndex memberIndex
-        (LLZK.ASTAnalysis.buildSSAMap fn.params fn.body) members.length fn.body
+      let types ← checkFunc table sd.name "compute" fn
+      lowerComputeBody (F := F) builder n i structIndex table sd.name types
+        (← LLZK.ASTAnalysis.buildSSAMap fn.params fn.body) members.length fn.body
+  let constrainTypes ← checkFunc table sd.name "constrain" constrainFn
   let constrainRaw : List (Dialect.Stmt Δ ⟨n, i, members.length⟩ F) ←
-    match constrainAst with
-    | none => pure []
-    | some fn =>
-      lowerConstrainBody builder n i structIndex memberIndex
-        (LLZK.ASTAnalysis.buildSSAMap fn.params fn.body) members.length fn.body
+    lowerConstrainBody builder n i structIndex table sd.name constrainTypes
+      (← LLZK.ASTAnalysis.buildSSAMap constrainFn.params constrainFn.body) members.length
+      constrainFn.body
   let compute ← certifyFunc (kind := .witness) s!"{sd.name}::compute"
     computeNumParams computeRaw.1 computeRaw.2
   let constrain ← certifyFunc (kind := .constraint) s!"{sd.name}::constrain"
@@ -308,24 +483,25 @@ def lowerStruct {Δ : DialectSet} (builder : Builder Δ)
     members := members
     compute := compute
     constrain := constrain
+    inputIsPublic := inputIsPublic
   }
 
 private def lowerStructsRec {Δ : DialectSet} (builder : Builder Δ)
     {F : Type} [Field F] [IntCast F]
     (n : Nat) (sorted : List LLZK.StructDef)
-    (structIndex : HashMap String Nat) (k : Nat) (hk : k ≤ n) :
+    (structIndex : HashMap String Nat) (table : StructTable) (k : Nat) (hk : k ≤ n) :
     Except String
       (∀ j : Fin n, j.val < k → Dialect.StructDef Δ n j F) := do
   match k with
   | 0 => pure fun _ h => absurd h (Nat.not_lt_zero _)
   | k' + 1 =>
-    let previous ← lowerStructsRec builder n sorted structIndex k'
+    let previous ← lowerStructsRec builder n sorted structIndex table k'
       (Nat.le_of_succ_le hk)
     let hk' : k' < n := hk
     match sorted[k']? with
     | none => throw s!"internal: sorted[{k'}] missing (length={sorted.length})"
     | some ast =>
-      let current ← lowerStruct builder n k' hk' structIndex ast
+      let current ← lowerStruct builder n k' hk' structIndex table ast
       pure fun j hj =>
         if hjk : j.val < k' then previous j hjk
         else
@@ -336,9 +512,9 @@ private def lowerStructsRec {Δ : DialectSet} (builder : Builder Δ)
 private def buildStructsFn {Δ : DialectSet} (builder : Builder Δ)
     {F : Type} [Field F] [IntCast F]
     (n : Nat) (sorted : List LLZK.StructDef)
-    (structIndex : HashMap String Nat) :
+    (structIndex : HashMap String Nat) (table : StructTable) :
     Except String ((j : Fin n) → Dialect.StructDef Δ n j F) := do
-  let lowered ← lowerStructsRec builder n sorted structIndex n le_rfl
+  let lowered ← lowerStructsRec builder n sorted structIndex table n le_rfl
   pure fun j => lowered j j.isLt
 
 /-- Common top-level typed lowering parameterized by dialect embeddings. -/
@@ -356,7 +532,8 @@ def lowerWith {Δ : DialectSet} (builder : Builder Δ)
     let n := sorted.length
     have hn : 0 < n := Nat.pos_of_ne_zero hzero
     let structIndex := LLZK.ASTAnalysis.buildStructIndex sorted
-    let structs ← buildStructsFn builder n sorted structIndex
+    let table : StructTable := sorted.foldl (fun t sd => t.insert sd.name sd) ∅
+    let structs ← buildStructsFn builder n sorted structIndex table
     let result : Dialect.Module Δ n F := { structs := structs }
     have hshape : n - 1 + 1 = n := Nat.succ_pred_eq_of_pos hn
     pure ⟨n - 1, hshape ▸ result⟩

@@ -195,13 +195,61 @@ All ops carry `NotFieldNative` trait.
 | `constrain.eq` | `Dialect.ConstrainEq` | Done |
 | `struct.def` / `struct.member` | `Dialect.Module` / `MemberDecl` | Done |
 | `struct.readm` | `Dialect.StructObject.readMember` | Done |
-| `struct.writem` | `Dialect.StructObject.writeMember` | Done (compute only) |
+| `struct.writem` | `StructObject.writeMember` (felt) / `writeObject` (sub-component) | Done (compute only) |
 | `struct.new` | `Dialect.StructObject.newStruct` | Done (compute only) |
 | `function.def` | typed `compute` / `constrain` fields | Done, one pair per struct |
 | `function.call` | `Dialect.Call.call` | Done, selector 0 and decreasing targets |
 | `llzk.nondet` | `Dialect.Oracle.next` | Done (compute only) |
-| `llzk.pub` member attribute | typed `MemberDecl.isPublic` | Done |
+| `llzk.pub` member attribute | public output statement wire | Done (proved placement) |
+| `llzk.pub` parameter attribute | public input statement wire | Done (proved placement) |
+| `llzk.main` root attribute | entry struct selection | Done |
+| nested `module @M` | absolute struct paths `M::S` | Done |
 | `array.*` | — | Planned |
 | R1CS backend | `R1CS.lean` | Done (core) |
 | Typed dialect → R1CS artifact | `DialectPipeline.lean` | Done (certified boundary) |
 | R1CSLike → R1CS pass | `R1CSLike.lean` | Done (direct, fully verified) |
+
+---
+
+## Heyting frontend rules
+
+The parser and typed frontend never skip input and never guess a meaning. A construct
+outside this list is a positioned error.
+
+**Symbols.** References are absolute paths from the root module, as in upstream
+`lookupTopLevelSymbol`: struct `@S` in `module @M` is `@M::@S`, and calls name
+`@M::@S::@compute`. Anonymous nested modules are rejected.
+
+**Attributes.**
+
+| Position | Accepted | Notes |
+|---|---|---|
+| root module | `llzk.lang`, `llzk.main` | `llzk.main` must be a struct type; empty `<[]>` allowed |
+| nested module | `llzk.lang` | |
+| member | `llzk.pub`, `column`, `signal` | `column`/`signal` do not change R1CS semantics |
+| parameter | `llzk.pub` | |
+| function | `function.allow_constraint`, `function.allow_witness`, `function.allow_non_native_field_ops`, `llzk.derived` | `extern` (no body) rejected |
+
+**Types and fields.** `!felt.type` with an optional built-in field name, and
+`!struct.type<@Path>` (or the elided `<@Path>`) with optional empty `<[]>`. Template
+arguments, custom fields (`llzk.fields`), and other types in parameters or members are
+rejected. Type annotations are parsed in full.
+
+**Rejected outright.** Template parameters, affine map operands on calls and member reads,
+multi-result operations and functions, split-input files (`// -----`), free functions,
+duplicate structs, functions other than `@compute`/`@constrain`, and duplicate SSA names.
+
+**Typing.** Every SSA value is `!felt.type` or a struct type. Felt operations and
+`constrain.eq` need felt operands. `struct.readm %obj[@m]` resolves `@m` in the struct type
+of `%obj` (dialect member indices are relative to that struct); another struct's member must be
+`{llzk.pub}`. A struct with members must return its own struct type from `@compute`.
+`struct.writem` and `struct.new` target only the enclosing struct. Call arguments, call
+results, member writes, and returns must match the declared types.
+
+**Public inputs.** `{llzk.pub}` on `@compute` parameter `i` must match `@constrain`
+parameter `offset + i` (after the reserved prefix such as `%self`); prefix parameters are
+never public. The flags are recorded in `StructDef.inputIsPublic` and become R1CS statement
+wires after the public outputs (public felt members, which `@constrain` must read).
+
+**Entry.** `llzk.main`, else the unique struct no other struct uses. Only the entry and the
+structs it reaches are lowered.

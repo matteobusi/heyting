@@ -8,18 +8,18 @@ import Mathlib.Algebra.Field.Basic
 /-!
 # Input JSON Parsing
 
-Parses public-input JSON `{"signal_name": "value", ...}` into positional
+Parses circuit-input JSON `{"signal_name": "value", ...}` into positional
 `List F` for dialect witness executor.
 
 ## Signal-name convention
 
-Names follow top-level `@compute` parameter order exactly. Missing named values
-default to zero.
+Names follow the entry struct's `@compute` parameter order exactly. Every parameter
+needs a value; no input is defaulted.
 
 ## Error policy
 
 - Unknown key in JSON (does not match any param name) → error.
-- Param absent from JSON → default value `0` (matches circom convention for missing inputs).
+- Param absent from JSON → error.
 - Value that cannot be parsed as an integer → error.
 -/
 
@@ -48,14 +48,14 @@ def parseFieldElem (F : Type) [Field F] [IntCast F] (s : String) : Except String
 
     For each name in `paramNames`:
     - If the JSON object contains an entry for it, parse the value string → `F`.
-    - If the JSON object does not contain an entry, default to `0`.
 
     Returns an error if:
     - `jsonStr` is not valid JSON.
     - The top-level JSON value is not an object.
     - A JSON value is not a string.
     - A value string cannot be parsed as a decimal integer.
-    - A key in the JSON object does not appear in `paramNames`. -/
+    - A key in the JSON object does not appear in `paramNames`.
+    - A name in `paramNames` has no entry: inputs are never defaulted. -/
 def parseInputsJson (F : Type) [Field F] [IntCast F]
     (paramNames : List String) (jsonStr : String) : Except String (List F) := do
   -- 1. Parse JSON text
@@ -67,12 +67,10 @@ def parseInputsJson (F : Type) [Field F] [IntCast F]
   let unknown := (obj.toList.map Prod.fst).filter fun k => !nameSet.contains k
   if let k :: _ := unknown then
     throw s!"unknown signal name in input JSON: {repr k}"
-  -- 4. For each param, look up in object (default 0) then parse
+  -- 4. For each param, look up in object then parse
   paramNames.mapM fun name =>
     match obj.get? name with
-    | none =>
-      -- Missing entry → default to 0
-      .ok (0 : F)
+    | none => .error s!"missing input signal {repr name} in input JSON"
     | some jval =>
       match Json.getStr? jval with
       | .error _ => .error s!"value for signal {repr name} must be a JSON string, got: {jval}"

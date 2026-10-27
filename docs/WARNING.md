@@ -4,14 +4,16 @@
 
 Tokenizer, parser, AST analysis, and `ASTToDialect` are executable but lack
 kernel-checked correctness theorem. Strong compiler theorem begins at successful
-typed dialect module. Unsupported parsed operations are rejected at typed
-boundary; parser warnings are not proof.
+typed dialect module. The parser and frontend reject every construct outside the
+supported subset and type-check member access, but this strictness is tested, not proved.
 
 ## 2. Partial LLZK coverage
 
 Supported: Felt arithmetic, equality, objects, topologically decreasing calls,
 Oracle reads, public members. Unsupported: arrays, booleans, casts, globals,
-templates, control flow, includes, most non-native ops. Free functions rejected.
+templates, control flow, includes, custom fields, split-input files, most non-native ops.
+Free functions rejected. Upstream programs that use `struct.writem`/`struct.new` on another
+struct, or read private members of another struct, are rejected as in upstream LLZK.
 
 ## 3. Callable restriction
 
@@ -34,7 +36,7 @@ source constraints. CLI checks and rejects false candidates.
 ## 6. Oracle is positional
 
 `llzk.nondet` consumes values sequentially. Missing values cause
-`oracleUnderflow`; unused suffix has no source meaning. Oracle file is trusted
+`oracleUnderflow`; unread values are an error. Oracle file is trusted
 input, not inferred witness completion.
 
 ## 7. CLI primality axioms
@@ -43,11 +45,15 @@ Supported field primality facts are `private axiom` declarations in
 `Heyting/CLI.lean`, isolated from proof-bearing passes. Pass theorems remain
 generic over `F : Type [Field F]` and audit to standard axioms only.
 
-## 8. Parser skips before typed rejection
+## 8. Object model shared by compute and constrain
 
-AST has `.skipped` nodes so parser can report unsupported generic operations.
-Typed lowering rejects each `.skipped` body operation. Parser acceptance without
-matching typed lowering must remain error.
+Objects form a tree in both functions (`StructObject` module documentation). `struct.new`
+creates a fresh root, and `struct.writem` of a struct-typed member is lowered to
+`writeObject`, which copies the sub-component below the member path that `@constrain` reads.
+Witness generation reads the observation below the object the entry `@compute` returns, so a
+struct with members must return its own struct type. The copy semantics of `writeObject`
+and the generator itself are tested (`tests/ObjectTree.lean`), not proved: generator
+correctness remains an open obligation.
 
 ## 9. macOS Lake cache issue
 
@@ -75,12 +81,12 @@ Wire encoding is only intended for allocated constructor ranges. Global injectiv
 over all natural-number-indexed `R1CS.VarId` values would be false. Public/private
 wire ordering and finite serialization must be audited separately.
 
-**Public/private classification is unverified and looks wrong.** `R1CS.satisfies` ignores
-`numPublicInputs`, so no theorem covers it. The serializer maps `.var n` to wire `n + 1` and
-marks wires `1..numPublicInputs` public, i.e. locals `0..k-1` (the reserved `self` slot and
-the first inputs). `pub` members live at locals `numParams + encoded(member)`, which are
-different wires. Do not rely on `pub` members becoming public circuit signals until this is
-fixed and proved.
+**Public/private classification.** The statement wires are public outputs (public felt
+members of the entry) followed by public inputs (`{llzk.pub}` compute parameters). They are
+proved to carry the source public part (`statement_readback`) and to occupy wires `1..k`
+(`WireAssignment`). A public member that `@constrain` never reads, or a public member of
+struct type, is rejected. The Circom bytes themselves are tested with snarkjs Groth16, not
+proved.
 
 ## Archived issues
 

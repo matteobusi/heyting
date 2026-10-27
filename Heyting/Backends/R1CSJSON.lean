@@ -120,8 +120,10 @@ structure SystemSummary (F : Type) where
   numRegVars      : Nat
   /-- Number of auxiliary `.aux n` wire slots. -/
   numAuxVars      : Nat
-  /-- Number of public input wires. -/
-  numPublicInputs : Nat
+  /-- Public output wires, in statement order. -/
+  publicOutputs   : List R1CS.VarId
+  /-- Public input wires, in statement order. -/
+  publicInputs    : List R1CS.VarId
   /-- The constraint list. -/
   constraints     : List (R1CS.Constraint F)
 
@@ -130,7 +132,8 @@ def summarize [Repr F] (sys : R1CS.System F) : SystemSummary F :=
   { numConstraints  := sys.constraints.length
     numRegVars      := countRegVars sys.constraints
     numAuxVars      := countAuxVars sys.constraints
-    numPublicInputs := sys.numPublicInputs
+    publicOutputs   := sys.publicOutputs
+    publicInputs    := sys.publicInputs
     constraints     := sys.constraints }
 
 /-- Serialize a summarized R1CS system to JSON. -/
@@ -140,7 +143,8 @@ def summaryToJson [Repr F] (s : SystemSummary F) : Json :=
     ("numWires",        1 + s.numRegVars + s.numAuxVars),
     ("numRegVars",      s.numRegVars),
     ("numAuxVars",      s.numAuxVars),
-    ("numPublicInputs", s.numPublicInputs),
+    ("publicOutputs",   Json.arr <| s.publicOutputs.toArray.map varIdToJson),
+    ("publicInputs",    Json.arr <| s.publicInputs.toArray.map varIdToJson),
     ("constraints",     Json.arr <| s.constraints.toArray.map constraintToJson)
   ]
 
@@ -154,7 +158,8 @@ def ppSystem [Repr F] (sys : R1CS.System F) : String :=
   let numWires := 1 + s.numRegVars + s.numAuxVars
   let header := s!"R1CS System: {s.numConstraints} constraints, " ++
                 s!"{numWires} wires ({s.numRegVars} regular, {s.numAuxVars} aux), " ++
-                s!"{s.numPublicInputs} public inputs"
+                s!"{s.publicOutputs.length} public outputs, " ++
+                s!"{s.publicInputs.length} public inputs"
   let body : List String := s.constraints.toArray.mapIdx (fun i c =>
     s!"  [{i}] {constraintToHuman c}") |>.toList
   String.intercalate "\n" (header :: body)

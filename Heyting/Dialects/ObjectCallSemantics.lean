@@ -180,6 +180,10 @@ theorem evalTargetBody_objects_frame_below [Field F] [DecidableEq F] {ctx : OpCt
           simp only [evalTargetBody, TypedSourceSemantics.evalProjectedLeaf]
           rw [ih (StructObject.apply (.writeMember self member src) state) habove.tail]
           rfl
+        | writeObject self member src =>
+          simp only [evalTargetBody, TypedSourceSemantics.evalProjectedLeaf]
+          rw [ih (StructObject.apply (.writeObject self member src) state) habove.tail]
+          rfl
       · simp only [evalTargetBody, TypedSourceSemantics.evalProjectedLeaf]
         rw [ih _ habove.tail]
       · cases payload
@@ -218,6 +222,10 @@ theorem evalTargetBody_values_frame_below [Field F] [DecidableEq F] {ctx : OpCtx
         | writeMember self member src =>
           simp only [evalTargetBody, TypedSourceSemantics.evalProjectedLeaf]
           rw [ih (StructObject.apply (.writeMember self member src) state) habove.tail]
+          rfl
+        | writeObject self member src =>
+          simp only [evalTargetBody, TypedSourceSemantics.evalProjectedLeaf]
+          rw [ih (StructObject.apply (.writeObject self member src) state) habove.tail]
           rfl
       · have hdest : floor ≤ Felt.destVar payload := by
           apply habove (.op ⟨1, hindex⟩ payload) (by simp) (Felt.destVar payload)
@@ -267,6 +275,10 @@ theorem evalTargetBody_objects_frame_above [Field F] [DecidableEq F] {ctx : OpCt
         | writeMember self member src =>
           simp only [evalTargetBody, TypedSourceSemantics.evalProjectedLeaf]
           rw [ih (StructObject.apply (.writeMember self member src) state) hbelow.tail]
+          rfl
+        | writeObject self member src =>
+          simp only [evalTargetBody, TypedSourceSemantics.evalProjectedLeaf]
+          rw [ih (StructObject.apply (.writeObject self member src) state) hbelow.tail]
           rfl
       · simp only [evalTargetBody, TypedSourceSemantics.evalProjectedLeaf]
         rw [ih _ hbelow.tail]
@@ -561,49 +573,51 @@ theorem evalProjectedLeaf_lowerResidualStmt [Field F] [DecidableEq F]
       change Capability.witness = .pure ∨ Capability.witness = .constraint at hcap
       contradiction
     | readMember dest self member =>
-      by_cases hmember : member.val < targetCtx.numMembers
-      · simp [CallErasure.lowerResidualStmt,
-          CallErasure.objectFeltConstrainSyntax,
-          CallErasure.recontextualizeObjectFeltConstrain, hmember] at hlower
-        subst lowered
-        have hself : target.objects (rename self) = source.objects self := by
-          apply hobjects self
-          change self ∈ [self]
-          simp
-        constructor
-        · rfl
-        · constructor
-          · intro v hv
-            change (defined v || v == dest) = true at hv
-            simp only [Bool.or_eq_true, beq_iff_eq] at hv
-            rcases hv with hv | rfl
-            · have hvne : v ≠ dest := by
-                intro heq
-                subst v
-                rw [hfresh dest rfl] at hv
-                contradiction
-              have hne := hseparate dest rfl v hvne
-              change StructObject.ValueEnv.update target.values (rename dest)
-                  (target.witness (target.objects (rename self), member.val))
-                  (rename v) =
-                StructObject.ValueEnv.update source.values dest
-                  (source.witness (source.objects self, member.val)) v
-              simp [StructObject.ValueEnv.update, hne, hvne,
-                hagrees.values v hv]
-            · change StructObject.ValueEnv.update target.values (rename v)
-                  (target.witness (target.objects (rename self), member.val))
-                  (rename v) =
-                StructObject.ValueEnv.update source.values v
-                  (source.witness (source.objects self, member.val)) v
-              simp [StructObject.ValueEnv.update, hself, hagrees.witness]
-          · simpa [StructObject.apply] using hagrees.witness
-          · simpa [StructObject.apply] using hagrees.nextPath
-      · simp [CallErasure.lowerResidualStmt,
-          CallErasure.objectFeltConstrainSyntax,
-          CallErasure.recontextualizeObjectFeltConstrain, hmember] at hlower
+      simp [CallErasure.lowerResidualStmt,
+        CallErasure.objectFeltConstrainSyntax,
+        CallErasure.recontextualizeObjectFeltConstrain] at hlower
+      subst lowered
+      have hself : target.objects (rename self) = source.objects self := by
+        apply hobjects self
+        change self ∈ [self]
+        simp
+      constructor
+      · rfl
+      · constructor
+        · intro v hv
+          change (defined v || v == dest) = true at hv
+          simp only [Bool.or_eq_true, beq_iff_eq] at hv
+          rcases hv with hv | rfl
+          · have hvne : v ≠ dest := by
+              intro heq
+              subst v
+              rw [hfresh dest rfl] at hv
+              contradiction
+            have hne := hseparate dest rfl v hvne
+            change StructObject.ValueEnv.update target.values (rename dest)
+                (target.witness (target.objects (rename self), member))
+                (rename v) =
+              StructObject.ValueEnv.update source.values dest
+                (source.witness (source.objects self, member)) v
+            simp [StructObject.ValueEnv.update, hne, hvne,
+              hagrees.values v hv]
+          · change StructObject.ValueEnv.update target.values (rename v)
+                (target.witness (target.objects (rename self), member))
+                (rename v) =
+              StructObject.ValueEnv.update source.values v
+                (source.witness (source.objects self, member)) v
+            simp [StructObject.ValueEnv.update, hself, hagrees.witness]
+        · simpa [StructObject.apply] using hagrees.witness
+        · simpa [StructObject.apply] using hagrees.nextPath
     | writeMember self member src =>
       change StructObject.cap
         (.writeMember self member src : StructObject.Op sourceCtx F) ≤
+          .constraint at hcap
+      change Capability.witness = .pure ∨ Capability.witness = .constraint at hcap
+      contradiction
+    | writeObject self member src =>
+      change StructObject.cap
+        (.writeObject self member src : StructObject.Op sourceCtx F) ≤
           .constraint at hcap
       change Capability.witness = .pure ∨ Capability.witness = .constraint at hcap
       contradiction
@@ -691,35 +705,35 @@ theorem bodyObjectsAgree_lowerResidualStmt [Field F] [DecidableEq F]
       change Capability.witness = .pure ∨ Capability.witness = .constraint at hcap
       contradiction
     | readMember dest self member =>
-      by_cases hmember : member.val < targetCtx.numMembers
-      · simp [CallErasure.lowerResidualStmt,
-          CallErasure.objectFeltConstrainSyntax,
-          CallErasure.recontextualizeObjectFeltConstrain, hmember] at hlower
-        subst lowered
-        have hself : target.objects (rename self) = source.objects self := by
-          apply hobjects (.op ⟨1, by simpa using hindex⟩
-            (.readMember dest self member)) (by simp) self
-          change self ∈ [dest] ++ [self]
-          simp
-        intro stmt hmem v hv
-        by_cases heq : v = dest
-        · subst v
-          change StructObject.ObjEnv.update target.objects (rename dest)
-              (target.objects (rename self) ++ [member.val]) (rename dest) =
-            StructObject.ObjEnv.update source.objects dest
-              (source.objects self ++ [member.val]) dest
-          simp [StructObject.ObjEnv.update, hself]
-        · have hrenameNe := hseparate dest rfl v heq
-          change StructObject.ObjEnv.update target.objects (rename dest)
-              (target.objects (rename self) ++ [member.val]) (rename v) =
-            StructObject.ObjEnv.update source.objects dest
-              (source.objects self ++ [member.val]) v
-          simp [StructObject.ObjEnv.update, hrenameNe, heq,
-            hobjects stmt (by simp [hmem]) v hv]
-      · simp [CallErasure.lowerResidualStmt,
-          CallErasure.objectFeltConstrainSyntax,
-          CallErasure.recontextualizeObjectFeltConstrain, hmember] at hlower
+      simp [CallErasure.lowerResidualStmt,
+        CallErasure.objectFeltConstrainSyntax,
+        CallErasure.recontextualizeObjectFeltConstrain] at hlower
+      subst lowered
+      have hself : target.objects (rename self) = source.objects self := by
+        apply hobjects (.op ⟨1, by simpa using hindex⟩
+          (.readMember dest self member)) (by simp) self
+        change self ∈ [dest] ++ [self]
+        simp
+      intro stmt hmem v hv
+      by_cases heq : v = dest
+      · subst v
+        change StructObject.ObjEnv.update target.objects (rename dest)
+            (target.objects (rename self) ++ [member]) (rename dest) =
+          StructObject.ObjEnv.update source.objects dest
+            (source.objects self ++ [member]) dest
+        simp [StructObject.ObjEnv.update, hself]
+      · have hrenameNe := hseparate dest rfl v heq
+        change StructObject.ObjEnv.update target.objects (rename dest)
+            (target.objects (rename self) ++ [member]) (rename v) =
+          StructObject.ObjEnv.update source.objects dest
+            (source.objects self ++ [member]) v
+        simp [StructObject.ObjEnv.update, hrenameNe, heq,
+          hobjects stmt (by simp [hmem]) v hv]
     | writeMember self member src =>
+      change Capability.witness ≤ .constraint at hcap
+      change Capability.witness = .pure ∨ Capability.witness = .constraint at hcap
+      contradiction
+    | writeObject self member src =>
       change Capability.witness ≤ .constraint at hcap
       change Capability.witness = .pure ∨ Capability.witness = .constraint at hcap
       contradiction

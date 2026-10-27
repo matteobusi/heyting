@@ -56,7 +56,12 @@ correctness without inventing `AST.satisfies`:
 2. state structural round-trip modulo normalization/name resolution
 3. prove AST analysis preserves declarations, dependency order, and SSA naming
 4. add translation validation while full proof matures
-5. ensure skipped operations never cross typed boundary silently
+
+The parser no longer skips input and the frontend type-checks member access (tested in
+`tests/Frontend.lean`); this is executable strictness, not a proof.
+
+Compute and constrain now share the tree object model (`writeObject`); the generator theorem
+must show that `genWitness` places every member at the coordinate the constraint body reads.
 
 ## Priority 2 — witness-generation soundness
 

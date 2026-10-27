@@ -110,11 +110,12 @@ def usage : String :=
   "  --json             produce human-readable R1CS JSON (default: Circom binary .r1cs)\n" ++
   "  --auto             auto-generate witness from compute bodies\n" ++
   "                       (writes <output>.wtns binary, or .witness.json with --json)\n" ++
-  "  --input <path>     JSON file of public circuit inputs (field elements)\n" ++
-  "                       (keys are signal names; missing signals default to 0)\n" ++
+  "  --input <path>     JSON file of circuit inputs (field elements)\n" ++
+  "                       (keys are entry @compute parameter names; all are required)\n" ++
   "  --oracle <path>    JSON array of values consumed by llzk.nondet\n" ++
   "  --prime-field <p>  use a specific prime field, " ++
-    " supported: bn128, bn254 (default), babybear, goldilocks, mersenne31, and koalabear\n" ++
+    " supported: bn128, bn254, babybear, goldilocks, mersenne31, and koalabear\n" ++
+  "                       (default: the field named in the program, else bn254)\n" ++
   "  --output <path>    alternative way to specify output path\n"
 
 /-- Interpret parsed option structure as a top-level CLI command. -/
@@ -163,20 +164,20 @@ def compileAndSave
     (inputPath : String) (outputPath : String)
     (useJson : Bool) (autoWitness : Bool) (inputsPath : Option String)
     (oraclePath : Option String) : IO Unit := do
-  let (mod, _warnings) ← LLZK.parseFile inputPath
-  -- Extract param names from the original AST before lowering discards them.
-  -- The main struct is the last in topological order; its @compute params are
-  -- [ signal_1, signal_2, ...].  Differently from @constrain we do not skip index 0.
+  let mod ← LLZK.parseFile inputPath
+  -- Field names written in the program must agree with the selected field.
+  if let some other := mod.fields.find? (· != fieldName) then
+    throw (IO.userError s!"program uses field \"{other}\" but compilation targets \
+\"{fieldName}\"; pass --prime-field {other}")
+  -- Input names are the @compute parameters of the selected entry struct.
+  let entryName ← IO.ofExcept (LLZK.ASTAnalysis.selectEntry mod)
   let computeParamNames : List String :=
-    match LLZK.ASTAnalysis.topoSort mod.structs with
-    | .error _ => []
-    | .ok sorted =>
-      match sorted.getLast? with
+    match mod.structs.find? (·.name == entryName) with
+    | none => []
+    | some mainSd =>
+      match mainSd.funcs.find? (fun f => f.name == "compute") with
       | none => []
-      | some mainSd =>
-        match mainSd.funcs.find? (fun f => f.name == "compute") with
-        | none => []
-        | some computeFn => computeFn.params.map (·.name)
+      | some computeFn => computeFn.params.map (·.name)
   -- Determine inputs for witness generation (--auto or --input).
   let witnessInputs : Option (List F) ←
     if let some jsonPath := inputsPath then
@@ -223,6 +224,15 @@ def compileAndSave
 def runCommand : Command → Except String (IO Unit)
   | .help => .ok (IO.println usage)
   | .compile llzk output json auto inputs oracle field => .ok do
+    -- Without --prime-field, use the field the program names, if any, else bn254.
+    let field ← match field with
+      | some field => pure (some field)
+      | none => do
+        let mod ← LLZK.parseFile llzk
+        match mod.fields with
+        | [] => pure none
+        | [name] => pure (some name)
+        | names => throw (.userError s!"program mixes prime fields {names}")
     match field with
     | none => compileAndSave (F:=ZMod BN254_p) "bn254" llzk output json auto inputs oracle
     | some field =>

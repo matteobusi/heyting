@@ -85,18 +85,18 @@ lake exe hey compile [options] <input.llzk> <output>
 # Circom-compatible binary R1CS
 lake exe hey compile circuit.llzk out/system
 
-# JSON R1CS and generated witness
-lake exe hey compile --json --auto circuit.llzk out/system
+# JSON R1CS and generated witness from named inputs
+lake exe hey compile --json --input inputs.json circuit.llzk out/system
 
-# Named public inputs and positional private Oracle values
+# Named inputs and positional private Oracle values
 lake exe hey compile --input inputs.json --oracle oracle.json circuit.llzk out/system
 
 # Alternative field
 lake exe hey compile --prime-field babybear circuit.llzk out/system
 ```
 
-Supported fields: `bn254` (default), `bn128`, `babybear`, `goldilocks`,
-`mersenne31`, `koalabear`. `bn254`/`bn128` outputs are checked with snarkjs.
+Supported fields: `bn254` (default unless the program names a field), `bn128`, `babybear`,
+`goldilocks`, `mersenne31`, `koalabear`. `bn254`/`bn128` outputs are checked with snarkjs.
 See [CLI reference](docs/cli.md).
 
 ## Tests

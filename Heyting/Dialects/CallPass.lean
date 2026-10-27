@@ -796,6 +796,7 @@ def eraseStructDef {n : Nat} [Zero F] (m : Module SourceSet n F) (i : Fin n) :
   pure {
     name := (m.structs i).name
     members := (m.structs i).members
+    inputIsPublic := (m.structs i).inputIsPublic
     compute := compute
     constrain := constrain
   }
@@ -840,6 +841,7 @@ theorem eraseModule_constrain_body {n : Nat} [Zero F]
       out.structs i = {
         name := (m.structs i).name
         members := (m.structs i).members
+        inputIsPublic := (m.structs i).inputIsPublic
         compute := compute
         constrain := constrain
       } ∧

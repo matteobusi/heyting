@@ -38,10 +38,18 @@ private def collectStructDeps (sd : LLZK.StructDef) : List String :=
   let stmtDeps := sd.funcs.flatMap (fun fn => fn.body.flatMap (collectStmtDeps sd.name))
   (memberDeps ++ stmtDeps).eraseDups
 
-/-- Topologically sort structs so every in-module dependency precedes its user. -/
+/-- Reject duplicate struct names rather than resolving them to one definition. -/
+def checkUniqueStructs (structs : List LLZK.StructDef) : Except String Unit := do
+  let names := structs.map (·.name)
+  if let some dup := names.find? (fun name => names.count name > 1) then
+    throw s!"duplicate struct definition: @{dup}"
+
+/-- Topologically sort structs so every in-module dependency precedes its user.
+Duplicate struct names are rejected. -/
 partial def topoSort (structs : List LLZK.StructDef) :
     Except String (List LLZK.StructDef) := do
   if structs.isEmpty then return []
+  checkUniqueStructs structs
   let nameMap : HashMap String LLZK.StructDef :=
     structs.foldl (fun result sd => result.insert sd.name sd) ∅
   let mut indegree : HashMap String Nat :=
@@ -82,19 +90,71 @@ def buildStructIndex (sorted : List LLZK.StructDef) : HashMap String Nat :=
   sorted.zipIdx.foldl
     (fun result (entry : LLZK.StructDef × Nat) => result.insert entry.1.name entry.2) ∅
 
-/-- Assign dense local indices to parameters and statement destinations. -/
+/-- SSA name defined by a statement, if any. -/
+def stmtDest : LLZK.Stmt → Option String
+  | .feltAdd _ dest _ _ | .feltSub _ dest _ _ | .feltMul _ dest _ _
+  | .feltDiv _ dest _ _ | .feltNeg _ dest _ | .feltInv _ dest _
+  | .feltConst _ dest _ | .structNew _ dest _ | .readMember _ dest _ _
+  | .call _ (some dest) _ _ | .nondet _ dest => some dest
+  | .writeMember .. | .constrainEq .. | .funcReturn .. | .call _ none _ _ => none
+
+/-- Assign dense local indices to parameters and statement destinations.
+A name defined twice (two parameters, or a parameter and a statement, or two statements)
+is rejected: SSA forbids it, and a map would silently keep only the last definition. -/
 def buildSSAMap (params : List LLZK.ParamDecl) (body : List LLZK.Stmt) :
-    HashMap String Nat :=
-  let initial : HashMap String Nat × Nat :=
-    params.foldl
-      (fun (result, next) param => (result.insert param.name next, next + 1)) (∅, 0)
-  body.foldl (fun (result, next) stmt =>
-    match stmt with
-    | .feltAdd _ dest _ _ | .feltSub _ dest _ _ | .feltMul _ dest _ _
-    | .feltDiv _ dest _ _ | .feltNeg _ dest _ | .feltInv _ dest _
-    | .feltConst _ dest _ | .structNew _ dest _ | .readMember _ dest _ _
-    | .call _ (some dest) _ _ | .nondet _ dest => (result.insert dest next, next + 1)
-    | .writeMember .. | .constrainEq .. | .funcReturn .. | .call _ none _ _
-    | .skipped .. => (result, next)) initial |>.1
+    Except String (HashMap String Nat) := do
+  let names := params.map (·.name) ++ body.filterMap stmtDest
+  let mut result : HashMap String Nat := ∅
+  for (name, index) in names.zipIdx do
+    if result.contains name then
+      throw s!"SSA value %{name} is defined more than once"
+    result := result.insert name index
+  pure result
+
+/-- Structs that no other struct depends on. -/
+def rootStructs (structs : List LLZK.StructDef) : List String :=
+  let used := structs.flatMap fun sd => (collectStructDeps sd).filter (· != sd.name)
+  (structs.map (·.name)).filter fun name => !used.contains name
+
+/-- Select the entry struct: the root `llzk.main` attribute when present (as in upstream
+LLZK), otherwise the unique struct that no other struct uses. Several candidates are an
+error rather than an arbitrary choice. -/
+def selectEntry (m : LLZK.Module) : Except String String := do
+  checkUniqueStructs m.structs
+  match m.main with
+  | some name =>
+    unless m.structs.any (·.name == name) do
+      throw s!"llzk.main names unknown struct @{name}"
+    pure name
+  | none =>
+    match rootStructs m.structs with
+    | [name] => pure name
+    | [] => throw "no entry struct: every struct is used by another struct"
+    | names => throw s!"ambiguous entry struct: candidates {names.map (s!"@{·}")}; \
+add `llzk.main = !struct.type<@Name>` to the root module"
+
+/-- Restrict a module to the selected entry struct and the structs it uses, directly or
+transitively. Removed structs cannot affect the entry circuit. Free functions are kept, so
+lowering still rejects them. After the
+restriction the entry is the only root, so `topoSort` places it last, which is the entry
+position used by lowering and witness execution. -/
+partial def restrictToEntry (m : LLZK.Module) : Except String LLZK.Module := do
+  let entry ← selectEntry m
+  let byName : HashMap String LLZK.StructDef :=
+    m.structs.foldl (fun t sd => t.insert sd.name sd) ∅
+  let rec visit (pending : List String) (seen : List String) : List String :=
+    match pending with
+    | [] => seen
+    | name :: rest =>
+      if seen.contains name then visit rest seen
+      else
+        let deps := (byName.get? name).map collectStructDeps |>.getD []
+        visit (deps ++ rest) (name :: seen)
+  let reachable := visit [entry] []
+  let structs := m.structs.filter (reachable.contains ·.name)
+  let sorted ← topoSort structs
+  unless sorted.getLast?.map (·.name) == some entry do
+    throw s!"entry struct @{entry} is used by another struct it uses"
+  pure { m with structs, main := some entry }
 
 end LLZK.ASTAnalysis

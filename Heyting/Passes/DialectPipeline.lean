@@ -10,6 +10,7 @@ import Heyting.Dialects.StructObjectPass
 import Heyting.Dialects.WitnessExecution
 import Heyting.Dialects.TypedSourceSemantics
 import Heyting.Dialects.OracleErasure
+import Heyting.Core.Levin
 
 /-!
 # Executable dialect-native constraint pipeline
@@ -40,6 +41,11 @@ the terminal locals and auxiliary wires.
 - `typed_source_forward_total`: `forward` succeeds on those observations.
 - `typed_entry_correct` (`EntryCorrect`) and `typed_source_iff_exists_r1cs`: the bundled
   two-direction statement and the resulting equivalence.
+- `typed_entry_levin`: a statement-indexed Levin reduction from the source NP relation
+  (`SourceRelation`: satisfaction plus public inputs and public outputs) to the R1CS
+  relation (`R1CS.Relation`: satisfaction plus statement wires). Its extractor is the
+  wire reindexing `readback` (`readback_inputs`, `readback_objects`), and
+  `statement_readback` identifies the target statement wires with the source public part.
 
 ## Proof sketch and scope
 
@@ -49,8 +55,9 @@ equalities in the artifact identify the exact programs and witnesses at each bri
 Successful forwarding supplies canonical lengths and the checked readback equation.
 
 `EntryCorrect` is not a literal `PresReflPass` instance (finite-list observations, partial
-compilation). Parsing, AST lowering, source-generation success, public-wire classification,
-and serialization remain outside the theorems.
+compilation). Parsing, AST lowering, and source-generation success remain outside the
+theorems. Placement of the statement wires at Circom wires `1..k` is proved in
+`WireAssignment`; the byte encoding itself is tested, not proved.
 -/
 
 namespace Dialect.Pipeline
@@ -159,15 +166,28 @@ noncomputable def eraseStructuralAST {F : Type} [Field F] [IntCast F]
   let ⟨k, callFree⟩ ← eraseCallsAST (F := F) ast
   pure ⟨k, ← eraseObjects callFree⟩
 
-/-- Compile the constraint function selected as a module entry. -/
-def compileEntry {F : Type} [Field F] {n : Nat}
-    (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n) :
-    Except String (R1CS.System F) := do
-  let lowering ← lowerEntryCertified m entry
-  let numPublic := (m.structs entry).members.countP (·.isPublic)
-  pure (R1CSLike.enforceZeroPrefix
-    (lowering.callFree.numParams - (m.structs entry).compute.numParams)
-    (R1CSLike.toR1CS lowering.terminal numPublic))
+/-- Reject entries whose public interface the target cannot expose exactly: a public member
+of struct type, a public member outside the observed object region (never read by
+`@constrain`, so its value is unconstrained), or more public-input flags than compute
+parameters. Missing trailing flags mean private inputs. After this check, the range filters in
+`EntryCompilationArtifact.ofLowering` remove no public slot. -/
+def checkPublicLayout {F : Type} [Field F] {n : Nat}
+    (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n)
+    (lowering : EntryLoweringArtifact m entry) : Except String Unit := do
+  let s := m.structs entry
+  for (member, i) in s.members.zipIdx do
+    if member.isPublic then
+      match member.type with
+      | .substruct _ =>
+        throw s!"public member @{member.name} of {s.name} has a struct type; only felt \
+members can be public outputs"
+      | .felt =>
+        unless VarIdEncoding.encode ([], i) < lowering.witnessSpan do
+          throw s!"public member @{member.name} of {s.name} is never read by @constrain, so \
+its value is unconstrained"
+  if s.inputIsPublic.length > s.compute.numParams then
+    throw s!"{s.name}: {s.inputIsPublic.length} public-input flags for \
+{s.compute.numParams} compute parameters"
 
 /-- Finite source observables transported by compilation. Transient locals,
 call frames, object paths, allocation counters, and the oracle cursor are not
@@ -186,40 +206,71 @@ structure EntryCompilationArtifact (F : Type) [Field F] where
   computeParams : Nat
   paramOffset : Nat
   witnessSpan : Nat
-  numPublicInputs : Nat
-  numPublicInputs_eq : terminal.numPublicInputs = numPublicInputs
+  /-- Object slots of the public outputs (public felt members of the entry), in order. -/
+  publicOutputSlots : List Nat
+  /-- Indices of the public inputs (`{llzk.pub}` compute parameters), in order. -/
+  publicInputSlots : List Nat
+  publicOutputSlots_lt : ∀ j ∈ publicOutputSlots, j < witnessSpan
+  publicInputSlots_lt : ∀ i ∈ publicInputSlots, i < computeParams
   backend : WitnessCodec.CompilationArtifact
     (R1CSLike.Language F) (R1CS.Language F) terminal
 
 namespace EntryCompilationArtifact
 
+/-- Object slot of every public member of an entry, in member order. A public member of the
+root object `[]` with index `i` is the coordinate `([], i)`. -/
+def publicMemberSlots {n : Nat} (members : List (MemberDecl n)) : List Nat :=
+  members.zipIdx.filterMap fun (member, i) =>
+    if member.isPublic then some (VarIdEncoding.encode ([], i)) else none
+
+/-- Indices of the parameters flagged public. -/
+def publicFlagSlots (flags : List Bool) : List Nat :=
+  (flags.zipIdx.filter (·.1)).map (·.2)
+
 /-- Assemble the terminal codec and layout from a certified selected-entry lowering.
-The stored public-input count is metadata, not a proof of serializer wire visibility. -/
+Public slots outside the observed range are filtered out here; `checkPublicLayout` rejects
+every compilation in which that filter removes a slot. -/
 def ofLowering {F : Type} [Field F] {n : Nat}
     (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n)
     (lowering : EntryLoweringArtifact m entry) : EntryCompilationArtifact F :=
-  let numPublic := (m.structs entry).members.countP (·.isPublic)
   {
-    terminal := .mk lowering.terminal numPublic
+    terminal := .mk lowering.terminal
     numParams := lowering.callFree.numParams
     computeParams := (m.structs entry).compute.numParams
     paramOffset := lowering.callFree.numParams - (m.structs entry).compute.numParams
     witnessSpan := lowering.witnessSpan
-    numPublicInputs := numPublic
-    numPublicInputs_eq := rfl
-    backend := R1CSLike.compilationArtifact (.mk lowering.terminal numPublic)
+    publicOutputSlots :=
+      (publicMemberSlots (m.structs entry).members).filter (· < lowering.witnessSpan)
+    publicInputSlots :=
+      (publicFlagSlots (m.structs entry).inputIsPublic).filter
+        (· < (m.structs entry).compute.numParams)
+    publicOutputSlots_lt := fun _ h => by simpa using (List.mem_filter.mp h).2
+    publicInputSlots_lt := fun _ h => by simpa using (List.mem_filter.mp h).2
+    backend := R1CSLike.compilationArtifact (.mk lowering.terminal)
   }
 
-/-- Exact internal target: backend constraints plus reserved-source initialization. -/
+/-- Exact internal target: backend constraints plus reserved-source initialization, with the
+statement wires: public output `j` is the object wire `.var (numParams + j)` and public input
+`i` is the input wire `.var (paramOffset + i)`. -/
 def target {F : Type} [Field F] (artifact : EntryCompilationArtifact F) : R1CS.System F :=
-  R1CSLike.enforceZeroPrefix artifact.paramOffset artifact.backend.target
+  { R1CSLike.enforceZeroPrefix artifact.paramOffset artifact.backend.target with
+    publicOutputs := artifact.publicOutputSlots.map fun j => .var (artifact.numParams + j)
+    publicInputs := artifact.publicInputSlots.map fun i => .var (artifact.paramOffset + i) }
+
+/-- Satisfaction of the target is satisfaction of its constraints. -/
+theorem satisfies_target_iff {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
+    (w : R1CS.Witness F) :
+    R1CS.satisfies w artifact.target ↔
+      R1CS.satisfies w (R1CSLike.enforceZeroPrefix artifact.paramOffset artifact.backend.target) :=
+  Iff.rfl
 
 /-- Every satisfying target enforces reserved source initialization, independently
 of witness provenance. Proof sketch: project the zero-prefix constraint equivalence. -/
 theorem target_reserved_zero {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
     (w : R1CS.Witness F) (h : R1CS.satisfies w artifact.target) :
     ∀ v < artifact.paramOffset, w (.var v) = 0 :=
-  ((R1CSLike.satisfies_enforceZeroPrefix_iff _ _ _).mp h).2
+  ((R1CSLike.satisfies_enforceZeroPrefix_iff _ _ _).mp
+    ((artifact.satisfies_target_iff w).mp h)).2
 
 /-- Place finite input and object observations in their canonical terminal local slots. -/
 def seed {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
@@ -268,6 +319,14 @@ def forward {F : Type} [Field F] [DecidableEq F]
 
 end EntryCompilationArtifact
 
+/-- Compile the constraint function selected as a module entry. -/
+def compileEntry {F : Type} [Field F] {n : Nat}
+    (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n) :
+    Except String (R1CS.System F) := do
+  let lowering ← lowerEntryCertified m entry
+  checkPublicLayout m entry lowering
+  pure (EntryCompilationArtifact.ofLowering m entry lowering).target
+
 namespace Source
 
 /-- Artifact-relative satisfaction: materialization succeeds and the resulting
@@ -298,8 +357,7 @@ theorem source_artifact_iff [Field F] [DecidableEq F]
     (hspan : artifact.witnessSpan = StructObjectPass.witnessSpan
       StructObjectPass.StaticState.initial.objects 0 fn.body)
     (hterminal : artifact.terminal = .mk
-      ((R1CSLikePass.dialectPass F).lowerModuleBody objectFree.numParams objectFree.body)
-      artifact.numPublicInputs)
+      ((R1CSLikePass.dialectPass F).lowerModuleBody objectFree.numParams objectFree.body))
     (hinputs : source.inputs.length = computeParams)
     (hobjects : source.objects.length = artifact.witnessSpan) :
     (ObjectResidualSemantics.evalBody fn.body
@@ -381,6 +439,7 @@ def compileEntryArtifact {F : Type} [Field F] {n : Nat}
     (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n) :
     Except String (EntryCompilationArtifact F) := do
   let lowering ← lowerEntryCertified m entry
+  checkPublicLayout m entry lowering
   pure (EntryCompilationArtifact.ofLowering m entry lowering)
 
 /-- Original typed module bundled with exact Oracle, Call, StructObject, leaf,
@@ -422,11 +481,14 @@ def compileTypedEntryArtifact {F : Type} [Field F] {n : Nat}
   | .ok projected =>
       match lowerEntryCertified projected entry with
       | .error error => .error error
-      | .ok lowering => .ok {
-          projected
-          oracleErasure := horacle
-          lowering
-        }
+      | .ok lowering =>
+        match checkPublicLayout projected entry lowering with
+        | .error error => .error error
+        | .ok () => .ok {
+            projected
+            oracleErasure := horacle
+            lowering
+          }
 
 namespace EntryCompilationArtifact
 
@@ -479,11 +541,9 @@ theorem typed_source_artifact_iff [Field F] [DecidableEq F] {n : Nat}
     compiled.lowering.callCertification
   have hterminal : compiled.artifact.terminal = .mk
       ((R1CSLikePass.dialectPass F).lowerModuleBody
-        compiled.lowering.objectFree.numParams compiled.lowering.objectFree.body)
-      compiled.artifact.numPublicInputs := by
-    change R1CSLike.Program.mk compiled.lowering.terminal _ = _
+        compiled.lowering.objectFree.numParams compiled.lowering.objectFree.body) := by
+    change R1CSLike.Program.mk compiled.lowering.terminal = _
     rw [compiled.lowering.terminal_eq]
-    rfl
   have hobject := source_artifact_iff compiled.lowering.callFree
     compiled.lowering.objectFree compiled.lowering.objectErasure
     (compiled.projected.structs entry).compute.numParams compiled.artifact source
@@ -507,8 +567,8 @@ theorem typed_source_of_r1cs [Field F] [DecidableEq F] {n : Nat}
     TypedSourceSatisfies module entry (compiled.artifact.readback target) := by
   have hz := compiled.artifact.target_reserved_zero target hsat
   have hraw := ((R1CSLike.satisfies_enforceZeroPrefix_iff _ _ _).mp hsat).1
-  change R1CS.satisfies target (R1CSLike.toR1CS compiled.lowering.terminal _) at hraw
-  have hleaf := R1CSLike.toR1CS_reflection _ target _ hraw
+  change R1CS.satisfies target (R1CSLike.toR1CS compiled.lowering.terminal) at hraw
+  have hleaf := R1CSLike.toR1CS_reflection _ target hraw
   rw [compiled.lowering.terminal_eq,
     R1CSLikePass.lowerModuleBody_eq_sourceToTargetBody] at hleaf
   have hrel := StructObjectPass.canonicalStateRel_readback
@@ -627,7 +687,7 @@ theorem typed_source_materialize [Field F] [DecidableEq F] {n : Nat}
   have hbody : R1CSLike.materializeBody
       (R1CSLikePass.sourceToTargetBody compiled.lowering.objectFree.body)
       (compiled.artifact.seed source) = .ok w := by
-    have hE : compiled.artifact.terminal = .mk compiled.lowering.terminal _ := rfl
+    have hE : compiled.artifact.terminal = .mk compiled.lowering.terminal := rfl
     rw [hE, compiled.lowering.terminal_eq,
       R1CSLikePass.lowerModuleBody_eq_sourceToTargetBody] at hterm
     exact hterm
@@ -657,7 +717,8 @@ theorem typed_source_exists_r1cs [Field F] [DecidableEq F] {n : Nat}
     hcanonical hsat
   have hzero := compiled.artifact.reserved_zero_of_seed source w rfl hseed
   refine ⟨R1CSLike.compileWitness w, ?_, ?_⟩
-  · rw [EntryCompilationArtifact.target, R1CSLike.satisfies_enforceZeroPrefix_iff]
+  · rw [EntryCompilationArtifact.satisfies_target_iff,
+    R1CSLike.satisfies_enforceZeroPrefix_iff]
     exact ⟨(compiled.artifact.backend.satisfies_iff w _ rfl).mp hw, fun v hv ↦ hzero v hv⟩
   · exact compiled.artifact.readback_compileWitness_of_seed source w hcanonical
       compiled.lowering.computeParams_le hseed rfl (fun _ ↦ rfl)
@@ -701,7 +762,8 @@ theorem typed_source_forward_total [Field F] [DecidableEq F] {n : Nat}
     dsimp only
     rw [if_pos hcond]
   refine ⟨_, hforward, ?_, hreadback⟩
-  rw [EntryCompilationArtifact.target, R1CSLike.satisfies_enforceZeroPrefix_iff]
+  rw [EntryCompilationArtifact.satisfies_target_iff,
+    R1CSLike.satisfies_enforceZeroPrefix_iff]
   exact ⟨(compiled.artifact.backend.satisfies_iff w _ rfl).mp hw, fun v hv ↦ hzero v hv⟩
 
 /-- Finite readback always has canonical shape. Proof: `List.ofFn` has the indexing length. -/
@@ -757,6 +819,113 @@ theorem typed_source_iff_exists_r1cs [Field F] [DecidableEq F] {n : Nat}
   · exact typed_source_exists_r1cs module entry compiled source hcanonical
   · rintro ⟨target, hsat, rfl⟩
     exact typed_source_of_r1cs module entry compiled target hsat
+
+/-! ## Statement-indexed correctness (Levin reduction) -/
+
+namespace EntryCompilationArtifact
+
+/-- Public part of a source observation, in statement order: public outputs (object slots of
+the public members), then public inputs. -/
+def publicPart {F : Type} [Field F] (artifact : EntryCompilationArtifact F)
+    (source : SourceWitness F) : List F :=
+  artifact.publicOutputSlots.map (fun j => source.objects.getD j 0) ++
+    artifact.publicInputSlots.map (fun i => source.inputs.getD i 0)
+
+end EntryCompilationArtifact
+
+/-- The extractor reads input `i` from wire `.var (paramOffset + i)`: a reindexing. -/
+theorem readback_inputs [Field F] {n : Nat}
+    {module : Module LLZK.DialectLowering.WitnessSourceSet n F} {entry : Fin n}
+    (compiled : TypedEntryCompilationArtifact module entry) (target : R1CS.Witness F) :
+    (compiled.artifact.readback target).inputs =
+      List.ofFn fun i : Fin compiled.artifact.computeParams =>
+        target (.var (compiled.artifact.paramOffset + i.val)) := rfl
+
+/-- The extractor reads object slot `j` from wire `.var (numParams + j)`: a reindexing. -/
+theorem readback_objects [Field F] {n : Nat}
+    {module : Module LLZK.DialectLowering.WitnessSourceSet n F} {entry : Fin n}
+    (compiled : TypedEntryCompilationArtifact module entry) (target : R1CS.Witness F) :
+    (compiled.artifact.readback target).objects =
+      List.ofFn fun j : Fin compiled.artifact.witnessSpan =>
+        target (.var (compiled.artifact.numParams + j.val)) := rfl
+
+/-- The statement wires of the target carry exactly the public part of the readback.
+
+Proof sketch: both sides are the output slots followed by the input slots; each slot is in
+range (`publicOutputSlots_lt`, `publicInputSlots_lt`), so the readback list at that slot is
+the corresponding wire. -/
+theorem statement_readback [Field F] {n : Nat}
+    {module : Module LLZK.DialectLowering.WitnessSourceSet n F} {entry : Fin n}
+    (compiled : TypedEntryCompilationArtifact module entry) (target : R1CS.Witness F) :
+    R1CS.statement compiled.artifact.target target =
+      compiled.artifact.publicPart (compiled.artifact.readback target) := by
+  simp only [R1CS.statement, R1CS.System.statementVars, EntryCompilationArtifact.target,
+    EntryCompilationArtifact.publicPart, List.map_append, List.map_map]
+  congr 1
+  · refine List.map_congr_left fun j hj => ?_
+    have hlt := compiled.artifact.publicOutputSlots_lt j hj
+    simp [readback_objects, List.getD_eq_getElem?_getD, hlt]
+  · refine List.map_congr_left fun i hi => ?_
+    have hlt := compiled.artifact.publicInputSlots_lt i hi
+    simp [readback_inputs, List.getD_eq_getElem?_getD, hlt]
+
+/-- Source NP relation of a compiled entry: a canonically sized observation that satisfies the
+typed-source semantics and whose public outputs and public inputs are the statement `x`. -/
+def SourceRelation [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F) (entry : Fin n)
+    (compiled : TypedEntryCompilationArtifact module entry)
+    (x : List F) (source : SourceWitness F) : Prop :=
+  compiled.artifact.CanonicalSource source ∧ TypedSourceSatisfies module entry source ∧
+    compiled.artifact.publicPart source = x
+
+/-- Every compiled entry is a Levin reduction from its source relation to the R1CS relation of
+its target, with the identity statement map: the target's statement wires expose exactly the
+source's public outputs and public inputs, in order. The prover map is `forward` (total on
+the source relation); the extractor is `readback`, a wire reindexing.
+
+Proof sketch: completeness is `typed_source_forward_total` plus `statement_readback` and the
+readback round trip; extraction is `typed_source_of_r1cs`, canonical readback shape, and
+`statement_readback`. -/
+def entryLevinReduction [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F) (entry : Fin n)
+    (compiled : TypedEntryCompilationArtifact module entry) :
+    LevinReduction (SourceRelation module entry compiled)
+      (R1CS.Relation compiled.artifact.target) where
+  stmt x := x
+  fwd _ source := match compiled.artifact.forward source with
+    | .ok target => target
+    | .error _ => fun _ => 0
+  ext _ target := compiled.artifact.readback target
+  completeness x source h := by
+    obtain ⟨hcanonical, hsat, hx⟩ := h
+    obtain ⟨target, hforward, htarget, hreadback⟩ :=
+      typed_source_forward_total module entry compiled source hcanonical hsat
+    simp only [hforward]
+    exact ⟨htarget, by rw [statement_readback, hreadback, hx]⟩
+  extraction x target h :=
+    ⟨compiled.artifact.canonicalSource_readback target,
+      typed_source_of_r1cs module entry compiled target h.1,
+      (statement_readback compiled target).symm.trans h.2⟩
+
+/-- The prover map of `entryLevinReduction` is `forward` on every source instance. -/
+theorem entryLevinReduction_fwd [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F) (entry : Fin n)
+    (compiled : TypedEntryCompilationArtifact module entry) (x : List F)
+    (source : SourceWitness F) (h : SourceRelation module entry compiled x source) :
+    compiled.artifact.forward source =
+      .ok ((entryLevinReduction module entry compiled).fwd x source) := by
+  obtain ⟨target, hforward, -⟩ :=
+    typed_source_forward_total module entry compiled source h.1 h.2.1
+  simp [entryLevinReduction, hforward]
+
+/-- Statement-level consequence: a public statement has a satisfying source observation iff
+the compiled R1CS has a satisfying witness exposing that statement. -/
+theorem typed_entry_levin [Field F] [DecidableEq F] {n : Nat}
+    (module : Module LLZK.DialectLowering.WitnessSourceSet n F) (entry : Fin n)
+    (compiled : TypedEntryCompilationArtifact module entry) (x : List F) :
+    (∃ source, SourceRelation module entry compiled x source) ↔
+      ∃ target, R1CS.Relation compiled.artifact.target x target :=
+  (entryLevinReduction module entry compiled).language_iff x
 
 /-- Generate the canonical source-side constraint witness. Compute execution
 is modular; structural and leaf projections are delegated to their owning
@@ -867,7 +1036,8 @@ theorem pipeline_witness_iff [Field F]
         have hcodec := artifact.backend.satisfies_iff witness compiled hbackend
         have hzero : ∀ v < artifact.paramOffset, compiled (.var v) = 0 := by
           simpa using hroundtrip.2
-        rw [EntryCompilationArtifact.target, R1CSLike.satisfies_enforceZeroPrefix_iff]
+        rw [EntryCompilationArtifact.satisfies_target_iff,
+    R1CSLike.satisfies_enforceZeroPrefix_iff]
         have hboth : (R1CSLike.Language F).satisfies witness artifact.terminal ↔
             R1CS.satisfies compiled artifact.backend.target ∧
               ∀ v < artifact.paramOffset, compiled (.var v) = 0 :=
@@ -960,16 +1130,25 @@ theorem typed_pipeline_readback [Field F] [DecidableEq F] {n : Nat}
   pipeline_readback compiled.artifact source target hforward
 
 /-- Generate the R1CS witness corresponding to the dialect-native constraint
-artifact. `oracle` supplies `llzk.nondet` values positionally; exhaustion is a
-named source-runtime error. -/
+artifact. `inputs` must supply exactly one value per entry `@compute` parameter.
+`oracle` supplies `llzk.nondet` values positionally; exhaustion is a named source-runtime
+error and unread values are an error. -/
 def witnessAST {F : Type} [Field F] [DecidableEq F] [IntCast F]
     (ast : LLZK.Module) (inputs : List F) (oracle : List F := []) :
     Except String (R1CS.System F × R1CS.Witness F) := do
+  let ast ← LLZK.ASTAnalysis.restrictToEntry ast
   let ⟨k, fullModule⟩ ← LLZK.DialectLowering.lowerFull (F := F) ast
   let entry : Fin (k + 1) := ⟨k, Nat.lt_succ_self k⟩
   let compiled ← compileTypedEntryArtifact fullModule entry
   let artifact := compiled.artifact
+  -- `generateSourceWitness` pads missing inputs with zero; never rely on that here.
+  unless inputs.length == artifact.computeParams do
+    throw s!"entry struct takes {artifact.computeParams} inputs, got {inputs.length}"
   let sourceWitness ← generateSourceWitness fullModule artifact inputs oracle
+  -- Oracle values that `llzk.nondet` never reads would be ignored; reject them instead.
+  if let .ok (_, used) := WitnessExecution.genWitness fullModule inputs oracle then
+    unless used == oracle.length do
+      throw s!"oracle supplies {oracle.length} values but llzk.nondet reads only {used}"
   unless checkTypedSource fullModule entry sourceWitness do
     throw "dialect typed-source checker: constraint failed"
   unless checkSource artifact sourceWitness do
@@ -977,9 +1156,12 @@ def witnessAST {F : Type} [Field F] [DecidableEq F] [IntCast F]
   let targetWitness ← artifact.forward sourceWitness
   pure (artifact.target, targetWitness)
 
-/-- Lower parsed AST and compile last topologically sorted struct as entry circuit. -/
+/-- Lower parsed AST and compile the selected entry struct (`llzk.main`, or the unique
+struct no other struct uses) as the circuit. `restrictToEntry` keeps only the structs the
+entry uses, so the entry is the last lowered struct. -/
 def compileAST {F : Type} [Field F] [IntCast F] (ast : LLZK.Module) :
     Except String (R1CS.System F) := do
+  let ast ← LLZK.ASTAnalysis.restrictToEntry ast
   let ⟨k, full⟩ ← LLZK.DialectLowering.lowerFull (F := F) ast
   let entry : Fin (k + 1) := ⟨k, Nat.lt_succ_self k⟩
   let compiled ← compileTypedEntryArtifact full entry

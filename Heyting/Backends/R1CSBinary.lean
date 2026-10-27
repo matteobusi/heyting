@@ -30,9 +30,9 @@ nSections   3      (LE u32)
 fieldSize       LE u32       byte width of one field element
 prime           LE bytes     the prime p (fieldSize bytes)
 nWires          LE u32       total number of wires (incl. constant 1)
-nPubOut         LE u32       0  (we do not separate public outputs)
-nPubIn          LE u32       sys.numPublicInputs
-nPrvIn          LE u32       nWires - 1 - nPubIn
+nPubOut         LE u32       sys.numPublicOutputs  (wires 1..nPubOut)
+nPubIn          LE u32       sys.numPublicInputs   (the next nPubIn wires)
+nPrvIn          LE u32       0  (private inputs are not distinguished from internal wires)
 nLabels         LE u64       nWires (identity wire-to-label map)
 mConstraints    LE u32       number of constraints
 ```
@@ -77,14 +77,12 @@ private def constraintBytes (wa : Sizes) (c : Constraint F) : ByteArray :=
 /-- Build the Header section body (without section framing). -/
 private def headerSectionBody (wa : Sizes) (sys : System F) : ByteArray :=
   let nWires   := wa.numWires
-  let nPubIn   := sys.numPublicInputs
-  let nPrvIn   := if nWires ≥ 1 + nPubIn then nWires - 1 - nPubIn else 0
   u32LE (UInt32.ofNat (fieldSize F))
     ++ primeLeBytes (F := F)
     ++ u32LE (UInt32.ofNat nWires)
-    ++ u32LE 0                                  -- nPubOut
-    ++ u32LE (UInt32.ofNat nPubIn)
-    ++ u32LE (UInt32.ofNat nPrvIn)
+    ++ u32LE (UInt32.ofNat sys.numPublicOutputs)
+    ++ u32LE (UInt32.ofNat sys.numPublicInputs)
+    ++ u32LE 0                                  -- nPrvIn
     ++ u64LE (UInt64.ofNat nWires)              -- nLabels
     ++ u32LE (UInt32.ofNat sys.constraints.length)
 

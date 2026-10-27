@@ -26,7 +26,15 @@ and constructs a typed dialect module.
 ## Unsupported (rejected with error)
 
 Templates/generics, arrays, scf.for/if/while, pod types, poly.read_const,
-include.from, affine_maps, booleans, strings, arith ops.
+include.from, affine_maps, booleans, strings, arith ops, custom fields,
+split-input files. The parser never skips input: every construct outside the
+subset is a positioned parse error.
+
+## Symbol names
+
+Struct names are absolute paths from the root module, as in upstream LLZK
+`lookupTopLevelSymbol`: a struct `@S` inside `module @M` is named `M::S`, and
+references such as `!struct.type<@M::@S>` and `@M::@S::@compute` use the same path.
 -/
 
 namespace LLZK
@@ -86,16 +94,15 @@ inductive Stmt where
   | funcReturn (pos : Pos) (retVal : Option SSAName)
   -- Nondet: `%dest = llzk.nondet : !felt.type`
   | nondet (pos : Pos) (dest : SSAName)
-  -- Skipped/unsupported (parsed but ignored during lowering)
-  | skipped (pos : Pos) (opName : String)
   deriving Repr
 
 /-! ## Function and struct declarations -/
 
-/-- Parsed parameter declaration: `%name : !type`. -/
+/-- Parsed parameter declaration: `%name : !type {llzk.pub}?`. -/
 structure ParamDecl where
-  name : SSAName
-  ty   : Ty
+  name     : SSAName
+  ty       : Ty
+  isPublic : Bool := false  -- true iff `{llzk.pub}` attribute was present
   deriving Repr
 
 /-- Parsed function definition before lowering resolves names and indices. -/
@@ -123,11 +130,16 @@ structure StructDef where
   pos      : Pos
   deriving Repr
 
-/-- Parsed top-level module containing struct definitions and module-level free functions. -/
+/-- Parsed top-level module containing struct definitions and module-level free functions.
+
+`main` is the struct named by the root `llzk.main` attribute, if present. `fields` lists
+every prime-field name written in `!felt.type<"name">` or `felt.const N <"name">`. -/
 structure Module where
   structs   : List StructDef
   freeFuncs : List FuncDef
   pos       : Pos
+  main      : Option SymName := none
+  fields    : List String := []
   deriving Repr
 
 end LLZK

@@ -30,6 +30,7 @@ Heyting/
   Core/
     Language.lean          -- satisfaction relation abstraction
     Pass.lean              -- Pass, PreservingPass, ReflectingPass, PresReflPass
+    Levin.lean             -- statement-indexed Levin reductions
     Dialect.lean           -- OpSig, Stmt, typed Module/FuncDef
     DialectPass.lean       -- leaf-dialect lowering
     StructuralPass.lean    -- partial structural erasure + composition
@@ -99,6 +100,7 @@ and exact R1CS target. Key results:
 - `typed_source_r1cs_iff`
 - `generated_typed_source_r1cs_iff`
 - `typed_pipeline_readback`
+- `entryLevinReduction`, `typed_entry_levin`, `statement_readback`
 
 Guarantee begins at successfully typed dialect module and assumes successful witness
 forwarding for the pointwise iff. `typed_source_of_r1cs` separately proves arbitrary-target
@@ -109,6 +111,8 @@ also compose over `TypedSourceSemantics.ConstraintObservation` and independent p
 `lowerFunc_related_iff` and the materialization bridge connect it to entry artifacts.
 `typed_entry_correct` (`EntryCorrect`) bundles whole-entry preservation, with `forward`
 total on canonical satisfying sources, and reflection. It is not a `PresReflPass` instance. See `docs/AUDIT.md`.
+`entryLevinReduction` (`Core/Levin.lean`) is the statement-indexed form: public outputs then
+public inputs are the statement, `WireAssignment` proves they occupy wires `1..k`.
 Parser and AST-to-dialect lowering remain executable but unverified.
 
 ## Invariants

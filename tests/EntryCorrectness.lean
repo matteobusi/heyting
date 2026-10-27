@@ -85,10 +85,12 @@ def stored : LLZK.Module := mkModule [mkStruct "Main" [member "value"]
 /-- Observation `(x, value)` satisfies `value = x + 1`. -/
 def storedExpected (x v : F) : Bool := v == x + 1
 
-/-- Root delegates to Leaf, which asserts `x = 1`; the call is inlined. -/
+/-- Root delegates to its Leaf member, which asserts `x = 1`; the call is inlined. -/
 def called : LLZK.Module := mkModule [
-  mkStruct "Root" [] [computeFn "Root" ["x"], constrainFn "Root" ["x"] [
-    .call pos none "Leaf::constrain" ["self", "x"]]],
+  mkStruct "Root" [{ name := "leaf", ty := .structTy "Leaf", isPublic := false, pos }]
+    [computeFn "Root" ["x"], constrainFn "Root" ["x"] [
+      .readMember pos "leaf" "self" "leaf",
+      .call pos none "Leaf::constrain" ["leaf", "x"]]],
   mkStruct "Leaf" [] [computeFn "Leaf" ["x"], constrainFn "Leaf" ["x"] [
     .feltConst pos "one" 1, .constrainEq pos "x" "one"]]]
 
@@ -164,7 +166,9 @@ def sweep (ast : LLZK.Module) (sources : List (SourceWitness F))
 #guard sweep stored (grid1 [[0], [1], [2], [3], [4], [5], [6]])
   (fun s ↦ storedExpected s.inputs[0]! s.objects[0]!) == some (true, 7)
 
-#guard sweep called (grid1 [[]]) (fun s ↦ calledExpected s.inputs[0]!) == some (true, 1)
+-- The `leaf` member occupies one unconstrained object slot: x = 1 with any slot value.
+#guard sweep called (grid1 (elems.map ([·]))) (fun s ↦ calledExpected s.inputs[0]!)
+  == some (true, 7)
 
 /-! ## Division faults
 

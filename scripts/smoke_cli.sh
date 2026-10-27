@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 python3 "$ROOT/scripts/check_active_imports.py"
 BIN="$ROOT/.lake/build/bin/hey"
 INPUT="$ROOT/scripts/multiply.llzk"
+INPUTS="$ROOT/scripts/multiply.input.json"
 OUT_BASE="${TMPDIR:-/tmp}/heyting-smoke"
 
 rm -rf "$OUT_BASE"
@@ -15,20 +16,20 @@ if ! command -v snarkjs >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[1/14] build hey"
+echo "[1/16] build hey"
 lake build hey >/dev/null
 
-echo "[2/14] json r1cs"
+echo "[2/16] json r1cs"
 "$BIN" compile --json "$INPUT" "$OUT_BASE/json/multiply"
 test -f "$OUT_BASE/json/multiply.r1cs.json"
 
-echo "[3/14] json r1cs + witness"
-"$BIN" compile --json --auto "$INPUT" "$OUT_BASE/json_auto/multiply"
+echo "[3/16] json r1cs + witness"
+"$BIN" compile --json --input "$INPUTS" "$INPUT" "$OUT_BASE/json_auto/multiply"
 test -f "$OUT_BASE/json_auto/multiply.r1cs.json"
 test -f "$OUT_BASE/json_auto/multiply.witness.json"
 
-echo "[4/14] binary r1cs + witness"
-"$BIN" compile --auto "$INPUT" "$OUT_BASE/bin/multiply"
+echo "[4/16] binary r1cs + witness"
+"$BIN" compile --input "$INPUTS" "$INPUT" "$OUT_BASE/bin/multiply"
 test -f "$OUT_BASE/bin/multiply.r1cs"
 test -f "$OUT_BASE/bin/multiply.wtns"
 R1CS_INFO="$(snarkjs r1cs info "$OUT_BASE/bin/multiply.r1cs")"
@@ -38,31 +39,33 @@ WTNS_CHECK="$(snarkjs wtns check "$OUT_BASE/bin/multiply.r1cs" "$OUT_BASE/bin/mu
 printf '%s\n' "$WTNS_CHECK"
 printf '%s\n' "$WTNS_CHECK" | grep -q "WITNESS IS CORRECT"
 
-echo "[5/14] constraint-only dialect subset"
+echo "[5/16] constraint-only dialect subset"
 "$BIN" compile "$ROOT/tests/dialect_subset.llzk" "$OUT_BASE/features/subset"
 test -f "$OUT_BASE/features/subset.r1cs"
 snarkjs r1cs info "$OUT_BASE/features/subset.r1cs" >/dev/null
 
-echo "[6/14] StructObject and public members"
-"$BIN" compile --auto "$ROOT/tests/struct_ops.llzk" "$OUT_BASE/features/struct_ops"
+echo "[6/16] StructObject and public members"
+"$BIN" compile --input "$ROOT/tests/struct_ops.input.json" "$ROOT/tests/struct_ops.llzk" \
+  "$OUT_BASE/features/struct_ops"
 snarkjs wtns check "$OUT_BASE/features/struct_ops.r1cs" \
   "$OUT_BASE/features/struct_ops.wtns" | grep -q "WITNESS IS CORRECT"
 "$BIN" compile "$ROOT/tests/pub_members.llzk" "$OUT_BASE/features/pub_members"
 snarkjs r1cs info "$OUT_BASE/features/pub_members.r1cs" >/dev/null
 
-echo "[7/14] nested call witness"
-"$BIN" compile --auto "$ROOT/tests/nested_calls.llzk" "$OUT_BASE/features/nested_calls"
+echo "[7/16] nested call witness"
+"$BIN" compile --input "$ROOT/tests/nested_calls.input.json" \
+  "$ROOT/tests/nested_calls.llzk" "$OUT_BASE/features/nested_calls"
 snarkjs wtns check "$OUT_BASE/features/nested_calls.r1cs" \
   "$OUT_BASE/features/nested_calls.wtns" | grep -q "WITNESS IS CORRECT"
 
-echo "[8/14] nonzero Oracle witness"
+echo "[8/16] nonzero Oracle witness"
 "$BIN" compile --input "$ROOT/tests/nondet.input.json" \
   --oracle "$ROOT/tests/nondet.oracle.json" "$ROOT/tests/nondet.llzk" \
   "$OUT_BASE/features/nondet"
 snarkjs wtns check "$OUT_BASE/features/nondet.r1cs" \
   "$OUT_BASE/features/nondet.wtns" | grep -q "WITNESS IS CORRECT"
 
-echo "[9/14] adversarial full-feature witness"
+echo "[9/16] adversarial full-feature witness"
 "$BIN" compile --input "$ROOT/tests/adversarial_full.input.json" \
   --oracle "$ROOT/tests/adversarial_full.oracle.json" \
   "$ROOT/tests/adversarial_full.llzk" "$OUT_BASE/features/adversarial"
@@ -85,29 +88,67 @@ expect_rejection() {
   fi
 }
 
-echo "[10/14] adversarial source-constraint rejection"
+echo "[10/16] adversarial source-constraint rejection"
 expect_rejection "typed-source checker: constraint failed" \
   "$BIN" compile --input "$ROOT/tests/adversarial_full.input.json" \
     --oracle "$ROOT/tests/adversarial_full.bad.oracle.json" \
     "$ROOT/tests/adversarial_full.llzk" "$OUT_BASE/features/adversarial_bad"
 test ! -e "$OUT_BASE/features/adversarial_bad.r1cs"
 
-echo "[11/14] Oracle exhaustion boundary"
+echo "[11/16] Oracle exhaustion boundary"
 expect_rejection "oracle input exhausted" \
   "$BIN" compile --input "$ROOT/tests/nondet.input.json" \
     "$ROOT/tests/nondet.llzk" "$OUT_BASE/features/oracle_underflow"
 
-echo "[12/14] division validity boundary"
+echo "[12/16] division validity boundary"
 expect_rejection "division by zero" \
-  "$BIN" compile --auto "$ROOT/tests/felt_ops.llzk" "$OUT_BASE/features/div_zero"
+  "$BIN" compile --input "$ROOT/tests/felt_ops.zero.input.json" "$ROOT/tests/felt_ops.llzk" \
+    "$OUT_BASE/features/div_zero"
 
-echo "[13/14] retired pipeline flags rejected"
+echo "[13/16] input and field boundaries"
+echo '{"arg0": "3"}' >"$OUT_BASE/features/partial.input.json"
+expect_rejection "missing input signal" \
+  "$BIN" compile --input "$OUT_BASE/features/partial.input.json" "$INPUT" \
+    "$OUT_BASE/features/missing_input"
+expect_rejection "entry struct takes 3 inputs, got 0" \
+  "$BIN" compile --auto "$INPUT" "$OUT_BASE/features/auto_no_input"
+expect_rejection 'program uses field "bn128" but compilation targets "babybear"' \
+  "$BIN" compile --prime-field babybear "$INPUT" "$OUT_BASE/features/field_mismatch"
+"$BIN" compile "$INPUT" "$OUT_BASE/features/field_default" | grep -q "field: bn128"
+echo '["3", "1"]' >"$OUT_BASE/features/extra.oracle.json"
+expect_rejection "llzk.nondet reads only" \
+  "$BIN" compile --input "$ROOT/tests/nondet.input.json" \
+    --oracle "$OUT_BASE/features/extra.oracle.json" "$ROOT/tests/nondet.llzk" \
+    "$OUT_BASE/features/oracle_extra"
+
+echo "[14/16] Groth16 public statement"
+# Statement wires must be exactly [public output, public input]; the private input stays out.
+G16="$OUT_BASE/groth16"
+mkdir -p "$G16"
+snarkjs powersoftau new bn128 8 "$G16/pot0.ptau" >/dev/null
+snarkjs powersoftau contribute "$G16/pot0.ptau" "$G16/pot1.ptau" --name=smoke -e=smoke >/dev/null
+snarkjs powersoftau prepare phase2 "$G16/pot1.ptau" "$G16/pot.ptau" >/dev/null
+"$BIN" compile --input "$ROOT/tests/public_io.input.json" "$ROOT/tests/public_io.llzk" \
+  "$G16/pio" >/dev/null
+snarkjs groth16 setup "$G16/pio.r1cs" "$G16/pot.ptau" "$G16/pio.zkey" >/dev/null
+snarkjs zkey export verificationkey "$G16/pio.zkey" "$G16/vk.json" >/dev/null
+snarkjs groth16 prove "$G16/pio.zkey" "$G16/pio.wtns" "$G16/proof.json" "$G16/public.json"
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p == ["42", "6"], p' \
+  "$G16/public.json"
+snarkjs groth16 verify "$G16/vk.json" "$G16/public.json" "$G16/proof.json" | grep -q "OK"
+echo '["42", "7"]' >"$G16/forged.json"
+if snarkjs groth16 verify "$G16/vk.json" "$G16/forged.json" "$G16/proof.json" | grep -q "OK!"; then
+  echo "forged public statement verified" >&2
+  exit 1
+fi
+
+echo "[15/16] retired pipeline flags rejected"
 expect_rejection "unknown option: --legacy" \
   "$BIN" compile --legacy "$INPUT" "$OUT_BASE/features/legacy"
 expect_rejection "unknown option: --dialect" \
   "$BIN" compile --dialect "$INPUT" "$OUT_BASE/features/dialect"
 
-echo "[14/14] run test suite"
+echo "[16/16] run test suite"
 "$ROOT/tests/run_tests.sh"
 
 echo "smoke ok: $OUT_BASE"

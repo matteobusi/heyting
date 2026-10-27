@@ -27,6 +27,23 @@ directions as `EntryCorrect`; `typed_source_iff_exists_r1cs` states the resultin
 The layout invariant `computeParams ≤ numParams` is checked by `lowerEntryCertified`.
 Source witnesses must still come from somewhere: generator correctness remains open. See [AUDIT.md](AUDIT.md).
 
+## Statement-indexed guarantee (Levin reduction)
+
+`entryLevinReduction` is a Levin reduction (`Core/Levin.lean`) from the source relation
+`SourceRelation M e A x w` (canonical shape, typed-source satisfaction, and public part of
+`w` equal to `x`) to `R1CS.Relation A.target x z` (satisfaction, and statement wires of `z`
+equal to `x`). The statement map is the identity; the prover map is `forward`; the extractor
+is `readback`, a reindexing of target wires (`readback_inputs`, `readback_objects`).
+`statement_readback` proves the target statement wires carry exactly the source public
+outputs (public felt members of the entry) followed by the public inputs (`{llzk.pub}`
+compute parameters). `typed_entry_levin` gives the language equivalence.
+
+`WireAssignment` proves the serializer places the statement wires at wires `1..k` in order
+(`encode_statement`, `decode_statement`) and assigns distinct wires (`layout_nodup`). Hence a
+proof system for the emitted R1CS sees as public exactly the source statement. The transfer
+of knowledge soundness and zero knowledge through the reduction is standard but not
+formalized.
+
 ## Framework
 
 `PresReflPass S T` contains program translation, program-indexed witness

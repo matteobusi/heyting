@@ -232,9 +232,8 @@ theorem compileConstraints_cons [Field F] {γ : OpCtx}
       rfl
 
 /-- Compile a terminal dialect body directly to an R1CS system. -/
-def toR1CS [Field F] {γ : OpCtx} (body : List (Stmt Set γ F))
-    (numPublicInputs : Nat := 0) : R1CS.System F :=
-  { constraints := compileConstraints body, numPublicInputs }
+def toR1CS [Field F] {γ : OpCtx} (body : List (Stmt Set γ F)) : R1CS.System F :=
+  { constraints := compileConstraints body }
 
 /-! ## Terminal witness codec -/
 
@@ -319,31 +318,27 @@ theorem check_true_iff [Field F] [DecidableEq F] {γ : OpCtx}
 /-- Terminal program package. Existential operation context is intentionally
 hidden: R1CS constraint collection needs no module-level SSA context. -/
 inductive Program (F : Type) where
-  | mk {γ : OpCtx} (body : List (Stmt Set γ F)) (numPublicInputs : Nat := 0)
-
-/-- Public-input count carried by terminal backend program. -/
-def Program.numPublicInputs : Program F → Nat
-  | .mk _ numPublicInputs => numPublicInputs
+  | mk {γ : OpCtx} (body : List (Stmt Set γ F))
 
 /-- Execute a terminal program's leaf assignments. -/
 def Program.materialize [Field F] [DecidableEq F] :
     Program F → Witness F → Except String (Witness F)
-  | .mk body _, w => materializeBody body w
+  | .mk body, w => materializeBody body w
 
 /-- Check terminal program satisfaction. -/
 def Program.check [Field F] [DecidableEq F] : Program F → Witness F → Bool
-  | .mk body _, w => Dialect.R1CSLike.check w body
+  | .mk body, w => Dialect.R1CSLike.check w body
 
 /-- Direct terminal compilation. -/
 def compileProgram [Field F] : Program F → R1CS.System F
-  | .mk body numPublicInputs => toR1CS body numPublicInputs
+  | .mk body => toR1CS body
 
 /-- Terminal language used by constructive backend artifacts. -/
 instance Language (F : Type) [Field F] : _root_.Language LocalVar F where
   Program := Program F
   satisfies := fun w program =>
     match program with
-    | .mk body _ => satisfies w body
+    | .mk body => satisfies w body
 
 theorem Program.check_true_iff [Field F] [DecidableEq F]
     (program : Program F) (w : Witness F) :
@@ -453,9 +448,8 @@ private theorem compileWitness_constraints_iff [Field F] {γ : OpCtx}
 /-- Direct codec preserves and reflects terminal satisfaction for its exact
 wire assignment. -/
 theorem compileWitness_satisfies_iff [Field F] {γ : OpCtx}
-    (w : Witness F) (body : List (Stmt Set γ F))
-    (numPublicInputs : Nat := 0) :
-    R1CS.satisfies (compileWitness w) (toR1CS body numPublicInputs) ↔
+    (w : Witness F) (body : List (Stmt Set γ F)) :
+    R1CS.satisfies (compileWitness w) (toR1CS body) ↔
       satisfies w body := by
   simp only [R1CS.satisfies, compileWitness, toR1CS]
   exact (and_iff_right True.intro).trans (compileWitness_constraints_iff w body)
@@ -512,14 +506,13 @@ Proof sketch: extract the constant-one equation, split the concatenated constrai
 by operation, apply `op_reflection`, and induct over the body. -/
 theorem toR1CS_reflection [Field F] {γ : OpCtx}
     (body : List (Stmt Set γ F)) (w : R1CS.Witness F)
-    (numPublicInputs : Nat := 0)
-    (h : R1CS.satisfies w (toR1CS body numPublicInputs)) :
+    (h : R1CS.satisfies w (toR1CS body)) :
     satisfies (readback w) body := by
   obtain ⟨hone, hall⟩ := h
   induction body with
   | nil => simp [satisfies]
   | cons stmt rest ih =>
-      rw [show (toR1CS (stmt :: rest) numPublicInputs).constraints =
+      rw [show (toR1CS (stmt :: rest)).constraints =
         compileOp (stmtOp stmt) ++ compileConstraints rest from
           compileConstraints_cons stmt rest] at hall
       have hp := List.forall_mem_append.mp hall
@@ -534,13 +527,13 @@ instance CorrectPass [Field F] : PresReflPass (Language F) (R1CS.Language F) whe
     intro w program h
     refine ⟨compileWitness w, fun _ ↦ rfl, ?_⟩
     cases program with
-    | mk body numPublicInputs =>
-        exact (compileWitness_satisfies_iff w body numPublicInputs).mpr h
+    | mk body =>
+        exact (compileWitness_satisfies_iff w body).mpr h
   reflection := by
     intro w program h
     refine ⟨readback w, fun _ ↦ rfl, ?_⟩
     cases program with
-    | mk body numPublicInputs => exact toR1CS_reflection body w numPublicInputs h
+    | mk body => exact toR1CS_reflection body w h
 
 /-- Constructive direct terminal-to-R1CS artifact. -/
 def compilationArtifact [Field F] (source : Program F) :
@@ -559,10 +552,10 @@ def compilationArtifact [Field F] (source : Program F) :
     have htarget : target = compileWitness w := Except.ok.inj h.symm
     subst target
     cases source with
-    | mk body numPublicInputs =>
+    | mk body =>
         change satisfies w body ↔
-          R1CS.satisfies (compileWitness w) (toR1CS body numPublicInputs)
-        exact (compileWitness_satisfies_iff w body numPublicInputs).symm
+          R1CS.satisfies (compileWitness w) (toR1CS body)
+        exact (compileWitness_satisfies_iff w body).symm
   readback_forward := by
     intro w target h
     have htarget : target = compileWitness w := Except.ok.inj h.symm

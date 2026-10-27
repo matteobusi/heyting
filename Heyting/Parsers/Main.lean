@@ -17,7 +17,7 @@ untyped AST, and `LLZK.ppModule` for pretty-printing the result.
 #eval do
   let input := "module { struct.def @Foo { ... } }"
   match LLZK.parse input with
-  | .ok (mod, warnings) => IO.println (LLZK.ppModule mod)
+  | .ok mod => IO.println (LLZK.ppModule mod)
   | .error e => IO.eprintln e
 ```
 -/
@@ -30,9 +30,13 @@ namespace LLZK
 private def indent (n : Nat) : String :=
   String.ofList (List.replicate (n * 2) ' ')
 
+/-- Print an absolute symbol path `A::B` as the reference `@A::@B`. -/
+private def ppSym (name : String) : String :=
+  "@" ++ "::@".intercalate (name.splitOn "::")
+
 private def ppTy : Ty → String
   | .felt => "!felt.type"
-  | .structTy name => s!"!struct.type<@{name}>"
+  | .structTy name => s!"!struct.type<{ppSym name}>"
   | .other name => s!"!{name}"
 
 private def ppStmt (ind : Nat) : Stmt → String
@@ -43,7 +47,7 @@ private def ppStmt (ind : Nat) : Stmt → String
   | .feltNeg _ dest src => s!"{indent ind}%{dest} = felt.neg %{src}"
   | .feltInv _ dest src => s!"{indent ind}%{dest} = felt.inv %{src}"
   | .feltConst _ dest value => s!"{indent ind}%{dest} = felt.const {value}"
-  | .structNew _ dest name => s!"{indent ind}%{dest} = struct.new : !struct.type<@{name}>"
+  | .structNew _ dest name => s!"{indent ind}%{dest} = struct.new : !struct.type<{ppSym name}>"
   | .readMember _ dest self member =>
     s!"{indent ind}%{dest} = struct.readm %{self}[@{member}]"
   | .writeMember _ self member src =>
@@ -54,16 +58,18 @@ private def ppStmt (ind : Nat) : Stmt → String
     let destStr := match dest with
       | some d => s!"%{d} = "
       | none => ""
-    s!"{indent ind}{destStr}function.call @{target}({argStr})"
+    s!"{indent ind}{destStr}function.call {ppSym target}({argStr})"
   | .funcReturn _ retVal =>
     match retVal with
     | some v => s!"{indent ind}function.return %{v}"
     | none => s!"{indent ind}function.return"
   | .nondet _ dest => s!"{indent ind}%{dest} = llzk.nondet"
-  | .skipped _ opName => s!"{indent ind}// skipped: {opName}"
+
+private def pubSuffix (isPublic : Bool) : String :=
+  if isPublic then " {llzk.pub}" else ""
 
 private def ppParam (p : ParamDecl) : String :=
-  s!"%{p.name}: {ppTy p.ty}"
+  s!"%{p.name}: {ppTy p.ty}{pubSuffix p.isPublic}"
 
 private def ppFunc (ind : Nat) (f : FuncDef) : String :=
   let params := ", ".intercalate (f.params.map ppParam)
@@ -74,13 +80,13 @@ private def ppFunc (ind : Nat) (f : FuncDef) : String :=
   s!"{indent ind}function.def @{f.name}({params}){retStr} \{\n{bodyStr}\n{indent ind}}"
 
 private def ppMember (ind : Nat) (m : MemberDecl) : String :=
-  s!"{indent ind}struct.member @{m.name} : {ppTy m.ty}"
+  s!"{indent ind}struct.member @{m.name} : {ppTy m.ty}{pubSuffix m.isPublic}"
 
 private def ppStruct (ind : Nat) (sd : StructDef) : String :=
   let membersStr := "\n".intercalate (sd.members.map (ppMember (ind + 1)))
   let funcsStr := "\n".intercalate (sd.funcs.map (ppFunc (ind + 1)))
   let bodyParts := [membersStr, funcsStr].filter (· != "")
-  s!"{indent ind}struct.def @{sd.name} \{\n{"\n".intercalate bodyParts}\n{indent ind}}"
+  s!"{indent ind}struct.def {ppSym sd.name} \{\n{"\n".intercalate bodyParts}\n{indent ind}}"
 
 /-- Pretty-print a parsed Module AST. -/
 def ppModule (m : Module) : String :=
@@ -106,16 +112,14 @@ def countStmts (m : Module) : String :=
   let structOps := allStmts.filter fun
     | .structNew .. | .readMember .. | .writeMember .. => true
     | _ => false
-  let skipped := allStmts.filter fun | .skipped .. => true | _ => false
   s!"Structs: {m.structs.length}, Free funcs: {m.freeFuncs.length}, Total stmts: {total}, \
 Felt ops: {felt.length}, Constraints: {constrain.length}, \
-Calls: {calls.length}, Struct ops: {structOps.length}, \
-Skipped: {skipped.length}"
+Calls: {calls.length}, Struct ops: {structOps.length}"
 
 /-! ## File parsing -/
 
-/-- Parse an LLZK file from disk. Returns the module AST and any warnings. -/
-def parseFile (path : System.FilePath) : IO (Module × List String) := do
+/-- Parse an LLZK file from disk. Any construct outside the supported subset is an error. -/
+def parseFile (path : System.FilePath) : IO Module := do
   let input ← IO.FS.readFile path
   match parse input with
   | .ok result => return result

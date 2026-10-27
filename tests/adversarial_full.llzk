@@ -20,7 +20,7 @@ module attributes {llzk.lang, llzk.main = !struct.type<@Adversarial::@Main<[]>>}
 
     struct.def @Middle {
       function.def @compute(%x: !felt.type<"bn128">, %y: !felt.type<"bn128">) -> !felt.type<"bn128"> attributes {function.allow_non_native_field_ops, function.allow_witness} {
-        %leaf = function.call @Leaf::@compute(%x, %y) : (!felt.type<"bn128">, !felt.type<"bn128">) -> !felt.type<"bn128">
+        %leaf = function.call @Adversarial::@Leaf::@compute(%x, %y) : (!felt.type<"bn128">, !felt.type<"bn128">) -> !felt.type<"bn128">
         %quotient = felt.div %leaf, %y : !felt.type<"bn128">, !felt.type<"bn128">
         %negative = felt.neg %x : !felt.type<"bn128">
         %combined = felt.add %quotient, %negative : !felt.type<"bn128">, !felt.type<"bn128">
@@ -32,7 +32,7 @@ module attributes {llzk.lang, llzk.main = !struct.type<@Adversarial::@Main<[]>>}
         %two = felt.const 2 : !felt.type<"bn128">
         %sum = felt.add %x, %y : !felt.type<"bn128">, !felt.type<"bn128">
         %leaf = felt.mul %sum, %two : !felt.type<"bn128">, !felt.type<"bn128">
-        function.call @Leaf::@constrain(%x, %y, %leaf) : (!felt.type<"bn128">, !felt.type<"bn128">, !felt.type<"bn128">) -> ()
+        function.call @Adversarial::@Leaf::@constrain(%x, %y, %leaf) : (!felt.type<"bn128">, !felt.type<"bn128">, !felt.type<"bn128">) -> ()
         %quotient = felt.div %leaf, %y : !felt.type<"bn128">, !felt.type<"bn128">
         %negative = felt.neg %x : !felt.type<"bn128">
         %combined = felt.add %quotient, %negative : !felt.type<"bn128">, !felt.type<"bn128">
@@ -52,7 +52,7 @@ module attributes {llzk.lang, llzk.main = !struct.type<@Adversarial::@Main<[]>>}
         %self = struct.new : <@Adversarial::@Main>
         %secret_a = llzk.nondet : !felt.type<"bn128">
         %secret_b = llzk.nondet : !felt.type<"bn128">
-        %core = function.call @Middle::@compute(%x, %y) : (!felt.type<"bn128">, !felt.type<"bn128">) -> !felt.type<"bn128">
+        %core = function.call @Adversarial::@Middle::@compute(%x, %y) : (!felt.type<"bn128">, !felt.type<"bn128">) -> !felt.type<"bn128">
         %product = felt.mul %secret_a, %secret_b : !felt.type<"bn128">, !felt.type<"bn128">
         %output = felt.add %core, %product : !felt.type<"bn128">, !felt.type<"bn128">
         struct.writem %self[@secret_a] = %secret_a : <@Adversarial::@Main>, !felt.type<"bn128">
@@ -66,7 +66,7 @@ module attributes {llzk.lang, llzk.main = !struct.type<@Adversarial::@Main<[]>>}
         %secret_b = struct.readm %self[@secret_b] : <@Adversarial::@Main>, !felt.type<"bn128">
         %core = struct.readm %self[@core] : <@Adversarial::@Main>, !felt.type<"bn128">
         %output = struct.readm %self[@output] : <@Adversarial::@Main>, !felt.type<"bn128">
-        function.call @Middle::@constrain(%x, %y, %core) : (!felt.type<"bn128">, !felt.type<"bn128">, !felt.type<"bn128">) -> ()
+        function.call @Adversarial::@Middle::@constrain(%x, %y, %core) : (!felt.type<"bn128">, !felt.type<"bn128">, !felt.type<"bn128">) -> ()
         %product = felt.mul %secret_a, %secret_b : !felt.type<"bn128">, !felt.type<"bn128">
         %twelve = felt.const 12 : !felt.type<"bn128">
         constrain.eq %product, %twelve : !felt.type<"bn128">, !felt.type<"bn128">

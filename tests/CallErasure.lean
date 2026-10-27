@@ -26,23 +26,30 @@ def member : LLZK.MemberDecl where
   isPublic := true
   pos := pos
 
-/-- Root → Middle → Leaf, where the leaf body contains StructObject.readMember.
-All layouts have one member, so the member index transports into each caller
-context. -/
+def subMember (name typeName : String) : LLZK.MemberDecl where
+  name := name
+  ty := .structTy typeName
+  isPublic := false
+  pos := pos
+
+/-- Root → Middle → Leaf. Each caller passes its sub-component member to the callee's
+`@constrain`, and the leaf body reads its own member with StructObject.readMember. -/
 def nestedObjectCalls : LLZK.Module where
   structs := [
     {
       name := "Root"
-      members := [member]
+      members := [subMember "middle" "Middle"]
       funcs := [constrain [objectParam "self" "Root", feltParam "x"] [
-        .call pos none "Middle::constrain" ["self", "x"]]]
+        .readMember pos "middle" "self" "middle",
+        .call pos none "Middle::constrain" ["middle", "x"]]]
       pos := pos
     },
     {
       name := "Middle"
-      members := [member]
+      members := [subMember "leaf" "Leaf"]
       funcs := [constrain [objectParam "self" "Middle", feltParam "x"] [
-        .call pos none "Leaf::constrain" ["self", "x"]]]
+        .readMember pos "leaf" "self" "leaf",
+        .call pos none "Leaf::constrain" ["leaf", "x"]]]
       pos := pos
     },
     {
@@ -56,20 +63,19 @@ def nestedObjectCalls : LLZK.Module where
   freeFuncs := []
   pos := pos
 
-def erasedRootShape : Option (Nat × Nat × Nat) :=
+/-- Dialect indices of the call-erased root body. -/
+def erasedRootOps : Option (List Nat) :=
   match LLZK.DialectLowering.lower (F := F) nestedObjectCalls with
   | .error _ => none
   | .ok ⟨k, m⟩ =>
     let entry : Fin (k + 1) := ⟨k, Nat.lt_succ_self k⟩
     match eraseConstrainFunc (objectFeltConstrainSyntax (F := F)) m entry with
     | none => none
-    | some (body, _) =>
-      match body with
-      | [.op first _, .op second _] => some (2, first.val, second.val)
-      | body => some (body.length, 99, 99)
+    | some (body, _) => some (body.map fun | .op d _ => d.val)
 
--- Both calls disappear; the residual StructObject and ConstrainEq ops remain.
-#guard erasedRootShape == some (2, 0, 2)
+-- Both calls disappear; the three member reads (StructObject, index 0) and the leaf
+-- ConstrainEq (index 2) remain in execution order.
+#guard erasedRootOps == some [0, 0, 0, 2]
 
 def nestedObjectCallObservations : Option (Bool × Bool) :=
   match LLZK.DialectLowering.lower (F := F) nestedObjectCalls with

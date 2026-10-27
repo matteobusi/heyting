@@ -61,18 +61,15 @@ run_test() {
       fi
       
       # Constraint-only fixtures have no compute program from which to derive
-      # a witness. Felt division needs explicit nonzero inputs. All other
-      # fixtures are valid under default-zero inputs.
+      # a witness. Every other fixture supplies explicit inputs (inputs are never
+      # defaulted) and, when it reads llzk.nondet, an oracle stream.
       if [ "$test_name" != "dialect_subset" ]; then
         local witness_args=(--auto)
-        if [ "$test_name" = "felt_ops" ]; then
-          witness_args=(--input "$ROOT/tests/felt_ops.input.json")
-        elif [ "$test_name" = "nondet" ]; then
-          witness_args=(--input "$ROOT/tests/nondet.input.json" \
-            --oracle "$ROOT/tests/nondet.oracle.json")
-        elif [ "$test_name" = "adversarial_full" ]; then
-          witness_args=(--input "$ROOT/tests/adversarial_full.input.json" \
-            --oracle "$ROOT/tests/adversarial_full.oracle.json")
+        if [ -f "$ROOT/tests/$test_name.input.json" ]; then
+          witness_args=(--input "$ROOT/tests/$test_name.input.json")
+        fi
+        if [ -f "$ROOT/tests/$test_name.oracle.json" ]; then
+          witness_args+=(--oracle "$ROOT/tests/$test_name.oracle.json")
         fi
         if ! "$BIN" compile "${witness_args[@]}" "$test_file" \
             "$out_dir/$test_name.witness" >"$out_dir/dialect_witness.log" 2>&1; then
@@ -137,9 +134,10 @@ run_lean_test() {
   echo
 }
 
-run_lean_test "$TESTS_DIR/ReservedParameterReflection.lean"
-run_lean_test "$TESTS_DIR/EntryCorrectness.lean"
-run_lean_test "$TESTS_DIR/StatementNonVacuity.lean"
+# Run every Lean test file, so no regression file can rot unnoticed.
+for lean_test in "$TESTS_DIR"/*.lean; do
+  run_lean_test "$lean_test"
+done
 
 # Summary
 echo "================================"

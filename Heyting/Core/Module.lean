@@ -71,6 +71,9 @@ A struct definition at index `i` in a module of `n` callables.
 - `members` determines the witness-space width (`members.length` = `numMembers`).
 - `compute` is the `@compute` / witness-generating body (`kind = .witness`).
 - `constrain` is the `@constrain` / constraint-generating body (`kind = .constraint`).
+- `inputIsPublic` records, for each `@compute` parameter (circuit input) in order, whether
+  it carries `{llzk.pub}`; missing trailing entries mean private. Constraint semantics ignore
+  it; the entry artifact turns it into R1CS statement wires (`entryLevinReduction`).
 
 Call dialect ops may only target structs `j < i` via `Fin i`.
 -/
@@ -79,6 +82,7 @@ structure StructDef (Δ : DialectSet) (n : Nat) (i : Fin n) (F : Type) where
   members   : List (MemberDecl n)
   compute   : FuncDef Δ n i.val F .witness   members.length
   constrain : FuncDef Δ n i.val F .constraint members.length
+  inputIsPublic : List Bool := []
 
 /-! ## Module -/
 

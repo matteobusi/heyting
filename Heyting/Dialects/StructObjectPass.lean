@@ -66,7 +66,7 @@ def StaticState.initial : StaticState where
   nextPath := 0
 
 def allocatePath (nextPath : Nat) : StructObject.InstancePath :=
-  if nextPath == 0 then [] else [nextPath]
+  StructObject.allocatePath nextPath
 
 def encodedMember (path : StructObject.InstancePath) (member : Nat) : Nat :=
   VarIdEncoding.encode (path, member)
@@ -87,11 +87,11 @@ def witnessSpan {n i numMembers : Nat} {F : Type} :
           (nextPath + 1) rest
       | .readMember dest self member =>
         let path := objects self
-        max (encodedMember path member.val + 1)
+        max (encodedMember path member + 1)
           (witnessSpan
-            (StructObject.ObjEnv.update objects dest (path ++ [member.val]))
+            (StructObject.ObjEnv.update objects dest (path ++ [member]))
             nextPath rest)
-      | .writeMember _ _ _ => witnessSpan objects nextPath rest
+      | .writeMember _ _ _ | .writeObject _ _ _ => witnessSpan objects nextPath rest
     | ⟨1, _⟩ => witnessSpan objects nextPath rest
     | ⟨2, _⟩ => witnessSpan objects nextPath rest
 
@@ -130,12 +130,12 @@ def lowerBody {n i numMembers : Nat} {F : Type}
         lowerBody numParams span state' rest
       | .readMember dest self member =>
         let path := state.objects self
-        let slot := witnessLocal numParams path member.val
+        let slot := witnessLocal numParams path member
         let state' := { state with
-          objects := StructObject.ObjEnv.update state.objects dest (path ++ [member.val])
+          objects := StructObject.ObjEnv.update state.objects dest (path ++ [member])
           aliases := AliasEnv.update state.aliases dest slot }
         lowerBody numParams span state' rest
-      | .writeMember _ _ _ => lowerBody numParams span state rest
+      | .writeMember _ _ _ | .writeObject _ _ _ => lowerBody numParams span state rest
     | ⟨1, _⟩ =>
       let rename := renameLocal numParams span state.aliases
       let lowered : Stmt TargetSet ⟨n, i, numMembers⟩ F :=
@@ -341,34 +341,42 @@ theorem lowerBody_simulation [Field F]
               change Capability.witness = .pure ∨
                 Capability.witness = .constraint at hcap
               contradiction
+          | writeObject self member src =>
+              have hcap := Dialect.cap_le_of_capsLE hcaps
+                (stmt := (Stmt.op ⟨0, hindex⟩
+                  (.writeObject self member src) :
+                    Stmt SourceSet ⟨n, i, numMembers⟩ F)) (by simp)
+              change Capability.witness = .pure ∨
+                Capability.witness = .constraint at hcap
+              contradiction
           | readMember dest self member =>
               let path := static.objects self
-              let slot := witnessLocal numParams path member.val
+              let slot := witnessLocal numParams path member
               let static' : StaticState := {
                 static with
                 objects := StructObject.ObjEnv.update static.objects dest
-                  (path ++ [member.val])
+                  (path ++ [member])
                 aliases := AliasEnv.update static.aliases dest slot }
               let source' := StructObject.apply
-                (.readMember dest self member) source
+                (.readMember dest self member : StructObject.Op ⟨n, i, numMembers⟩ F) source
               let defined' := extendDefined defined (some dest)
               have hfresh : defined dest = false :=
                 isSSA_cons_dest_fresh defined
                   (.op ⟨0, hindex⟩ (.readMember dest self member)) rest dest hssa rfl
-              have hspanHead : encodedMember path member.val < span := by
-                change max (encodedMember path member.val + 1)
+              have hspanHead : encodedMember path member < span := by
+                change max (encodedMember path member + 1)
                   (witnessSpan
                     (StructObject.ObjEnv.update static.objects dest
-                      (path ++ [member.val])) static.nextPath rest) ≤ span at hspan
+                      (path ++ [member])) static.nextPath rest) ≤ span at hspan
                 omega
               have hspanTail : witnessSpan static'.objects static'.nextPath rest ≤ span := by
-                change max (encodedMember path member.val + 1)
+                change max (encodedMember path member + 1)
                   (witnessSpan
                     (StructObject.ObjEnv.update static.objects dest
-                      (path ++ [member.val])) static.nextPath rest) ≤ span at hspan
+                      (path ++ [member])) static.nextPath rest) ≤ span at hspan
                 change witnessSpan
                   (StructObject.ObjEnv.update static.objects dest
-                    (path ++ [member.val])) static.nextPath rest ≤ span
+                    (path ++ [member])) static.nextPath rest ≤ span
                 omega
               have hrel' : LowerStateRel numParams span defined' static' source' target := by
                 constructor
@@ -384,7 +392,7 @@ theorem lowerBody_simulation [Field F]
                     simpa [static', source', path, slot, renameLocal,
                       AliasEnv.update, hvne, StructObject.apply,
                       StructObject.ValueEnv.update] using rel.values v hv
-                  · have hw := rel.witness (path, member.val) hspanHead
+                  · have hw := rel.witness (path, member) hspanHead
                     simpa [static', source', path, slot, renameLocal,
                       AliasEnv.update, StructObject.apply,
                       StructObject.ValueEnv.update, rel.objects] using hw
@@ -615,6 +623,7 @@ def lowerStruct {n : Nat} {F : Type} (m : Module SourceSet n F) (i : Fin n) :
   pure {
     name := (m.structs i).name
     members := (m.structs i).members
+    inputIsPublic := (m.structs i).inputIsPublic
     compute := compute
     constrain := constrain
   }

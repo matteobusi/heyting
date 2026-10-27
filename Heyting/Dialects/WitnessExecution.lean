@@ -157,33 +157,28 @@ decreasing_by
   | apply Prod.Lex.left; exact target.isLt
   | apply Prod.Lex.right; simp
 
-def initialState [Field F] (numMembers : Nat) (inputs oracle : List F)
-    (paramOffset : Nat) : State F :=
-  let values : LocalVar → F := fun k => inputs[k]?.getD 0
-  let witness : StructObject.Witness F := fun key =>
-    match key with
-    | ([p], 0) =>
-      if p ≥ numMembers + paramOffset then
-        inputs[p - (numMembers + paramOffset)]?.getD 0
-      else 0
-    | _ => 0
-  { values := values
-    objects := StructObject.ObjEnv.update (fun _ => []) 0 []
-    witness := witness
+/-- Initial compute state of an entry: its inputs are the first locals, no object exists yet,
+and the witness store is empty (zero). -/
+def initialState [Field F] (inputs oracle : List F) : State F :=
+  { values := fun k => inputs[k]?.getD 0
+    objects := fun _ => []
+    witness := fun _ => 0
     nextPath := 0
     oracle := { values := oracle } }
 
-/-- Execute the main struct's typed compute function and return its object
-witness together with the consumed-oracle count. -/
+/-- Execute the main struct's typed compute function and return the witness of the object it
+returns, re-rooted at path `[]` (the root object of the constraint semantics), together with
+the consumed-oracle count. Sub-components stored by `writeObject` lie below that object. -/
 def genWitness [Field F] [DecidableEq F] {k : Nat}
     (m : Module SourceSet (k + 1) F) (inputs : List F)
     (oracle : List F := []) : Except Fault (StructObject.Witness F × Nat) :=
   let entry : Fin (k + 1) := ⟨k, Nat.lt_succ_self k⟩
   let s := m.structs entry
-  let offset := s.constrain.numParams - s.compute.numParams
-  let initial := initialState s.members.length inputs oracle offset
-  (evalBody m entry initial s.compute.body).map
-    (fun out => (out.witness, out.oracle.cursor))
+  (evalBody m entry (initialState inputs oracle) s.compute.body).map fun out =>
+    let root := match s.compute.returnVar with
+      | some ret => out.objects ret
+      | none => []
+    (fun (path, member) => out.witness (root ++ path, member), out.oracle.cursor)
 
 /-- Compatibility wrapper for callers that only distinguish success/failure. -/
 def computeWitness [Field F] [DecidableEq F] {k : Nat}

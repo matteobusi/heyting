@@ -38,7 +38,8 @@ TypedSourceSatisfies M entry w ↔ R1CS.satisfies z A.artifact.target
 It also proves `A.artifact.readback z = w` under the same success premise. This pointwise
 form is the base case; `typed_entry_correct` (below) adds arbitrary-target reflection,
 existential preservation and totality of `forward` on canonical satisfying sources.
-There is no claim about parser fidelity, serialized bytes, or public-wire visibility.
+There is no claim about parser fidelity or serialized bytes. Public-wire visibility is covered
+by `entryLevinReduction` and the `WireAssignment` layout theorems (see GUARANTEES).
 
 ## Proof chain
 
@@ -159,8 +160,10 @@ whole-compiler theorem: that would move the specification to the compiler output
    `forward` totality on satisfying observations is done.
 3. Establish frontend fidelity and agreement with the intended upstream LLZK fragment.
 4. State and prove source generator correctness under appropriate input/program assumptions.
-5. Certify finite wire layout, public/private observations, and serialization. Encoding
-   injectivity must be restricted to allocated constructor ranges; global injectivity is false.
+5. Certify byte-level serialization. Statement-wire placement and layout injectivity are
+   proved (`WireAssignment`); the Circom byte encoding is tested only.
+6. Formalize the transfer of knowledge soundness and zero knowledge through
+   `entryLevinReduction` for an abstract proof system.
 
 These are not filled by the present pointwise theorem or by passing integration tests.
 

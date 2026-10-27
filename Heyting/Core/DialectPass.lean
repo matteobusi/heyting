@@ -815,6 +815,7 @@ def lowerStruct {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
   members   := s.members
   compute   := pass.lowerFunc s.compute
   constrain := pass.lowerFunc s.constrain
+  inputIsPublic := s.inputIsPublic
 
 def lowerModule {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
     {n : Nat} (m : Module Δ n F) : Module Δ' n F where

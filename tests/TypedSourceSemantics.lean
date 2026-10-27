@@ -26,15 +26,16 @@ def member : LLZK.MemberDecl where
   isPublic := true
   pos
 
-/-- Root calls Leaf directly; Leaf reads the root object and checks it against
-the positional input. -/
+/-- Root calls the constraints of its Leaf member; Leaf reads its own member and checks it
+against the positional input. -/
 def nestedObjectCall : LLZK.Module where
   structs := [
     {
       name := "Root"
-      members := [member]
+      members := [{ name := "leaf", ty := .structTy "Leaf", isPublic := false, pos }]
       funcs := [constrain [objectParam "self" "Root", feltParam "x"] [
-        .call pos none "Leaf::constrain" ["self", "x"]]]
+        .readMember pos "leaf" "self" "leaf",
+        .call pos none "Leaf::constrain" ["leaf", "x"]]]
       pos
     },
     {
@@ -55,7 +56,8 @@ def directResult (input object : F) : Option Bool :=
   | .error _ => none
   | .ok ⟨k, module⟩ =>
     let entry : Fin (k + 1) := ⟨k, Nat.lt_succ_self k⟩
-    some (checkAt module entry [input] [object])
+    -- `leaf.value` is coordinate `([0], 0)`, encoded as witness slot 2.
+    some (checkAt module entry [input] [0, 0, object])
 
 #guard directResult 6 7 == some true
 #guard directResult 7 7 == some false

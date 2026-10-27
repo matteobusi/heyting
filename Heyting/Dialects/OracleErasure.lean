@@ -115,6 +115,7 @@ def lowerStruct {n : Nat} {F : Type} [OfNat F 0]
   pure {
     name := source.name
     members := source.members
+    inputIsPublic := source.inputIsPublic
     compute := compute
     constrain := constrain
   }
@@ -134,6 +135,7 @@ theorem lowerStruct_fields {n : Nat} {F : Type} [OfNat F 0]
     pure ({
       name := (m.structs i).name
       members := (m.structs i).members
+      inputIsPublic := (m.structs i).inputIsPublic
       compute := compute
       constrain := constrain
     } : StructDef TargetSet n i F)) = .ok out at hlower
@@ -160,6 +162,7 @@ theorem lowerStruct_fields {n : Nat} {F : Type} [OfNat F 0]
       change Except.ok ({
         name := (m.structs i).name
         members := (m.structs i).members
+        inputIsPublic := (m.structs i).inputIsPublic
         compute := compute
         constrain := constrain
       } : StructDef TargetSet n i F) = .ok out at hlower
@@ -187,6 +190,7 @@ theorem lowerStruct_semantic_fields {n : Nat} {F : Type} [OfNat F 0]
     pure ({
       name := (m.structs i).name
       members := (m.structs i).members
+      inputIsPublic := (m.structs i).inputIsPublic
       compute := compute
       constrain := constrain
     } : StructDef TargetSet n i F)) = .ok out at hlower
@@ -213,6 +217,7 @@ theorem lowerStruct_semantic_fields {n : Nat} {F : Type} [OfNat F 0]
       change Except.ok ({
         name := (m.structs i).name
         members := (m.structs i).members
+        inputIsPublic := (m.structs i).inputIsPublic
         compute := compute
         constrain := constrain
       } : StructDef TargetSet n i F) = .ok out at hlower

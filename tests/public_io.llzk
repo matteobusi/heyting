@@ -1,0 +1,23 @@
+// Public interface fixture: public input %x, private input %y, public output @out = x * y.
+// The statement wires must be exactly [out, x]; y must stay private.
+module attributes {llzk.lang, llzk.main = !struct.type<@PublicIO>} {
+  struct.def @PublicIO {
+    struct.member @out : !felt.type {llzk.pub}
+    struct.member @tmp : !felt.type
+    function.def @compute(%x: !felt.type {llzk.pub}, %y: !felt.type) -> !struct.type<@PublicIO> attributes {function.allow_witness} {
+      %self = struct.new : !struct.type<@PublicIO>
+      %p = felt.mul %x, %y : !felt.type, !felt.type
+      struct.writem %self[@out] = %p : !struct.type<@PublicIO>, !felt.type
+      struct.writem %self[@tmp] = %y : !struct.type<@PublicIO>, !felt.type
+      function.return %self : !struct.type<@PublicIO>
+    }
+    function.def @constrain(%self: !struct.type<@PublicIO>, %x: !felt.type {llzk.pub}, %y: !felt.type) attributes {function.allow_constraint} {
+      %out = struct.readm %self[@out] : !struct.type<@PublicIO>, !felt.type
+      %tmp = struct.readm %self[@tmp] : !struct.type<@PublicIO>, !felt.type
+      %p = felt.mul %x, %y : !felt.type, !felt.type
+      constrain.eq %out, %p : !felt.type, !felt.type
+      constrain.eq %tmp, %y : !felt.type, !felt.type
+      function.return
+    }
+  }
+}

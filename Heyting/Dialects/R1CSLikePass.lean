@@ -728,6 +728,5 @@ noncomputable def callToR1CSLike (F : Type) [Field F] :
 def compileEntryConstrain (F : Type) [Field F] {n : Nat}
     (m : Module TargetSet n F) (entry : Fin n) : R1CS.System F :=
   R1CSLike.toR1CS (m.structs entry).constrain.body
-    (m.structs entry).members.length
 
 end Dialect.R1CSLikePass
