@@ -1,5 +1,23 @@
 # Formal Guarantees
 
+## Top-level statement
+
+`Dialect.Pipeline.compiler_guarantee` (`Heyting/Guarantees.lean`) bundles, for every
+successful compilation `c` of typed module `M` at entry `e`, the structure
+`CompilerGuarantee M e c`:
+
+| Field | Meaning |
+|---|---|
+| `statement_wires` | statement wires are distinct and the serializer places wire `i` at `i + 1` |
+| `statement_fidelity` | statement wires carry the public part of the extracted source |
+| `completeness` | `forward` maps every source instance `(x, w)` to an R1CS instance for `x` |
+| `soundness` | every R1CS instance `(x, z)` extracts to the source instance `(x, readback z)` |
+| `extractor_reindex` | the extractor reads fixed wires |
+| `language` | `x` has a source witness iff it has an R1CS witness |
+
+Not covered: the parser and frontend, file bytes, cryptographic transfer to a proof system
+(standard, not formalized), and witness generation. Details follow.
+
 ## Guarantee boundary
 
 Strong guarantee starts after successful AST lowering into typed

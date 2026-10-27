@@ -220,8 +220,7 @@ namespace EntryCompilationArtifact
 /-- Object slot of every public member of an entry, in member order. A public member of the
 root object `[]` with index `i` is the coordinate `([], i)`. -/
 def publicMemberSlots {n : Nat} (members : List (MemberDecl n)) : List Nat :=
-  members.zipIdx.filterMap fun (member, i) =>
-    if member.isPublic then some (VarIdEncoding.encode ([], i)) else none
+  ((members.zipIdx.filter (·.1.isPublic)).map (·.2)).map fun i ↦ VarIdEncoding.encode ([], i)
 
 /-- Indices of the parameters flagged public. -/
 def publicFlagSlots (flags : List Bool) : List Nat :=

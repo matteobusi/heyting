@@ -55,6 +55,7 @@ Heyting/
   Passes/
     ASTToDialect.lean      -- unverified typed frontend
     DialectPipeline.lean   -- active proof-carrying whole pipeline
+  Guarantees.lean          -- top-level `compiler_guarantee`
   Backends/                -- JSON, .r1cs, .wtns serializers
   CLI.lean / CLIArgs.lean
 tests/                     -- Lean unit tests and LLZK fixtures
@@ -101,6 +102,7 @@ and exact R1CS target. Key results:
 - `generated_typed_source_r1cs_iff`
 - `typed_pipeline_readback`
 - `entryLevinReduction`, `typed_entry_levin`, `statement_readback`
+- `compiler_guarantee` (`Heyting/Guarantees.lean`): top-level bundle of all of the above
 
 Guarantee begins at successfully typed dialect module and assumes successful witness
 forwarding for the pointwise iff. `typed_source_of_r1cs` separately proves arbitrary-target

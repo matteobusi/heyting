@@ -39,6 +39,7 @@ import Heyting.Passes.Tactics
 import Heyting.Parsers.ASTAnalysis
 import Heyting.Passes.ASTToDialect
 import Heyting.Passes.DialectPipeline
+import Heyting.Guarantees
 
 import Heyting.Parsers.Main
 
