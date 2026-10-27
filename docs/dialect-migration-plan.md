@@ -40,7 +40,7 @@ Completed 2026-08-03 before resuming Phase 6.
   stash `phase-r-pre-recovery-2026-08-03`.
 - Restored the committed Phase-5 source baseline (`70a6fc4`).
 - Isolated the unconnected scratch `Heyting/Dialect.lean` experiment in
-  `tmp/phase-r-recovery/`.
+  `tmp/phase-r-recovery/` (later deleted with the rest of `tmp/`).
 - Kept this migration plan and `docs/related-work.md` uncommitted, as intended.
 - Validated `lake build`, `lake build hey`, `tests/run_tests.sh`, and
   `scripts/smoke_cli.sh` successfully.
