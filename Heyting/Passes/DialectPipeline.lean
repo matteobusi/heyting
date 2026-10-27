@@ -1128,17 +1128,14 @@ theorem typed_pipeline_readback [Field F] [DecidableEq F] {n : Nat}
     compiled.artifact.readback target = source :=
   pipeline_readback compiled.artifact source target hforward
 
-/-- Generate the R1CS witness corresponding to the dialect-native constraint
-artifact. `inputs` must supply exactly one value per entry `@compute` parameter.
-`oracle` supplies `llzk.nondet` values positionally; exhaustion is a named source-runtime
-error and unread values are an error. -/
-def witnessAST {F : Type} [Field F] [DecidableEq F] [IntCast F]
-    (ast : LLZK.Module) (inputs : List F) (oracle : List F := []) :
-    Except String (R1CS.System F × R1CS.Witness F) := do
-  let ast ← LLZK.ASTAnalysis.restrictToEntry ast
-  let ⟨k, fullModule⟩ ← LLZK.DialectLowering.lowerFull (F := F) ast
-  let entry : Fin (k + 1) := ⟨k, Nat.lt_succ_self k⟩
-  let compiled ← compileTypedEntryArtifact fullModule entry
+/-- Prover for one compiled entry: run compute on `inputs` and `oracle`, check the generated
+observation against the typed-source semantics and the erased artifact, and forward it to an
+R1CS witness. `inputs` must supply exactly one value per entry `@compute` parameter, and
+`llzk.nondet` must read every `oracle` value. -/
+def proveEntry {F : Type} [Field F] [DecidableEq F] {k : Nat}
+    (fullModule : Module LLZK.DialectLowering.WitnessSourceSet (k + 1) F) (entry : Fin (k + 1))
+    (compiled : TypedEntryCompilationArtifact fullModule entry) (inputs : List F)
+    (oracle : List F := []) : Except String (R1CS.Witness F) := do
   let artifact := compiled.artifact
   -- `generateSourceWitness` pads missing inputs with zero; never rely on that here.
   unless inputs.length == artifact.computeParams do
@@ -1152,8 +1149,20 @@ def witnessAST {F : Type} [Field F] [DecidableEq F] [IntCast F]
     throw "dialect typed-source checker: constraint failed"
   unless checkSource artifact sourceWitness do
     throw "dialect checker mismatch: typed source accepted but erased artifact rejected"
-  let targetWitness ← artifact.forward sourceWitness
-  pure (artifact.target, targetWitness)
+  artifact.forward sourceWitness
+
+/-- Generate the R1CS witness corresponding to the dialect-native constraint
+artifact with `proveEntry`. `oracle` supplies `llzk.nondet` values positionally; exhaustion
+is a named source-runtime error and unread values are an error. -/
+def witnessAST {F : Type} [Field F] [DecidableEq F] [IntCast F]
+    (ast : LLZK.Module) (inputs : List F) (oracle : List F := []) :
+    Except String (R1CS.System F × R1CS.Witness F) := do
+  let ast ← LLZK.ASTAnalysis.restrictToEntry ast
+  let ⟨k, fullModule⟩ ← LLZK.DialectLowering.lowerFull (F := F) ast
+  let entry : Fin (k + 1) := ⟨k, Nat.lt_succ_self k⟩
+  let compiled ← compileTypedEntryArtifact fullModule entry
+  let targetWitness ← proveEntry fullModule entry compiled inputs oracle
+  pure (compiled.artifact.target, targetWitness)
 
 /-- Lower parsed AST and compile the selected entry struct (`llzk.main`, or the unique
 struct no other struct uses) as the circuit. `restrictToEntry` keeps only the structs the

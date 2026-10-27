@@ -156,13 +156,14 @@ whole-compiler theorem: that would move the specification to the compiler output
 
 1. Optionally repackage `EntryCorrect` as a `PresReflPass` instance (needs a source `Language`
    for finite observations and total or option-valued compilation).
-2. Prove `generateSourceWitness` yields satisfying observations for a supported source class;
-   `forward` totality on satisfying observations is done.
-3. Establish frontend fidelity and agreement with the intended upstream LLZK fragment.
-4. State and prove source generator correctness under appropriate input/program assumptions.
-5. Certify byte-level serialization. Statement-wire placement and layout injectivity are
+2. Prove `generateSourceWitness` yields satisfying observations for a supported program
+   class. Prover soundness and conditional completeness are done (`proveEntry_sound`,
+   `proveEntry_complete`), as are data-only faults (`genWitness_fault`).
+3. Establish frontend fidelity and agreement with the intended upstream LLZK fragment,
+   including the compute executor (no upstream formal semantics exists; test differentially).
+4. Certify byte-level serialization. Statement-wire placement and layout injectivity are
    proved (`WireAssignment`); the Circom byte encoding is tested only.
-6. Formalize the transfer of knowledge soundness and zero knowledge through
+5. Formalize the transfer of knowledge soundness and zero knowledge through
    `entryLevinReduction` for an abstract proof system.
 
 These are not filled by the present pointwise theorem or by passing integration tests.

@@ -50,7 +50,9 @@ remains in Git history.
 observation satisfying the typed-source semantics is accepted by `forward`, giving a
 satisfying R1CS witness that reads back to it. Every satisfying R1CS witness, however
 obtained, reads back to a satisfying observation. Not covered: parser and AST-to-dialect
-fidelity, correctness of the source-witness generator, wire layout, and serialization.
+fidelity, agreement of the compute executor with upstream LLZK, and serialization bytes.
+The prover is sound and conditionally complete (`proveEntry_sound`, `proveEntry_complete`),
+and compilation preserves and reflects determinism (`determines_iff`).
 `EntryCorrect` is not a literal `PresReflPass` instance. See the
 [proof audit guide](docs/AUDIT.md) for exact contracts, dependencies, and proof sketches.
 
@@ -115,7 +117,8 @@ typed-source checking.
 ## Remaining work
 
 - verify or translation-validate parser and AST-to-dialect lowering
-- prove source witness generator satisfies source constraints under explicit preconditions
+- prove compute output satisfies constraints for a supported program class
+- differential testing of the compute executor against upstream LLZK
 - support free/helper functions, arrays, control flow, casts, bool/poly dialects
 - add verified optimization passes and additional constraint backends
 

@@ -149,4 +149,30 @@ theorem apply_writeObject_witness (self src : LocalVar) (member : Nat) (state : 
       state.witness (state.objects src ++ path, field) := by
   simp [apply, Witness.copySubtree]
 
+/-- `writeObject` changes no coordinate outside the stored member subtree. -/
+theorem apply_writeObject_witness_of_not_prefix (self src : LocalVar) (member : Nat)
+    (state : State F) (path : InstancePath) (field : Nat)
+    (h : ¬(state.objects self ++ [member]).IsPrefix path) :
+    (apply (.writeObject self member src : Op γ F) state).witness (path, field) =
+      state.witness (path, field) := by
+  simp [apply, Witness.copySubtree, List.isPrefixOf_iff_prefix, h]
+
+/-- `writeMember` changes only its own coordinate. -/
+theorem apply_writeMember_witness_of_ne (self src : LocalVar) (member : Nat) (state : State F)
+    (key : InstancePath × Nat) (h : key ≠ (state.objects self, member)) :
+    (apply (.writeMember self member src : Op γ F) state).witness key = state.witness key := by
+  simp [apply, Witness.update, h]
+
+/-- Layout agreement for sub-components: after `writeObject self member src`, reading member
+`member` of `self` into `c` and then member `field` of `c` gives the value that `field` of
+`src` had when it was stored. This is the access pattern of `@constrain` on a sub-component
+that `@compute` stored. -/
+theorem read_through_writeObject (self src c v : LocalVar) (member field : Nat)
+    (state : State F) :
+    let stored := apply (.writeObject self member src : Op γ F) state
+    let parent := apply (.readMember c self member : Op γ F) stored
+    (apply (.readMember v c field : Op γ F) parent).values v =
+      state.witness (state.objects src, field) := by
+  simp [apply, ValueEnv.update, ObjEnv.update, Witness.copySubtree]
+
 end Dialect.StructObject

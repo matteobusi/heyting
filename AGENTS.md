@@ -102,7 +102,10 @@ and exact R1CS target. Key results:
 - `generated_typed_source_r1cs_iff`
 - `typed_pipeline_readback`
 - `entryLevinReduction`, `typed_entry_levin`, `statement_readback`
-- `compiler_guarantee` (`Heyting/Guarantees.lean`): top-level bundle of all of the above
+- `compiler_guarantee` (`Heyting/Guarantees.lean`): top-level bundle of all of the above,
+  plus determinism preservation (`determines_iff`)
+- `proveEntry_sound`, `proveEntry_complete`: executable prover vs. relation
+- `WitnessExecution.genWitness_fault`: compute fails only on run-time data
 
 Guarantee begins at successfully typed dialect module and assumes successful witness
 forwarding for the pointwise iff. `typed_source_of_r1cs` separately proves arbitrary-target

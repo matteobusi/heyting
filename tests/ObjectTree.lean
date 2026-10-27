@@ -203,4 +203,16 @@ struct.def @Main {
 -- out = 3 * 3 = 9 = 2 in ZMod 7. `@sq` has index 2, beyond Main's own two members.
 #guard statementOf wideUnconstrained [3] == some [2]
 
+/-- The lowered module satisfies `SelectorsSupported`, so `genWitness_fault` applies: its
+witness generation can fail only on an exhausted oracle or a zero denominator. -/
+def selectorsSupported (src : String) : Bool :=
+  match LLZK.parse src >>= LLZK.ASTAnalysis.restrictToEntry with
+  | .error _ => false
+  | .ok ast => match LLZK.DialectLowering.lowerFull (F := F) ast with
+    | .error _ => false
+    | .ok ⟨_, m⟩ => WitnessExecution.checkSelectors m
+
+#guard selectorsSupported indexBeforeAllocation
+#guard selectorsSupported twoLevels
+
 end Dialect.ObjectTreeTests

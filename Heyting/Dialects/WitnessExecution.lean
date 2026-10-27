@@ -186,4 +186,114 @@ def computeWitness [Field F] [DecidableEq F] {k : Nat}
     (oracle : List F := []) : Option (StructObject.Witness F × Nat) :=
   (genWitness m inputs oracle).toOption
 
+/-! ## Faults
+
+The executor faults only on run-time data (an exhausted oracle or a zero denominator), once
+every compute call uses the supported selector `0`. It never raises `invalidCallTarget`:
+call targets are topological by typing. -/
+
+/-- Faults caused by run-time data: an exhausted oracle or a zero denominator. -/
+def isDataFault : Fault → Bool
+  | .oracleUnderflow | .divisionByZero _ => true
+  | _ => false
+
+/-- Selectors of the `Call` statements of a body, in order. -/
+def callSelectors {γ : OpCtx} : List (Stmt SourceSet γ F) → List Nat
+  | [] => []
+  | .op ⟨0, _⟩ (.call _ _ sel _) :: rest => sel :: callSelectors rest
+  | _ :: rest => callSelectors rest
+
+/-- Every compute call of `m` uses selector `0`. -/
+def SelectorsSupported {n : Nat} (m : Module SourceSet n F) : Prop :=
+  ∀ j, ∀ sel ∈ callSelectors (m.structs j).compute.body, sel = 0
+
+/-- Executable check of `SelectorsSupported`. -/
+def checkSelectors {n : Nat} (m : Module SourceSet n F) : Bool :=
+  (List.finRange n).all fun j ↦ (callSelectors (m.structs j).compute.body).all (· == 0)
+
+/-- `checkSelectors` decides `SelectorsSupported`. -/
+theorem checkSelectors_iff {n : Nat} (m : Module SourceSet n F) :
+    checkSelectors m = true ↔ SelectorsSupported m := by
+  simp [checkSelectors, SelectorsSupported]
+
+/-- A leaf handler faults only on run-time data. -/
+theorem residualHandlers_fault [Field F] [DecidableEq F] {γ : OpCtx}
+    (d : Fin ResidualSet.length) (payload : (ResidualSet.get d).Op γ F) (state : State F)
+    (fault : Fault) (h : (residualHandlers d).step payload state = .error fault) :
+    isDataFault fault = true := by
+  match d, payload with
+  | ⟨0, _⟩, _ => cases h
+  | ⟨1, _⟩, .next _ =>
+    simp only [residualHandlers, oracleHandler] at h
+    split at h <;> cases h
+    rfl
+  | ⟨2, _⟩, payload =>
+    simp only [residualHandlers, feltHandler] at h
+    split at h
+    · split_ifs at h
+      cases h
+      rfl
+    · cases h
+  | ⟨3, _⟩, _ => cases h
+
+/-- Under `SelectorsSupported`, a body whose own calls use selector `0` faults only on
+run-time data.
+
+Proof sketch: strong induction on the struct index, then induction on the body. A leaf
+statement faults by `residualHandlers_fault`; a call has selector `0` and faults only when the
+callee body (an earlier struct) does. -/
+theorem evalBody_fault [Field F] [DecidableEq F] {n : Nat} (m : Module SourceSet n F)
+    (hm : SelectorsSupported m) (i : Fin n) (state : State F)
+    (body : List (Stmt SourceSet ⟨n, i.val, (m.structs i).members.length⟩ F))
+    (hbody : ∀ sel ∈ callSelectors body, sel = 0) (fault : Fault)
+    (h : evalBody m i state body = .error fault) :
+    isDataFault fault = true := by
+  induction hv : i.val using Nat.strong_induction_on generalizing i state body fault with
+  | _ v ih =>
+  induction body generalizing state with
+  | nil => simp [evalBody] at h
+  | cons stmt rest ihb =>
+    obtain ⟨d, payload⟩ := stmt
+    match d, payload with
+    | ⟨0, _⟩, .call dest target sel args =>
+      have hsel : sel = 0 := hbody sel (by simp [callSelectors])
+      subst hsel
+      rw [evalBody] at h
+      simp only [Except.bind, bne_self_eq_false, Bool.false_eq_true, ite_false] at h
+      have hrest : ∀ sel ∈ callSelectors rest, sel = 0 :=
+        fun sel hs ↦ hbody sel (by simp [callSelectors, hs])
+      split at h
+      · next fault' hcallee =>
+        split at hcallee
+        · next fault'' hexec =>
+          cases hcallee
+          cases h
+          exact ih _ (hv ▸ target.isLt) _ _ _ (hm _) _ hexec rfl
+        · cases hcallee
+      · exact ihb _ hrest h
+    | ⟨idx + 1, hd⟩, payload =>
+      have hrest : ∀ sel ∈ callSelectors rest, sel = 0 :=
+        fun sel hs ↦ hbody sel (by simpa [callSelectors] using hs)
+      rw [evalBody] at h
+      simp only [Except.bind] at h
+      split at h
+      · next fault' hstep =>
+        cases h
+        exact residualHandlers_fault _ _ _ _ hstep
+      · exact ihb _ hrest h
+
+/-- Witness generation for a module whose compute calls use selector `0` fails only on
+run-time data: an exhausted oracle or a zero denominator. -/
+theorem genWitness_fault [Field F] [DecidableEq F] {k : Nat} (m : Module SourceSet (k + 1) F)
+    (hm : SelectorsSupported m) (inputs oracle : List F) (fault : Fault)
+    (h : genWitness m inputs oracle = .error fault) :
+    isDataFault fault = true := by
+  unfold genWitness at h
+  cases he : evalBody m ⟨k, Nat.lt_succ_self k⟩ (initialState inputs oracle)
+      (m.structs ⟨k, Nat.lt_succ_self k⟩).compute.body with
+  | error fault' =>
+    simp only [he, Except.map, Except.error.injEq] at h
+    exact h ▸ evalBody_fault m hm _ _ _ (hm _) _ he
+  | ok _ => simp [he, Except.map] at h
+
 end Dialect.WitnessExecution

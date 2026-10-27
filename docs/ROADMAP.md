@@ -60,21 +60,18 @@ correctness without inventing `AST.satisfies`:
 The parser no longer skips input and the frontend type-checks member access (tested in
 `tests/Frontend.lean`); this is executable strictness, not a proof.
 
-Compute and constrain now share the tree object model (`writeObject`); the generator theorem
-must show that `genWitness` places every member at the coordinate the constraint body reads.
+Compute and constrain share the tree object model (`writeObject`, `read_through_writeObject`).
 
-## Priority 2 — witness-generation soundness
+## Priority 2 — compute semantics
 
-Current theorem is pointwise: generated candidate satisfies source iff its
-transport satisfies R1CS. Add explicit source-side preconditions and prove:
+Done: prover soundness and conditional completeness (`proveEntry_sound`,
+`proveEntry_complete`), data-only faults (`genWitness_fault`), determinism preservation
+(`determines_iff`). Open:
 
-```text
-validInputs program inputs oracle
-  → TypedSource.satisfies (genWitness program inputs oracle) program
-```
-
-Compose with `generated_typed_source_r1cs_iff`. Keep unsatisfying candidates
-observable for negative testing.
+1. differential testing of `WitnessExecution` against an upstream LLZK compute interpreter;
+2. a verified analysis that proves, for a class of programs, that compute output satisfies
+   the constraints (for example, compute and constrain derived from one source);
+3. a decision procedure or analysis for source determinism (under-constrained circuits).
 
 ## Priority 3 — callable model
 

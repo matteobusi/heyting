@@ -30,8 +30,11 @@ divisors. Correctness uses successful materialization/forwarding boundary.
 ## 5. Witness generation theorem is pointwise
 
 Compiler proves generated candidate satisfies source iff transported candidate
-satisfies exact R1CS. It does not claim every input/Oracle candidate satisfies
-source constraints. CLI checks and rejects false candidates.
+satisfies exact R1CS, and that the prover `proveEntry` succeeds whenever the generated
+candidate satisfies the source constraints (`proveEntry_complete`). It does not claim every
+input/Oracle candidate satisfies source constraints: that is a property of the source
+program. CLI checks and rejects false candidates. The compute executor is the operational
+semantics of compute and is not proved equal to upstream LLZK compute.
 
 ## 6. Oracle is positional
 
@@ -51,9 +54,9 @@ Objects form a tree in both functions (`StructObject` module documentation). `st
 creates a fresh root, and `struct.writem` of a struct-typed member is lowered to
 `writeObject`, which copies the sub-component below the member path that `@constrain` reads.
 Witness generation reads the observation below the object the entry `@compute` returns, so a
-struct with members must return its own struct type. The copy semantics of `writeObject`
-and the generator itself are tested (`tests/ObjectTree.lean`), not proved: generator
-correctness remains an open obligation.
+struct with members must return its own struct type. `read_through_writeObject` proves that
+reading a stored sub-component through its parent gives the stored values; agreement with
+upstream compute placement is tested (`tests/ObjectTree.lean`), not proved.
 
 ## 9. macOS Lake cache issue
 

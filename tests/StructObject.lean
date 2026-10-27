@@ -36,4 +36,11 @@ def stored := apply (.writeObject 3 3 1 : Op ctx F) parent
 #guard stored.witness ([0], 0) == 7
 #guard stored.witness ([1], 3) == 0
 
+/-- Reading `@3` of the parent, then member `0`, gives the child's stored value
+(`read_through_writeObject`). -/
+def throughParent :=
+  apply (.readMember 5 4 0 : Op ctx F) (apply (.readMember 4 3 3 : Op ctx F) stored)
+#guard throughParent.values 5 == 7
+#guard throughParent.objects 5 == [1, 3, 0]
+
 end Dialect.StructObject.Tests

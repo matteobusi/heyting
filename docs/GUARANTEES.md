@@ -14,9 +14,14 @@ successful compilation `c` of typed module `M` at entry `e`, the structure
 | `soundness` | every R1CS instance `(x, z)` extracts to the source instance `(x, readback z)` |
 | `extractor_reindex` | the extractor reads fixed wires |
 | `language` | `x` has a source witness iff it has an R1CS witness |
+| `determinism` | for every key and observable, the source determines the observable from the key iff the R1CS does through `readback` |
+
+`determinism` means that compilation adds and removes no under-constrained witness pairs;
+`inputs_determine_objects_iff` is its wire form for "inputs determine every object slot".
 
 Not covered: the parser and frontend, file bytes, cryptographic transfer to a proof system
-(standard, not formalized), and witness generation. Details follow.
+(standard, not formalized), and equality of the compute executor with upstream LLZK compute.
+Details follow.
 
 ## Guarantee boundary
 
@@ -43,7 +48,8 @@ proves the executable `forward` accepts every canonically sized satisfying sourc
 returning a satisfying R1CS witness that reads back to it. `typed_entry_correct` bundles both
 directions as `EntryCorrect`; `typed_source_iff_exists_r1cs` states the resulting equivalence.
 The layout invariant `computeParams ≤ numParams` is checked by `lowerEntryCertified`.
-Source witnesses must still come from somewhere: generator correctness remains open. See [AUDIT.md](AUDIT.md).
+Source witnesses come from the compute executor; see [Witness generation](#witness-generation)
+and [AUDIT.md](AUDIT.md).
 
 ## Statement-indexed guarantee (Levin reduction)
 
@@ -164,9 +170,22 @@ CLI sequence:
 4. forward witness through artifact codec
 5. serialize exact R1CS/witness pair
 
-Unsatisfying candidate remains representable and checker rejects it. No theorem
-yet states every generated candidate satisfies source program. Division by zero
-and Oracle exhaustion are explicit runtime/transport faults.
+Unsatisfying candidate remains representable and checker rejects it. The executor
+is the operational semantics of compute; it is not proved equal to upstream LLZK compute.
+Proved about the prover `proveEntry` (steps 1–4, `Heyting/Guarantees.lean`):
+
+- `proveEntry_sound`: a returned witness is an R1CS instance for the public part of a
+  generated observation that satisfies the typed-source semantics and records the inputs.
+- `proveEntry_complete`: with one value per compute parameter, a fully read oracle, and a
+  generated observation that satisfies the constraints, the prover succeeds. That the
+  compute output satisfies the constraints is a property of the source program, so it is a
+  hypothesis.
+- `WitnessExecution.genWitness_fault`: when every compute call uses selector `0`
+  (`SelectorsSupported`, decided by `checkSelectors`), generation fails only with
+  `oracleUnderflow` or `divisionByZero`.
+- `StructObject.read_through_writeObject`: after `writeObject`, reading the member and then a
+  field of the sub-component gives the stored sub-component's value (the access pattern of
+  `@constrain`).
 
 ## Trust and audit
 
