@@ -95,27 +95,6 @@ def ppModule (m : Module) : String :=
   let bodyParts := [structsStr, freeFuncsStr].filter (· != "")
   s!"module \{\n{"\n\n".intercalate bodyParts}\n}"
 
-/-! ## Summary statistics -/
-
-/-- Count broad statement categories in a parsed module for debugging summaries. -/
-def countStmts (m : Module) : String :=
-  let allStmts : List Stmt :=
-    m.structs.flatMap (fun sd => sd.funcs.flatMap fun f => f.body) ++
-      m.freeFuncs.flatMap (fun f => f.body)
-  let total := allStmts.length
-  let felt := allStmts.filter fun
-    | .feltAdd .. | .feltSub .. | .feltMul .. | .feltDiv ..
-    | .feltNeg .. | .feltInv .. | .feltConst .. => true
-    | _ => false
-  let constrain := allStmts.filter fun | .constrainEq .. => true | _ => false
-  let calls := allStmts.filter fun | .call .. => true | _ => false
-  let structOps := allStmts.filter fun
-    | .structNew .. | .readMember .. | .writeMember .. => true
-    | _ => false
-  s!"Structs: {m.structs.length}, Free funcs: {m.freeFuncs.length}, Total stmts: {total}, \
-Felt ops: {felt.length}, Constraints: {constrain.length}, \
-Calls: {calls.length}, Struct ops: {structOps.length}"
-
 /-! ## File parsing -/
 
 /-- Parse an LLZK file from disk. Any construct outside the supported subset is an error. -/

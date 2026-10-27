@@ -2,9 +2,7 @@
 
 ## Current state
 
-Dialect migration phases 0–14 completed. Phase 15 extracted retired StructIR
-implementation to branch `legacy-infrastructure`. Active branch contains one
-compiler path:
+One compiler path:
 
 ```text
 LLZK AST
@@ -13,39 +11,15 @@ LLZK AST
   → Felt/ConstrainEq → R1CSLike → R1CS
 ```
 
-Whole typed-entry artifact composes local correctness and proves
-typed-source/R1CS satisfaction equivalence after successful lowering and
-witness transport.
+Proved: whole-entry preservation and reflection (`typed_entry_correct`), the Levin reduction
+with verified public statement wires (`entryLevinReduction`), determinism preservation, prover
+soundness and conditional completeness, all bundled in `compiler_guarantee`. See
+[GUARANTEES.md](GUARANTEES.md) and [AUDIT.md](AUDIT.md).
 
-Phase 16 completes terminal backend migration. Active artifacts own R1CSLike
-programs, direct materialization/checking, and direct R1CS codecs with full
-preservation/reflection. FlatIR and compatibility-only modules have been removed.
+## Priority 0 — packaging
 
-## Priority 0 — complete the compositional correctness chain
-
-Completed alignment: direct Oracle/Call module stages share finite observations and
-compose with existential preservation/reflection. Object-erasure target and leaf-lowering
-source use one division-validating evaluator; the certified object-function bridge is local.
-The finite-observation adapter `CanonicalStateRel` now retains the source function's
-parameter/object-slot layout. Its related-state object theorem composes with leaf
-materialization and is used by the selected-entry artifact proof. Boundary alignment
-(item 1) is complete; this is not yet one existential whole-entry pass.
-Next (item 2): package preservation/reflection for arbitrary satisfying terminal witnesses.
-Reserved-slot initialization is now enforced in emitted R1CS. `typed_source_of_r1cs`
-proves whole-entry reflection for arbitrary satisfying target witnesses, without forwarding
-premises. The counterexample regression proves its repaired target unsatisfiable.
-`typed_entry_correct` proves both directions, with `forward` total on canonical satisfying
-sources; `computeParams ≤ numParams` is certified by `lowerEntryCertified`.
-Remaining item 2 work: optional `PresReflPass` repackaging.
-Then (item 3): prove `generateSourceWitness` produces satisfying observations under explicit source hypotheses.
-
-Align the intermediate languages, satisfaction predicates, and witness relations
-used by the existing structural, leaf, and terminal results. Connect lowering-defined
-structural stages to independent typed-source semantics. Package whole-entry
-preservation and reflection for arbitrary satisfying witnesses, conditional on
-successful program compilation. Separately prove constructive transport success
-under explicit supported-source hypotheses. Do not infer these from the current
-pointwise theorem's successful-forwarding premise. See [AUDIT.md](AUDIT.md).
+Optionally repackage `EntryCorrect` as a `PresReflPass` instance (needs a source `Language`
+for finite observations and total or option-valued compilation).
 
 ## Priority 1 — verified frontend boundary
 
@@ -57,7 +31,7 @@ correctness without inventing `AST.satisfies`:
 3. prove AST analysis preserves declarations, dependency order, and SSA naming
 4. add translation validation while full proof matures
 
-The parser no longer skips input and the frontend type-checks member access (tested in
+The parser rejects unsupported input and the frontend type-checks member access (tested in
 `tests/Frontend.lean`); this is executable strictness, not a proof.
 
 Compute and constrain share the tree object model (`writeObject`, `read_through_writeObject`).
@@ -100,7 +74,6 @@ correctness certificate, pipeline composition, and adversarial fixture.
 ## Priority 5 — optimization and backends
 
 - verified optimizations with constructive codecs
-- public/private wire classification in serializers
 - reusable constraint dialect above backend specializations
 - Plonkish backend after constraint semantics stabilizes
 - proof/build performance profiling as dialect count grows
@@ -112,8 +85,3 @@ correctness certificate, pipeline composition, and adversarial fixture.
 3. add nontrivial benchmark: Poseidon round, IsZero/range gadget, or Merkle step
 4. compare with Clap-lean and ACL2 gadget verification
 5. send design/paper draft to project-llzk for feedback
-
-## Completed migration history
-
-See `docs/dialect-migration-plan.md`. Phase-14 checkpoint is commit `b608671`;
-same commit anchors `legacy-infrastructure` branch before active removal.

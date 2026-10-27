@@ -11,7 +11,6 @@ def failed : Except String α → Bool
   | .ok _ => false
 
 #guard isCompile (parseArgs ["compile", "in.llzk", "out"])
-#guard failed (parseArgs ["compile", "in.llzk", "out", "--legacy"])
-#guard failed (parseArgs ["compile", "in.llzk", "out", "--dialect"])
+#guard failed (parseArgs ["compile", "in.llzk", "out", "--unknown"])
 
 end Heyting.CLI.Tests

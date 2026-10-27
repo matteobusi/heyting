@@ -562,11 +562,6 @@ def compilationArtifact [Field F] (source : Program F) :
     subst target
     exact readback_compileWitness w
 
-/-- Terminal dialect exposes a total constructive backend transport. -/
-def witnessTransportingPass [Field F] :
-    WitnessCodec.WitnessTransportingPass (Language F) (R1CS.Language F) where
-  compileArtifact source := .ok (compilationArtifact source)
-
 /-- Encode canonical reserved parameters using the terminal dialect's constant
 equations. These slots are inputs, so this is constraint enforcement, not execution. -/
 def enforceZeroPrefix [Field F] (count : Nat) (system : R1CS.System F) : R1CS.System F :=

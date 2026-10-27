@@ -153,9 +153,6 @@ the exact generated wire assignment. Constructive codec supplies exact readback.
 Division retains two constraints enforcing quotient and nonzero denominator;
 inverse retains three constraints including the zero-input case.
 
-The obsolete FlatIR backend is available in repository history, not in the source tree.
-The temporary compatibility adapter has also been removed.
-
 ## Witness generation
 
 `Dialect.WitnessExecution` interprets full typed compute module using handlers
@@ -199,11 +196,5 @@ Proved about the prover `proveEntry` (steps 1–4, `Heyting/Guarantees.lean`):
 `tests/adversarial_full.llzk` covers nested compute/constrain calls, objects,
 public members, two Oracle reads, every supported Felt operation, and multiple
 equalities. Correct witness passes snarkjs; altered Oracle fails typed-source
-checking. Smoke also checks Oracle exhaustion, division by zero, retired
-selector rejection, JSON/binary output, and full fixture suite.
-
-## Archived implementation
-
-Old StructIR pipeline and proofs are preserved on branch
-`legacy-infrastructure`. They are not compiled, imported, or exposed by active
-CLI, and make no contribution to active guarantee statement.
+checking. Smoke also checks Oracle exhaustion, division by zero, input/field boundaries,
+JSON/binary output, the Groth16 public statement, and the full fixture suite.

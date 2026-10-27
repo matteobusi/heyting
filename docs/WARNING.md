@@ -71,14 +71,14 @@ are tested executable boundaries, not currently proved faithful byte encodings.
 ## 11. Whole-entry pass packaging remains incomplete
 
 `typed_source_r1cs_iff` assumes successful forwarding of a particular source witness.
-The separate `typed_source_of_r1cs` theorem now covers every satisfying target assignment,
+The separate `typed_source_of_r1cs` theorem covers every satisfying target assignment,
 reflecting it to finite source readback. Reserved parameter zeros are enforced by target
 constraints. `typed_entry_correct` (`EntryCorrect`) gives both directions for compiled entries,
 including totality of `forward` on canonically sized satisfying source observations.
-Entries whose compute function has more parameters than the constrain function are now
+Entries whose compute function has more parameters than the constrain function are
 rejected by `lowerEntryCertified`. `EntryCorrect` is not a `PresReflPass` instance (finite
-list observations, partial compilation). Generator correctness for producing source
-observations remains open.
+list observations, partial compilation). That compute output satisfies the constraints is a
+hypothesis of `proveEntry_complete`, not a theorem.
 
 Wire encoding is only intended for allocated constructor ranges. Global injectivity
 over all natural-number-indexed `R1CS.VarId` values would be false. Public/private
@@ -90,9 +90,3 @@ proved to carry the source public part (`statement_readback`) and to occupy wire
 (`WireAssignment`). A public member that `@constrain` never reads, or a public member of
 struct type, is rejected. The Circom bytes themselves are tested with snarkjs Groth16, not
 proved.
-
-## Archived issues
-
-Retired StructIR-specific assumptions and proofs live on branch
-`legacy-infrastructure`. They do not apply to active compiler. Migration history
-remains in `docs/dialect-migration-plan.md`.

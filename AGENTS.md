@@ -62,9 +62,6 @@ tests/                     -- Lean unit tests and LLZK fixtures
 scripts/smoke_cli.sh       -- CLI + snarkjs integration gate
 ```
 
-Retired StructIR pipeline exists only on branch `legacy-infrastructure`.
-Do not restore imports or CLI selectors from that branch.
-
 ## Active pipeline
 
 ```text
@@ -157,15 +154,12 @@ New terminal R1CSLike operation:
 - extend `R1CSLike.compileOp`, materializer, satisfaction, and checker
 - extend direct preservation/reflection and witness codec proofs
 
-Active library/CLI imports must exclude FlatIR and StructIR. Guard:
-`python3 scripts/check_active_imports.py` (also runs in smoke test).
-
 Use specific Mathlib imports. Lean style width 100. Search mathlib before proving.
 
 Source documentation follows Mathlib conventions: module docs after imports,
 declaration docstrings state the actual contract and hypotheses, theorem names
 describe the result, and nontrivial proofs include a high-level sketch. Group routine
-frame/renaming/SSA helper lemmas under documented invariants. Keep migration chronology
+frame/renaming/SSA helper lemmas under documented invariants. Keep development chronology
 out of source comments. Never describe a conditional codec as arbitrary-target reflection,
 or lowering-defined satisfaction as independent source semantics.
 
@@ -175,7 +169,7 @@ or lowering-defined satisfaction as independent source semantics.
 lake env lean path/to/File.lean
 lake build
 lake build hey
-/Users/mbusi/.codex/plugins/cache/lean4-skills/lean4/4.8.5/bin/lean4-skills-sorry-analyzer Heyting --report-only --format=summary
+lean4-skills-sorry-analyzer Heyting --report-only --format=summary
 ./tests/run_tests.sh
 ./scripts/smoke_cli.sh
 ```
@@ -192,5 +186,4 @@ Run `lean_verify <file> <theorem>` for changed major theorems. Expected axioms:
 - `docs/ROADMAP.md`: future work
 - `docs/cli.md`: user-facing CLI
 - `docs/llzk-dialects.md`: supported LLZK syntax
-- `docs/dialect-migration-plan.md`: completed migration history
 - `README.md`: public summary

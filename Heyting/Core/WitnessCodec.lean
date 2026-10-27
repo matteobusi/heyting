@@ -115,23 +115,4 @@ def compose {source : S.Program}
 
 end CompilationArtifact
 
-/-- A pass whose compilation result constructively transports witnesses and
-proves pointwise correctness for every successful transport. -/
-structure WitnessTransportingPass
-    (S : Language Vs Fs) (T : Language Vt Ft) where
-  compileArtifact : (source : S.Program) → Except String (CompilationArtifact S T source)
-
-/-- Constructive evidence that artifact compilation and forward transport are
-total. This is deliberately separate from existential `PresReflPass`. -/
-structure TotalTransport
-    (pass : WitnessTransportingPass S T) where
-  compile : ∀ source, { artifact // pass.compileArtifact source = .ok artifact }
-  forward : ∀ source (ws : Witness Vs Fs),
-    { wt // (compile source).val.forward ws = .ok wt }
-
-/-- A transporting pass with exact source-witness readback. Every artifact
-already carries the round-trip law; this alias names the stronger API role. -/
-abbrev RoundTripPass
-    (S : Language Vs Fs) (T : Language Vt Ft) := WitnessTransportingPass S T
-
 end WitnessCodec

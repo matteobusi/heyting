@@ -136,36 +136,6 @@ def lowerEntryCertified {F : Type} [Field F] {n : Nat}
         else .error s!"compute function has more parameters than constrain function: \
           {(m.structs entry).name}"
 
-/-- Erase calls from the primary object-aware frontend module. -/
-noncomputable def eraseCalls {F : Type} [Field F] {n : Nat}
-    (m : Module LLZK.DialectLowering.SourceSet n F) :
-    Except String (Module CallResidual n F) :=
-  match CallErasure.eraseModule (CallErasure.objectFeltConstrainSyntax (F := F)) m with
-  | some out => .ok out
-  | none => .error "call erasure failed"
-
-/-- Typed frontend plus Call erasure, retaining StructObject operations. -/
-noncomputable def eraseCallsAST {F : Type} [Field F] [IntCast F]
-    (ast : LLZK.Module) :
-    Except String (Σ k, Module CallResidual (k + 1) F) := do
-  let ⟨k, m⟩ ← LLZK.DialectLowering.lower (F := F) ast
-  pure ⟨k, ← eraseCalls m⟩
-
-/-- Erase StructObject from an already call-free residual module. -/
-noncomputable def eraseObjects {F : Type} [Field F] {n : Nat}
-    (m : Module CallResidual n F) :
-    Except String (Module CallPass.TargetSet n F) :=
-  match StructObjectPass.lowerModule m with
-  | some out => .ok out
-  | none => .error "StructObject erasure failed"
-
-/-- Typed frontend through both structural-prefix erasures. -/
-noncomputable def eraseStructuralAST {F : Type} [Field F] [IntCast F]
-    (ast : LLZK.Module) :
-    Except String (Σ k, Module CallPass.TargetSet (k + 1) F) := do
-  let ⟨k, callFree⟩ ← eraseCallsAST (F := F) ast
-  pure ⟨k, ← eraseObjects callFree⟩
-
 /-- Reject entries whose public interface the target cannot expose exactly: a public member
 of struct type, a public member outside the observed object region (never read by
 `@constrain`, so its value is unconstrained), or more public-input flags than compute
@@ -318,14 +288,6 @@ def forward {F : Type} [Field F] [DecidableEq F]
 
 end EntryCompilationArtifact
 
-/-- Compile the constraint function selected as a module entry. -/
-def compileEntry {F : Type} [Field F] {n : Nat}
-    (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n) :
-    Except String (R1CS.System F) := do
-  let lowering ← lowerEntryCertified m entry
-  checkPublicLayout m entry lowering
-  pure (EntryCompilationArtifact.ofLowering m entry lowering).target
-
 namespace Source
 
 /-- Artifact-relative satisfaction: materialization succeeds and the resulting
@@ -431,15 +393,6 @@ theorem checkTypedSource_true_iff [Field F] [DecidableEq F] {n : Nat}
     checkTypedSource module entry source = true ↔
       TypedSourceSatisfies module entry source :=
   TypedSourceSemantics.checkAt_true_iff module entry source.inputs source.objects
-
-/-- Compile an entry and package its exact R1CS target with the codec used to
-materialize R1CS auxiliary variables. -/
-def compileEntryArtifact {F : Type} [Field F] {n : Nat}
-    (m : Module LLZK.DialectLowering.SourceSet n F) (entry : Fin n) :
-    Except String (EntryCompilationArtifact F) := do
-  let lowering ← lowerEntryCertified m entry
-  checkPublicLayout m entry lowering
-  pure (EntryCompilationArtifact.ofLowering m entry lowering)
 
 /-- Original typed module bundled with exact Oracle, Call, StructObject, leaf,
 and backend compilation evidence for selected entry. -/

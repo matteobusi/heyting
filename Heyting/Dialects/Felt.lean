@@ -110,13 +110,6 @@ theorem backendValid_mapVars [Field F]
       rw [hagrees denominator (by simp [reads])]
   | add | sub | mul | neg | inv | const => simp [mapVars, backendValid]
 
-theorem backendValid_reads_congr [Field F] (op : Op γ F) (env₁ env₂ : LocalVar → F)
-    (h : ∀ v ∈ reads op, env₁ v = env₂ v) :
-    backendValid op env₁ ↔ backendValid op env₂ := by
-  cases op with
-  | div _ _ s2 => simp only [backendValid]; rw [h s2 (by simp [reads])]
-  | add | sub | mul | neg | inv | const => simp [backendValid]
-
 theorem applyOp_at_dest [Field F] (op : Op γ F) (env : LocalVar → F) :
     applyOp op env (destVar op) = evalVal op env := by simp [applyOp]
 

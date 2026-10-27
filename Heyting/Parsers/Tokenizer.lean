@@ -109,14 +109,6 @@ private def charAt (input : String) (offset : Nat) : Char :=
 private def pastEnd (input : String) (offset : Nat) : Bool :=
   offset >= input.length
 
-/-- Advance offset by one character, updating line/col. -/
-private def advanceOne (input : String) (offset line col : Nat) : Nat × Nat × Nat :=
-  if pastEnd input offset then (offset, line, col)
-  else
-    let c := charAt input offset
-    if c == '\n' then (offset + 1, line + 1, 1)
-    else (offset + 1, line, col + 1)
-
 /-- Skip whitespace characters. -/
 private def skipWhitespace (input : String) (offset line col : Nat) :
     Nat × Nat × Nat :=

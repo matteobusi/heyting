@@ -167,14 +167,6 @@ theorem Stmt.read_lt_of_freshAbove
   hfresh v (by simp [Stmt.vars, hv])
 
 omit [Field F] in
-theorem Stmt.dest_lt_of_freshAbove
-    {Δ : DialectSet} {γ : OpCtx} {F : Type}
-    {next d : LocalVar} {s : Stmt Δ γ F}
-    (hfresh : s.freshAbove next)
-    (hd : s.dest = some d) :
-    d < next :=
-  hfresh d (by simp [Stmt.vars, hd])
-
 /-! ## SSA helper lemmas -/
 
 theorem evalConstrainStep_agree_below
@@ -256,20 +248,6 @@ theorem evalConstrainBody_agree_below
     evalConstrainBody handlers ctx body env₁ ↔
       evalConstrainBody handlers ctx body env₂ :=
   (evalConstrainBodyEnv_agree_below handlers ctx body next env₁ env₂ hfresh hagree).1
-
-theorem evalConstrainEnv_agree_below
-    {Δ : DialectSet} {n : Nat} {γ : OpCtx}
-    (handlers : HandlerFamily Δ F)
-    (ctx : SemCtx Δ n F)
-    (body : List (Stmt Δ γ F))
-    (next : LocalVar)
-    (env₁ env₂ : LocalVar → F)
-    (hfresh : bodyFreshAbove next body)
-    (hagree : ∀ v, v < next → env₁ v = env₂ v) :
-    ∀ v, v < next →
-      evalConstrainEnv handlers ctx body env₁ v =
-        evalConstrainEnv handlers ctx body env₂ v :=
-  (evalConstrainBodyEnv_agree_below handlers ctx body next env₁ env₂ hfresh hagree).2
 
 set_option linter.flexible false in
 theorem evalComputeStep_agree_below
@@ -713,21 +691,6 @@ theorem fresh_computeBody
                                 intro v hv
                                 exact Eq.trans (hih v (Nat.lt_of_lt_of_le hv hmono)) (hsrcAgree v hv)
 
-omit [Field F] in
-theorem lowerBodyFresh_next_ge
-    {Δ Δ' : DialectSet} {γ : OpCtx}
-    (lowerOp : FreshLowerOp Δ Δ' F)
-    (mono : FreshLowerMono lowerOp)
-    (body : List (Stmt Δ γ F)) (next : LocalVar) :
-    next ≤ (lowerBodyFresh lowerOp next body).2 := by
-  induction body generalizing next with
-  | nil => simp
-  | cons s rest ih =>
-    cases s with
-    | op d p =>
-      simp only [lowerBodyFresh_op]
-      exact Nat.le_trans (mono next d p) (ih (lowerOp next d p).2)
-
 /-- Unified fresh-aware body/module-level dialect pass abstraction. -/
 structure DialectPass (Δ Δ' : DialectSet) (F : Type) [Field F] where
   handlers  : HandlerFamily Δ F
@@ -789,11 +752,6 @@ theorem computeBody {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) {n n' : 
   Dialect.fresh_computeBody
     pass.handlers ctx pass.handlers' ctx' pass.lowerOp pass.next_mono pass.compute
     body next env hfresh
-
-theorem lowerBody_next_ge {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F) {γ : OpCtx}
-    (stmts : List (Stmt Δ γ F)) (next : LocalVar) :
-    next ≤ (pass.lowerBody next stmts).2 :=
-  Dialect.lowerBodyFresh_next_ge pass.lowerOp pass.next_mono stmts next
 
 def lowerFunc {Δ Δ' : DialectSet} (pass : DialectPass Δ Δ' F)
     {n i : Nat} {kind : Capability} {numMembers : Nat}

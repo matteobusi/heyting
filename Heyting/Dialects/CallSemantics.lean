@@ -477,33 +477,6 @@ def EnvAgreesOn (defined : LocalVar → Bool) (rename : LocalVar → LocalVar)
     (source target : LocalVar → F) : Prop :=
   ∀ v, defined v = true → target (rename v) = source v
 
-/-- Executing an erased inlined callee preserves caller environment agreement
-for every protected caller local mapped below the callee base. -/
-theorem eraseFuncBodyInto_inlineVar_preserves_caller_agreement
-    {n callerMembers currentMembers : Nat} {cap : Capability}
-    (m : Module SourceSet n F) (caller current : Fin n) (kind : BodyKind)
-    (fn : FuncDef SourceSet n current.val F cap currentMembers)
-    (callerRename : LocalVar → LocalVar) (args : List LocalVar)
-    (base : LocalVar) (hargs : args.length = fn.numParams)
-    (result : List (Stmt TargetSet ⟨n, caller.val, callerMembers⟩ F) × LocalVar)
-    (herase : eraseBodyInto m caller current kind
-      (inlineVar callerRename args fn.numParams base hargs)
-      (base + funcVarBound fn) fn.body = some result)
-    (defined : LocalVar → Bool) (source target : LocalVar → F)
-    (hbelow : ∀ v, defined v = true → callerRename v < base)
-    (hagrees : EnvAgreesOn defined callerRename source target) :
-    ∃ out,
-      evalTargetComputeBody result.1 target = some out ∧
-      EnvAgreesOn defined callerRename source out := by
-  obtain ⟨out, hout⟩ := evalTargetComputeBody_total result.1 target
-  refine ⟨out, hout, ?_⟩
-  intro v hv
-  have hframe := eraseFuncBodyInto_inlineVar_target_frame
-    m caller current kind fn callerRename args base hargs result herase target
-    (hbelow v hv)
-  rw [hout] at hframe
-  exact (Option.some.inj hframe).trans (hagrees v hv)
-
 omit [Field F] in
 theorem EnvAgreesBelow.mono {rename : LocalVar → LocalVar}
     {small large : LocalVar} {source target : LocalVar → F}
@@ -589,36 +562,6 @@ theorem computeReturnSupported_value_agree {n i numMembers : Nat}
   obtain ⟨r, hr, hdefined⟩ := computeReturnSupported_some fn d hsupported
   exact ⟨r, hr, hagrees r hdefined⟩
 
-/-- One renamed felt step preserves environment agreement when its destination
-remains distinct from every other represented source local. SSA plus reserved
-callee storage will discharge this separation premise in the body theorem.
--/
-theorem applyOp_lowerFeltOp_agrees {γ γ' : OpCtx}
-    (rename : LocalVar → LocalVar) (op : Felt.Op γ F)
-    (source target : LocalVar → F)
-    (hagrees : ∀ v, target (rename v) = source v)
-    (hseparate : ∀ v, v ≠ Felt.destVar op →
-      rename v ≠ rename (Felt.destVar op)) :
-    ∀ v,
-      Felt.applyOp (lowerFeltOp (γ' := γ') rename op) target (rename v) =
-        Felt.applyOp op source v := by
-  intro v
-  by_cases hv : v = Felt.destVar op
-  · subst v
-    have hdest : rename (Felt.destVar op) =
-        Felt.destVar (lowerFeltOp (γ' := γ') rename op) := by
-      symm
-      exact lowerFeltOp_destVar rename op
-    rw [hdest, Felt.applyOp_at_dest, Felt.applyOp_at_dest]
-    exact evalVal_lowerFeltOp rename op source target
-      (fun x _ => hagrees x)
-  · have hsep : rename v ≠
-        Felt.destVar (lowerFeltOp (γ' := γ') rename op) := by
-      simpa using hseparate v hv
-    rw [Felt.applyOp_at_other _ _ _ hsep,
-      Felt.applyOp_at_other _ _ _ hv]
-    exact hagrees v
-
 /-- One renamed felt step extends agreement from the current SSA set to its
 new destination.
 -/
@@ -651,59 +594,6 @@ theorem applyOp_lowerFeltOp_agreesOn {γ γ' : OpCtx}
     rw [Felt.applyOp_at_other _ _ _ hsep,
       Felt.applyOp_at_other _ _ _ hvDest]
     exact hagrees v (hvDefined.resolve_right hvDest)
-
-/-- Combined local simulation rule for a felt statement inside an SSA callee. -/
-theorem applyOp_lowerFeltOp_inlineVar_agrees {n i numMembers : Nat}
-    {kind : Capability} (fn : FuncDef SourceSet n i F kind numMembers)
-    (callerRename : LocalVar → LocalVar) (args : List LocalVar)
-    (base : LocalVar) (hargs : args.length = fn.numParams)
-    (hparams : ∀ k (hk : k < fn.numParams),
-      callerRename (args.get ⟨k, by simpa [hargs] using hk⟩) < base)
-    (op : Felt.Op ⟨n, i, numMembers⟩ F)
-    (hmem : (Stmt.op feltSourceIx op :
-      Stmt SourceSet ⟨n, i, numMembers⟩ F) ∈ fn.body)
-    (source target : LocalVar → F)
-    (hagrees : ∀ v,
-      target (inlineVar callerRename args fn.numParams base hargs v) = source v) :
-    ∀ v,
-      Felt.applyOp
-          (lowerFeltOp (γ' := ⟨n, i, numMembers⟩)
-            (inlineVar callerRename args fn.numParams base hargs) op)
-          target (inlineVar callerRename args fn.numParams base hargs v) =
-        Felt.applyOp op source v := by
-  apply applyOp_lowerFeltOp_agrees
-  · exact hagrees
-  · apply inlineVar_stmt_dest_separate fn callerRename args base hargs hparams hmem
-    change Felt.sig.dest op = some (Felt.destVar op)
-    exact Felt.dest_eq op
-
-/-- SSA-aware local Felt rule used by recursive body simulation. -/
-theorem applyOp_lowerFeltOp_inlineVar_agreesOn {n i numMembers : Nat}
-    {kind : Capability} (fn : FuncDef SourceSet n i F kind numMembers)
-    (callerRename : LocalVar → LocalVar) (args : List LocalVar)
-    (base : LocalVar) (hargs : args.length = fn.numParams)
-    (hparams : ∀ k (hk : k < fn.numParams),
-      callerRename (args.get ⟨k, by simpa [hargs] using hk⟩) < base)
-    (defined : LocalVar → Bool) (op : Felt.Op ⟨n, i, numMembers⟩ F)
-    (hmem : (Stmt.op feltSourceIx op :
-      Stmt SourceSet ⟨n, i, numMembers⟩ F) ∈ fn.body)
-    (source target : LocalVar → F)
-    (hreads : (Felt.reads op).all defined = true)
-    (hagrees : EnvAgreesOn defined
-      (inlineVar callerRename args fn.numParams base hargs) source target) :
-    EnvAgreesOn (fun v => defined v || v == Felt.destVar op)
-      (inlineVar callerRename args fn.numParams base hargs)
-      (Felt.applyOp op source)
-      (Felt.applyOp
-        (lowerFeltOp (γ' := ⟨n, i, numMembers⟩)
-          (inlineVar callerRename args fn.numParams base hargs) op)
-        target) := by
-  apply applyOp_lowerFeltOp_agreesOn defined
-  · exact hreads
-  · exact hagrees
-  · apply inlineVar_stmt_dest_separate fn callerRename args base hargs hparams hmem
-    change Felt.sig.dest op = some (Felt.destVar op)
-    exact Felt.dest_eq op
 
 /-- Executing one lowered felt statement performs its renamed field update. -/
 @[simp] theorem evalTargetComputeBody_lowerFeltInto {γ γ' : OpCtx}
@@ -1837,19 +1727,6 @@ def compose {Δ₁ Δ₂ : DialectSet}
       exact (p₂.constrain_iff mid entry env).trans hp₁
 
 end CallModuleConstraintPass
-
-/-- Evaluate a struct's witness function and expose its optional return value. -/
-def evalComputeFunc {n : Nat} (m : Module SourceSet n F) (i : Fin n)
-    (args : List F) : Option (Option F) :=
-  let fn := (m.structs i).compute
-  (evalComputeBody m i fn.body (bindParams args 0)).map
-    (fun env => readReturn fn.returnVar env)
-
-/-- Evaluate a struct's constraint function from positional call arguments. -/
-def evalConstrainFunc {n : Nat} (m : Module SourceSet n F) (i : Fin n)
-    (args : List F) : Prop :=
-  let fn := (m.structs i).constrain
-  evalConstrainBody m i fn.body (bindParams args 0)
 
 /-- Call-aware satisfaction for one concrete source-set struct. -/
 def satisfiesStruct {n : Nat} (m : Module SourceSet n F) (i : Fin n)

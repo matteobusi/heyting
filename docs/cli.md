@@ -11,8 +11,7 @@ hey compile [options] <input.llzk> <output>
 hey help
 ```
 
-CLI exposes one dialect-native compiler pipeline. Retired `--legacy` and
-redundant `--dialect` selectors are errors.
+CLI exposes one dialect-native compiler pipeline.
 
 ## Options
 

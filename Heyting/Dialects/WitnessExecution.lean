@@ -180,12 +180,6 @@ def genWitness [Field F] [DecidableEq F] {k : Nat}
       | none => []
     (fun (path, member) => out.witness (root ++ path, member), out.oracle.cursor)
 
-/-- Compatibility wrapper for callers that only distinguish success/failure. -/
-def computeWitness [Field F] [DecidableEq F] {k : Nat}
-    (m : Module SourceSet (k + 1) F) (inputs : List F)
-    (oracle : List F := []) : Option (StructObject.Witness F × Nat) :=
-  (genWitness m inputs oracle).toOption
-
 /-! ## Faults
 
 The executor faults only on run-time data (an exhausted oracle or a zero denominator), once

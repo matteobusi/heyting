@@ -57,18 +57,6 @@ structure CallProtocol (State F : Type) where
     (dest ret : Option LocalVar) (v : LocalVar), dest ≠ some v →
     readLocal (mergeReturn caller callee dest ret) v = readLocal caller v
 
-/-- Call protocol for the original field-local semantics. -/
-def localProtocol (F : Type) : CallProtocol (LocalVar → F) F where
-  readLocal env v := env v
-  initCallee caller args default := Call.bindArgs caller args default
-  mergeReturn caller callee dest ret :=
-    Call.bindReturn dest (ret.map callee) caller
-  read_init_param := by intro caller args default k; simp
-  read_merge_return := by intro caller callee dest ret; simp
-  read_merge_frame := by
-    intro caller callee dest ret v h
-    exact Call.bindReturn_frame dest (ret.map callee) caller v h
-
 private def bindObjectArgs (caller : StructObject.State F)
     (args : List LocalVar) (default : F) : StructObject.State F where
   values := Call.bindArgs caller.values args default
@@ -696,58 +684,6 @@ theorem eraseModule_struct {residual : DialectSet}
   next h => simp at herase
 
 /-! ## Concrete residual syntax values -/
-
-private def recontextualizeFeltConstrain {sourceCtx targetCtx : OpCtx} :
-    ∀ (d : Fin [Felt.sig, ConstrainEq.sig].length),
-      ([Felt.sig, ConstrainEq.sig].get d).Op sourceCtx F →
-        Option (([Felt.sig, ConstrainEq.sig].get d).Op targetCtx F)
-  | ⟨0, _⟩, op => by
-      cases op with
-      | add d a b => exact some (.add d a b)
-      | sub d a b => exact some (.sub d a b)
-      | mul d a b => exact some (.mul d a b)
-      | div d a b => exact some (.div d a b)
-      | neg d a => exact some (.neg d a)
-      | inv d a => exact some (.inv d a)
-      | const d c => exact some (.const d c)
-  | ⟨1, _⟩, op => by
-      cases op with
-      | eq a b => exact some (.eq a b)
-
-def feltConstrainSyntax [Zero F] :
-    ResidualSyntax [Felt.sig, ConstrainEq.sig] F where
-  recontextualize := recontextualizeFeltConstrain
-  emitReturn := fun {ctx} dest returnVar calleeRename callerRename next =>
-    some (CallPass.emitReturnCopy (F := F) (γ := ctx) dest returnVar
-      calleeRename callerRename next)
-
-set_option linter.flexible false in
-private theorem feltConstrainTransportMetadata [Zero F]
-    {sourceCtx targetCtx : OpCtx} :
-    ∀ (d : Fin [Felt.sig, ConstrainEq.sig].length)
-      (op : ([Felt.sig, ConstrainEq.sig].get d).Op sourceCtx F)
-      (out : ([Felt.sig, ConstrainEq.sig].get d).Op targetCtx F),
-      (feltConstrainSyntax (F := F)).recontextualize d op = some out →
-      ([Felt.sig, ConstrainEq.sig].get d).dest out =
-          ([Felt.sig, ConstrainEq.sig].get d).dest op ∧
-      ([Felt.sig, ConstrainEq.sig].get d).reads out =
-          ([Felt.sig, ConstrainEq.sig].get d).reads op ∧
-      ([Felt.sig, ConstrainEq.sig].get d).cap out =
-          ([Felt.sig, ConstrainEq.sig].get d).cap op
-  | ⟨0, _⟩, op, out, h => by
-      cases op <;> simp [feltConstrainSyntax, recontextualizeFeltConstrain] at h <;>
-        subst out <;> exact ⟨rfl, rfl, rfl⟩
-  | ⟨1, _⟩, op, out, h => by
-      cases op
-      simp [feltConstrainSyntax, recontextualizeFeltConstrain] at h
-      subst out
-      exact ⟨rfl, rfl, rfl⟩
-
-theorem feltConstrainRenameStable [Zero F] :
-    ResidualSyntax.RenameStable (feltConstrainSyntax (F := F)) where
-  dest d op out h := (feltConstrainTransportMetadata d op out h).1
-  reads d op out h := (feltConstrainTransportMetadata d op out h).2.1
-  cap d op out h := (feltConstrainTransportMetadata d op out h).2.2
 
 def recontextualizeObjectFeltConstrain {sourceCtx targetCtx : OpCtx} :
     ∀ (d : Fin [StructObject.sig, Felt.sig, ConstrainEq.sig].length),

@@ -8,8 +8,8 @@ import Heyting.Languages.R1CS
 /-!
 # R1CS JSON Rendering
 
-JSON serializers and human-readable renderers for `R1CS` variables, linear
-combinations, constraints, and whole systems.
+JSON serializers for `R1CS` variables, linear combinations, constraints, and whole
+systems.
 -/
 
 namespace R1CSJSON
@@ -26,14 +26,6 @@ def varIdToJson (v : R1CS.VarId) : Json :=
   | .aux n => Json.mkObj [("tag", "aux"), ("index", n)]
   | .auxIsZero n => Json.mkObj [("tag", "auxIsZero"), ("index", n)]
 
-/-- Pretty-print an `R1CS.VarId` using witness-style names. -/
-def varIdToString (v : R1CS.VarId) : String :=
-  match v with
-  | .varOne => "ONE"
-  | .var n => s!"v{n}"
-  | .aux n => s!"aux{n}"
-  | .auxIsZero n => s!"auxIsZero{n}"
-
 /-- Render a field element using its `repr`. -/
 def fieldRepr (c : F) : String :=
   toString (repr c)
@@ -47,22 +39,6 @@ def linCombToJson (lc : R1CS.LinComb F) : Json :=
   Json.arr <| lc.toArray.map fun (v, c) =>
     Json.mkObj [("var", varIdToJson v), ("coeff", fieldToJson c)]
 
-/-- Pretty-print a linear combination in readable algebraic form. -/
-def linCombToHuman (lc : R1CS.LinComb F) : String :=
-  match lc with
-  | [] => "0"
-  | [(v, c)] =>
-    let cv := fieldRepr c
-    match v with
-    | .varOne => cv
-    | _ => s!"{cv}*{varIdToString v}"
-  | _ =>
-    String.intercalate " + " <| lc.map fun (v, c) =>
-      let cv := fieldRepr c
-      match v with
-      | .varOne => cv
-      | _ => s!"{cv}*{varIdToString v}"
-
 /-- Serialize one R1CS constraint as JSON object with `A`, `B`, and `C` entries. -/
 def constraintToJson (c : R1CS.Constraint F) : Json :=
   Json.mkObj [
@@ -70,10 +46,6 @@ def constraintToJson (c : R1CS.Constraint F) : Json :=
     ("B", linCombToJson c.B),
     ("C", linCombToJson c.C)
   ]
-
-/-- Pretty-print one R1CS constraint as `A * B = C`. -/
-def constraintToHuman (c : R1CS.Constraint F) : String :=
-  s!"({linCombToHuman c.A}) * ({linCombToHuman c.B}) = ({linCombToHuman c.C})"
 
 /-- Count regular (`.var n`) wire slots: one past the maximum `.var` index seen, or 0. -/
 def countRegVars (constraints : List (R1CS.Constraint F)) : Nat :=
@@ -151,18 +123,6 @@ def summaryToJson [Repr F] (s : SystemSummary F) : Json :=
 /-- Serialize an R1CS system to JSON after computing its summary counts. -/
 def systemToJson [Repr F] (sys : R1CS.System F) : Json :=
   summaryToJson (summarize sys)
-
-/-- Pretty-print whole R1CS system with summary header and numbered constraints. -/
-def ppSystem [Repr F] (sys : R1CS.System F) : String :=
-  let s := summarize sys
-  let numWires := 1 + s.numRegVars + s.numAuxVars
-  let header := s!"R1CS System: {s.numConstraints} constraints, " ++
-                s!"{numWires} wires ({s.numRegVars} regular, {s.numAuxVars} aux), " ++
-                s!"{s.publicOutputs.length} public outputs, " ++
-                s!"{s.publicInputs.length} public inputs"
-  let body : List String := s.constraints.toArray.mapIdx (fun i c =>
-    s!"  [{i}] {constraintToHuman c}") |>.toList
-  String.intercalate "\n" (header :: body)
 
 /-- Write JSON serialization of an R1CS system to `path`. -/
 def saveR1CSJson [Repr F] (sys : R1CS.System F) (path : String) : IO Unit := do

@@ -69,20 +69,7 @@ def feltTargetIx : Fin TargetSet.length := ⟨0, by simp [TargetSet]⟩
 /-- `ConstrainEq` index in `TargetSet`. -/
 def constrTargetIx : Fin TargetSet.length := ⟨1, by simp [TargetSet]⟩
 
-/-- A source statement is a call iff its dialect index is `callSourceIx`. -/
-def isCall {γ : OpCtx} {F : Type} (s : Stmt SourceSet γ F) : Bool :=
-  match s with
-  | .op d _ => d == callSourceIx
-
 /-! ## Index reindexing helpers -/
-
-/-- Translate a `Felt` op payload from the source set to a target statement. -/
-def reindexFelt {γ : OpCtx} {F : Type} (op : Felt.Op γ F) : Stmt TargetSet γ F :=
-  .op feltTargetIx op
-
-/-- Translate a `ConstrainEq` op payload from the source set to a target statement. -/
-def reindexConstr {γ : OpCtx} {F : Type} (op : ConstrainEq.Op γ F) : Stmt TargetSet γ F :=
-  .op constrTargetIx op
 
 /-- Rebuild a felt op in another op context while renaming its locals. -/
 def lowerFeltOp {γ γ' : OpCtx} {F : Type} (ρ : LocalVar → LocalVar) :
@@ -121,10 +108,6 @@ def lowerConstrInto {γ γ' : OpCtx} {F : Type} (ρ : LocalVar → LocalVar)
   .op constrTargetIx (lowerConstrOp ρ op)
 
 /-! ## Fresh-offset utilities -/
-
-/-- Fresh variable offset for inlining a callee body: one past the current bound. -/
-def freshOffset (next : LocalVar) (calleeBody : List (Stmt SourceSet γ F)) : LocalVar :=
-  max next (maxVarBody calleeBody)
 
 /-- Rename a local `v` into the fresh space starting at `base`. -/
 def shiftLocal (base : LocalVar) (v : LocalVar) : LocalVar :=
@@ -192,35 +175,6 @@ def computeReturnSupported {n i numMembers : Nat} {F : Type}
     | none => false
     | some r => definedLocalsAfter (fun v => decide (v < fn.numParams)) fn.body r
 
-theorem definedLocalsAfter_of_initial {Δ : DialectSet} {n i numMembers : Nat} {F : Type}
-    (body : List (Stmt Δ ⟨n, i, numMembers⟩ F))
-    (init : LocalVar → Bool) {v : LocalVar} (hv : init v = true) :
-    definedLocalsAfter init body v = true := by
-  induction body generalizing init with
-  | nil => exact hv
-  | cons stmt rest ih =>
-    apply ih
-    cases hdest : stmt.dest with
-    | none => exact hv
-    | some d => simp [hv]
-
-theorem definedLocalsAfter_of_dest {Δ : DialectSet} {n i numMembers : Nat} {F : Type}
-    (body : List (Stmt Δ ⟨n, i, numMembers⟩ F))
-    (init : LocalVar → Bool) {stmt : Stmt Δ ⟨n, i, numMembers⟩ F}
-    {d : LocalVar} (hmem : stmt ∈ body) (hdest : stmt.dest = some d) :
-    definedLocalsAfter init body d = true := by
-  induction body generalizing init with
-  | nil => simp at hmem
-  | cons head rest ih =>
-    rcases List.mem_cons.mp hmem with hEq | hrest
-    · subst stmt
-      simp only [definedLocalsAfter]
-      apply definedLocalsAfter_of_initial
-      rw [hdest]
-      simp
-    · simp only [definedLocalsAfter]
-      exact ih _ hrest
-
 theorem computeReturnSupported_some {n i numMembers : Nat} {F : Type}
     (fn : FuncDef SourceSet n i F .witness numMembers) (d : LocalVar)
     (h : computeReturnSupported fn (some d) = true) :
@@ -238,18 +192,6 @@ theorem cap_le_of_capsLE {Δ : DialectSet} {n i numMembers : Nat} {F : Type}
     (hmem : stmt ∈ body) : stmt.cap ≤ kind := by
   apply of_decide_eq_true
   exact (List.all_eq_true.mp hcap) stmt hmem
-
-/-- Constraint-only operations cannot occur in a well-formed compute body. -/
-theorem witness_body_no_constrainEq {n i numMembers : Nat} {F : Type}
-    (fn : FuncDef SourceSet n i F .witness numMembers)
-    (op : ConstrainEq.Op ⟨n, i, numMembers⟩ F)
-    (hmem : (Stmt.op constrSourceIx op :
-      Stmt SourceSet ⟨n, i, numMembers⟩ F) ∈ fn.body) : False := by
-  have hle := cap_le_of_capsLE fn.wf_caps hmem
-  change ConstrainEq.cap op ≤ Capability.witness at hle
-  change Capability.constraint = Capability.pure ∨
-    Capability.constraint = Capability.witness at hle
-  rcases hle with h | h <;> cases h
 
 /-- Strict local-variable bound including parameters and an optional return variable. -/
 def funcVarBound {Δ : DialectSet} {n i numMembers : Nat} {F : Type} {kind : Capability}
@@ -288,20 +230,6 @@ theorem funcBody_var_lt {Δ : DialectSet} {n i numMembers : Nat} {F : Type}
     {stmt : Stmt Δ ⟨n, i, numMembers⟩ F} (hmem : stmt ∈ fn.body)
     {v : LocalVar} (hv : v ∈ stmt.vars) : v < funcVarBound fn :=
   funcBody_freshAbove fn stmt hmem v hv
-
-/-- A call's renamed arguments lie below the caller's fresh counter. -/
-theorem callArg_renamed_lt_next {n i numMembers : Nat} {F : Type}
-    {kind : Capability} (fn : FuncDef SourceSet n i F kind numMembers)
-    (rename : LocalVar → LocalVar) (next : LocalVar)
-    (hbelow : ∀ v, v < funcVarBound fn → rename v < next)
-    (dest : Option LocalVar) (target : Fin i) (sel : Nat) (args : List LocalVar)
-    (hmem : (Stmt.op callSourceIx (.call dest target sel args) :
-      Stmt SourceSet ⟨n, i, numMembers⟩ F) ∈ fn.body)
-    (k : Fin args.length) : rename (args.get k) < next := by
-  apply hbelow (args.get k)
-  apply funcBody_var_lt fn hmem
-  change args.get k ∈ dest.toList ++ args
-  simp
 
 /-- Map callee parameters to caller arguments and callee locals into fresh space. -/
 def inlineVar (callerRename : LocalVar → LocalVar) (args : List LocalVar)
@@ -471,13 +399,6 @@ def RenameFrameInvariant {Δ : DialectSet} {n i numMembers : Nat} {F : Type}
   ∀ (stmt : Stmt Δ ⟨n, i, numMembers⟩ F), stmt ∈ fn.body →
     ∀ d, stmt.dest = some d → floor ≤ rename d
 
-theorem renameFrameInvariant_zero {Δ : DialectSet} {n i numMembers : Nat} {F : Type}
-    {kind : Capability} (fn : FuncDef Δ n i F kind numMembers)
-    (rename : LocalVar → LocalVar) :
-    RenameFrameInvariant fn rename 0 := by
-  intro _ _ d _
-  exact Nat.zero_le (rename d)
-
 theorem renameFrameInvariant_inlineVar {Δ : DialectSet} {n i numMembers : Nat} {F : Type}
     {kind : Capability} (fn : FuncDef Δ n i F kind numMembers)
     (callerRename : LocalVar → LocalVar) (args : List LocalVar)
@@ -573,16 +494,6 @@ theorem RenameInvariant.mono {Δ : DialectSet} {n i numMembers : Nat} {F : Type}
     (h : RenameInvariant fn rename next) (hle : next ≤ next') :
     RenameInvariant fn rename next' := by
   exact ⟨fun v hv => Nat.lt_of_lt_of_le (h.1 v hv) hle, h.2⟩
-
-theorem RenameInvariant.callArg_lt {n i numMembers : Nat} {F : Type}
-    {kind : Capability} {fn : FuncDef SourceSet n i F kind numMembers}
-    {rename : LocalVar → LocalVar} {next : LocalVar}
-    (hinv : RenameInvariant fn rename next)
-    (dest : Option LocalVar) (target : Fin i) (sel : Nat) (args : List LocalVar)
-    (hmem : (Stmt.op callSourceIx (.call dest target sel args) :
-      Stmt SourceSet ⟨n, i, numMembers⟩ F) ∈ fn.body)
-    (k : Fin args.length) : rename (args.get k) < next :=
-  callArg_renamed_lt_next fn rename next hinv.1 dest target sel args hmem k
 
 /-- Explicitly copy an optional callee return into an optional caller destination.
 
@@ -728,15 +639,6 @@ def eraseConstrainFunc {n : Nat} [Zero F] (m : Module SourceSet n F) (i : Fin n)
       ⟨n, i.val, (m.structs i).members.length⟩ F) × LocalVar) :=
   let fn := (m.structs i).constrain
   eraseBodyInto m i i .constrain id (funcVarBound fn) fn.body
-
-/-- Lower both bodies of one struct, failing on malformed calls. -/
-def eraseStruct {n : Nat} [Zero F] (m : Module SourceSet n F) (i : Fin n) :
-    Option
-      (List (Stmt TargetSet ⟨n, i.val, (m.structs i).members.length⟩ F) ×
-       List (Stmt TargetSet ⟨n, i.val, (m.structs i).members.length⟩ F)) := do
-  let compute ← eraseComputeFunc m i
-  let constrain ← eraseConstrainFunc m i
-  pure (compute.1, constrain.1)
 
 /-- Package an erased body as a target `FuncDef` only after its executable
 well-formedness checks have produced kernel-visible proofs. -/

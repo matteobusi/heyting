@@ -71,7 +71,7 @@ Files: `R1CSLike.lean`, `R1CSLikePass.lean`.
 
 Call/object-free constraint dialect owns direct R1CS constraint encoding,
 witness construction/readback, materialization, satisfaction, and checking.
-`CorrectPass` supplies preservation/reflection independently of compatibility IRs.
+`CorrectPass` supplies preservation/reflection.
 
 ## R1CS
 
@@ -90,8 +90,3 @@ Compute execution projects transient state to finite source witness containing
 inputs and reachable object coordinates. `TypedEntryCompilationArtifact`
 retains every structural certificate and exact target. Codec performs forward
 materialization and exact readback.
-
-## Retired languages
-
-StructIR pipeline is preserved only on Git branch `legacy-infrastructure`.
-Active modules must not import it.

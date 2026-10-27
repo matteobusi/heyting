@@ -13,7 +13,6 @@ def failed : Except String α → Bool
   | .error _ => true
   | .ok _ => false
 
-#guard failed (parse ["compile", "input.llzk", "out", "--legacy"])
-#guard failed (parse ["compile", "input.llzk", "out", "--dialect"])
+#guard failed (parse ["compile", "input.llzk", "out", "--unknown"])
 
 end Heyting.CLIArgs.Tests

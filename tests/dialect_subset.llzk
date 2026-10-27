@@ -1,4 +1,4 @@
-// Phase-8 fixture representable by [Call, Felt, ConstrainEq].
+// Constraint-only fixture representable by [Call, Felt, ConstrainEq].
 module attributes {llzk.lang, llzk.main = !struct.type<@DialectSubset::@DialectSubset<[]>>} {
   module @DialectSubset {
     struct.def @DialectSubset {

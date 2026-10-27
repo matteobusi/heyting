@@ -750,30 +750,6 @@ def seedCanonicalWitness [OfNat F 0] (numParams span paramOffset : Nat)
   have hlt : numParams + slot < numParams + span := by omega
   simp [seedFlatWitness, hge, hlt]
 
-/-- Read canonical object coordinates back from an object-erased flat witness. -/
-def readbackObjectWitness (numParams : Nat) (target : Witness LocalVar F) :
-    StructObject.Witness F :=
-  fun key => target (numParams + VarIdEncoding.encode key)
-
-theorem readback_seedFlatWitness [OfNat F 0]
-    (numParams span paramOffset : Nat) (inputs : List F)
-    (source : StructObject.Witness F) (key : StructObject.InstancePath × Nat)
-    (hobservable : VarIdEncoding.encode key < span) :
-    readbackObjectWitness numParams
-      (seedFlatWitness numParams span paramOffset inputs source) key = source key := by
-  rw [readbackObjectWitness, seedFlatWitness_object numParams span paramOffset inputs
-    source (VarIdEncoding.encode key) hobservable, VarIdEncoding.decode_encode]
-
-theorem readback_seedCanonicalWitness [OfNat F 0]
-    (numParams span paramOffset : Nat) (inputs objects : List F)
-    (key : StructObject.InstancePath × Nat)
-    (hobservable : VarIdEncoding.encode key < span) :
-    readbackObjectWitness numParams
-      (seedCanonicalWitness numParams span paramOffset inputs objects) key =
-        objects[VarIdEncoding.encode key]?.getD 0 := by
-  rw [readbackObjectWitness, seedCanonicalWitness_object numParams span paramOffset
-    inputs objects (VarIdEncoding.encode key) hobservable]
-
 /-- Finite readback returns exactly, and only, the selected encoded object
 span carried by a canonical witness. -/
 theorem finite_readback_seedCanonicalWitness [OfNat F 0]

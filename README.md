@@ -64,11 +64,6 @@ transfer argument is standard but not formalized.
 | Top-level bundle | `compiler_guarantee` | `Heyting/Guarantees.lean` |
 | `.r1cs`/`.wtns` bytes | executable, tested with snarkjs | `Heyting/Backends/` |
 
-Retired StructIR implementation is preserved on Git branch
-`legacy-infrastructure`; it is absent from active source and CLI.
-FlatIR and compatibility-only proofs have also been removed; the historical backend
-remains in Git history.
-
 `typed_entry_correct` proves both directions for a compiled entry. Every canonically sized
 observation satisfying the typed-source semantics is accepted by `forward`, giving a
 satisfying R1CS witness that reads back to it. Every satisfying R1CS witness, however

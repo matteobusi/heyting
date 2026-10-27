@@ -717,13 +717,6 @@ def moduleConstraintPass (F : Type) [Field F] :
     ModuleConstraintPass SourceSet TargetSet F :=
   ModuleConstraintPass.ofDialectPass (dialectPass F)
 
-/-- Field-local Call erasure followed by terminal dialect lowering. -/
-noncomputable def callToR1CSLike (F : Type) [Field F] :
-    CallSemantics.CallModuleConstraintPass TargetSet F :=
-  CallSemantics.CallModuleConstraintPass.compose
-    (CallSemantics.moduleConstraintPass (F := F))
-    (moduleConstraintPass F) rfl
-
 /-- Compile one lowered module entry through direct terminal R1CS backend. -/
 def compileEntryConstrain (F : Type) [Field F] {n : Nat}
     (m : Module TargetSet n F) (entry : Fin n) : R1CS.System F :=
